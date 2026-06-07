@@ -175,14 +175,20 @@ try
         Authorization = [new AllowAllDashboardAuthorizationFilter()]
     });
 
-    // Register recurring CRL auto-renewal job only if not already configured
-    // (preserves cron schedule edited via the Jobs UI across restarts)
+    // Register the recurring CRL auto-renewal job when it is missing OR when the
+    // persisted definition can no longer be loaded (LoadException) — e.g. after an
+    // assembly/namespace rename the stored type name no longer resolves. The existing
+    // cron is preserved so schedules edited via the Jobs UI survive restarts.
     using (var connection = JobStorage.Current.GetConnection())
     {
-        var existingJobs = connection.GetRecurringJobs();
-        if (!existingJobs.Any(j => j.Id == "crl-auto-renewal"))
+        var existing = connection.GetRecurringJobs()
+            .FirstOrDefault(j => j.Id == "crl-auto-renewal");
+
+        if (existing is null || existing.LoadException is not null)
         {
-            var crlCron = builder.Configuration["Hangfire:CrlRenewalCron"] ?? Cron.Hourly();
+            var crlCron = existing?.Cron
+                ?? builder.Configuration["Hangfire:CrlRenewalCron"]
+                ?? Cron.Hourly();
             RecurringJob.AddOrUpdate<CrlAutoRenewalJob>(
                 "crl-auto-renewal",
                 job => job.ExecuteAsync(CancellationToken.None),
