@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    Standalone Sigyll repo settings.
+    Ported from udap-dotnet's Common.props (inherited before this repo was extracted).
+  -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/JoeShook/Sigyll</RepositoryUrl>
+  </PropertyGroup>
+
+</Project>

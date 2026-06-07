@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/_tests/">
+    <Project Path="_tests/Sigyll.Signing.Tests/Sigyll.Signing.Tests.csproj" />
+  </Folder>
+  <Project Path="Sigyll.AppHost/Sigyll.AppHost.csproj" />
+  <Project Path="Sigyll.Certificate.Server/Sigyll.Certificate.Server.csproj" />
+  <Project Path="Sigyll.Common/Sigyll.Common.csproj" />
+  <Project Path="Sigyll.Did/Sigyll.Did.csproj" />
+  <Project Path="Sigyll.Vc/Sigyll.Vc.csproj" />
+  <Project Path="Sigyll.FileSystem/Sigyll.FileSystem.csproj" />
+  <Project Path="Sigyll.Gcp/Sigyll.Gcp.csproj" />
+  <Project Path="Sigyll.ServiceDefaults/Sigyll.ServiceDefaults.csproj" />
+  <Project Path="Sigyll.UI/Sigyll.UI.csproj" />
+  <Project Path="Sigyll.Vault/Sigyll.Vault.csproj" />
+  <Project Path="Sigyll.Vault.Hosting/Sigyll.Vault.Hosting.csproj" />
+  <Project Path="Sigyll/Sigyll.csproj" />
+</Solution>

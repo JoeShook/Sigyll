@@ -1,4 +1,4 @@
-# Sigil Roadmap — Toward EJBCA Feature Parity
+# Sigyll Roadmap — Toward EJBCA Feature Parity
 
 **Vision**: A modern, .NET-native Certificate Authority and PKI management platform with first-class UDAP/FHIR support. Lightweight enough for dev/test, capable enough for production.
 
@@ -130,7 +130,7 @@
 - [ ] Account management (newAccount, JWS-signed requests, key rollover)
 - [ ] Order flow: newOrder → authz → challenge → finalize → certificate
 - [ ] Challenge validation: http-01, dns-01, tls-alpn-01 (RFC 8737)
-- [ ] CSR-driven issuance applying Sigil certificate templates/profiles
+- [ ] CSR-driven issuance applying Sigyll certificate templates/profiles
 - [ ] Revocation (revokeCert)
 - [ ] **External Account Binding (EAB)** (RFC 8555 §7.3.4) — bind ACME accounts to portal-vetted accounts so automated issuance stays scoped to vetted identities
 - [ ] **ARI (RFC 9773)** — renewalInfo endpoint advising clients on renewal windows / load staggering
@@ -138,10 +138,10 @@
 - [ ] Test against Certes / certbot
 
 ### UDAP applicability (analysis)
-- **UDAP server certs — good fit.** The URI SAN authority is a reachable FHIR host, so domain-control challenges (http-01/dns-01/tls-alpn-01) are meaningful. Sigil issues with the UDAP profile (URI SAN + KU/EKU) under the community anchor. Renewal automation is high-value for long-running servers.
+- **UDAP server certs — good fit.** The URI SAN authority is a reachable FHIR host, so domain-control challenges (http-01/dns-01/tls-alpn-01) are meaningful. Sigyll issues with the UDAP profile (URI SAN + KU/EKU) under the community anchor. Renewal automation is high-value for long-running servers.
 - **UDAP client certs — pure ACME DV is a poor fit.** Client identifiers aren't necessarily web-reachable, and UDAP communities require organizational vetting that ACME's unattended domain-validation model doesn't provide.
 - **EAB is the bridge.** The portal/RA performs the one-time vetting and issues EAB credentials; ACME then automates (re)issuance + renewal scoped to that vetted account's authorized identifiers — for both server and client certs. This is *why the portal comes first*.
-- **No standardized "ACME-for-UDAP" profile exists today** — this would be a Sigil / UDAP-community design effort (likely building on draft-ietf-acme-profiles).
+- **No standardized "ACME-for-UDAP" profile exists today** — this would be a Sigyll / UDAP-community design effort (likely building on draft-ietf-acme-profiles).
 
 ## Upcoming: Rename "Community" to "Trust Domain"
 - [ ] Rename entity `Community` → `TrustDomain` and `CommunityBaseUrl` → `TrustDomainBaseUrl`
@@ -158,7 +158,7 @@
 - **Key principle**: Import-first + generate. Support both bringing in existing PKI and creating new hierarchies.
 
 ## EJBCA Comparison Reference
-EJBCA is the benchmark for feature completeness. Key differentiators for Sigil:
+EJBCA is the benchmark for feature completeness. Key differentiators for Sigyll:
 1. **UDAP-native** — first-class UDAP/FHIR community support (EJBCA has none)
 2. **.NET ecosystem** — integrates naturally with ASP.NET Core, Duende IdentityServer
 3. **Modern UI** — FluentUI vs EJBCA's JSF/PrimeFaces

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
+    <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components" Version="4.14.1" />
+    <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components.Icons" Version="4.14.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sigyll.Common\Sigyll.Common.csproj" />
+    <ProjectReference Include="..\Sigyll.Did\Sigyll.Did.csproj" />
+    <ProjectReference Include="..\Sigyll.Vc\Sigyll.Vc.csproj" />
+    <ProjectReference Include="..\Sigyll.Gcp\Sigyll.Gcp.csproj" />
+    <ProjectReference Include="..\Sigyll.Vault\Sigyll.Vault.csproj" />
+  </ItemGroup>
+
+</Project>

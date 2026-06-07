@@ -1,8 +1,8 @@
-# Sigil — .NET PKI Management Tool
+# Sigyll — .NET PKI Management Tool
 
-Sigil is a modern Certificate Authority (CA) and PKI management platform built with .NET. It provides a web-based UI for creating, importing, and managing X.509 certificate hierarchies with support for local and remote (HashiCorp Vault Transit) key storage.
+Sigyll is a modern Certificate Authority (CA) and PKI management platform built with .NET. It provides a web-based UI for creating, importing, and managing X.509 certificate hierarchies with support for local and remote (HashiCorp Vault Transit) key storage.
 
-Designed as a lightweight alternative to enterprise CA tools like EJBCA, Sigil is suitable for development, testing, and production PKI workflows — with first-class support for [UDAP](https://www.udap.org/) (Unified Data Access Profiles) healthcare security.
+Designed as a lightweight alternative to enterprise CA tools like EJBCA, Sigyll is suitable for development, testing, and production PKI workflows — with first-class support for [UDAP](https://www.udap.org/) (Unified Data Access Profiles) healthcare security.
 
 ## Features
 
@@ -18,24 +18,24 @@ Designed as a lightweight alternative to enterprise CA tools like EJBCA, Sigil i
 - **Multi-Community** — Independent PKI namespaces per community (trust domains, tenants, environments)
 - **Download API** — REST endpoints for .cer, .pfx, .pem, and .crl downloads
 
-See [FEATURES.md](Sigil/docs/FEATURES.md) for the complete feature list and [ROADMAP.md](ROADMAP.md) for planned phases.
+See [FEATURES.md](Sigyll/docs/FEATURES.md) for the complete feature list and [ROADMAP.md](ROADMAP.md) for planned phases.
 
 ## Architecture
 
 ```
 examples/CA/
-├── Sigil/                  # Blazor Server host (Program.cs, DI, config)
-├── Sigil.Common/           # Class library (entities, services, ViewModels)
+├── Sigyll/                  # Blazor Server host (Program.cs, DI, config)
+├── Sigyll.Common/           # Class library (entities, services, ViewModels)
 │   ├── Data/Entities/      # EF Core entities (Community, CaCertificate, IssuedCertificate, Crl, ...)
 │   ├── Services/           # Issuance, validation, parsing, import, CRL, ASN.1
 │   └── Services/Signing/   # ISigningProvider, LocalSigningProvider, VaultTransitSigningProvider
-├── Sigil.UI/               # Razor Class Library (all Blazor components and pages)
-├── Sigil.AppHost/           # .NET Aspire orchestrator (Vault + Sigil)
-├── Sigil.ServiceDefaults/   # Aspire service defaults (OpenTelemetry, health checks)
-└── Sigil.Vault.Hosting/     # Aspire hosting integration for HashiCorp Vault
+├── Sigyll.UI/               # Razor Class Library (all Blazor components and pages)
+├── Sigyll.AppHost/           # .NET Aspire orchestrator (Vault + Sigyll)
+├── Sigyll.ServiceDefaults/   # Aspire service defaults (OpenTelemetry, health checks)
+└── Sigyll.Vault.Hosting/     # Aspire hosting integration for HashiCorp Vault
 ```
 
-**Key design principle:** `Sigil.Common` has zero UI dependencies and can be consumed by CLI tools, APIs, or test harnesses independently.
+**Key design principle:** `Sigyll.Common` has zero UI dependencies and can be consumed by CLI tools, APIs, or test harnesses independently.
 
 **Stack:** .NET 10, Blazor Server (InteractiveServer), FluentUI v4, PostgreSQL, BouncyCastle, Serilog
 
@@ -57,19 +57,19 @@ CREATE DATABASE sigil OWNER sigil;
 ### 2. Apply Migrations
 
 ```bash
-cd examples/CA/Sigil
-dotnet ef database update --project ../Sigil.Common
+cd examples/CA/Sigyll
+dotnet ef database update --project ../Sigyll.Common
 ```
 
-Or let Entity Framework apply pending migrations on startup (Sigil calls `Database.MigrateAsync()` at startup).
+Or let Entity Framework apply pending migrations on startup (Sigyll calls `Database.MigrateAsync()` at startup).
 
-### 3. Run Sigil (Standalone)
+### 3. Run Sigyll (Standalone)
 
 ```bash
-dotnet run --project examples/CA/Sigil
+dotnet run --project examples/CA/Sigyll
 ```
 
-Sigil will be available at **https://localhost:7200**.
+Sigyll will be available at **https://localhost:7200**.
 
 All certificate signing uses local PFX-based keys by default.
 
@@ -78,12 +78,12 @@ All certificate signing uses local PFX-based keys by default.
 To enable remote signing via HashiCorp Vault Transit:
 
 ```bash
-dotnet run --project examples/CA/Sigil.AppHost
+dotnet run --project examples/CA/Sigyll.AppHost
 ```
 
 This starts:
 - **Vault** in dev mode (Docker container) with Transit engine and pre-configured signing keys
-- **Sigil** with `Signing.Provider=vault-transit` and Vault connection injected via environment variables
+- **Sigyll** with `Signing.Provider=vault-transit` and Vault connection injected via environment variables
 
 The Aspire dashboard provides observability for both services.
 
@@ -94,7 +94,7 @@ The Aspire dashboard provides observability for both services.
 ```json
 {
   "ConnectionStrings": {
-    "SigilDb": "Host=localhost;Database=sigil;Username=sigil;Password=sigil_pass;Search Path=sigil"
+    "SigyllDb": "Host=localhost;Database=sigil;Username=sigil;Password=sigil_pass;Search Path=sigil"
   },
   "Signing": {
     "Provider": "local"

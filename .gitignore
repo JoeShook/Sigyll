@@ -56,5 +56,5 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 
-# Sigil
+# Sigyll
 publish/

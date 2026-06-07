@@ -1,5 +1,5 @@
 {
   "appHost": {
-    "path": "Sigil.AppHost/Sigil.AppHost.csproj"
+    "path": "Sigyll.AppHost/Sigyll.AppHost.csproj"
   }
 }
