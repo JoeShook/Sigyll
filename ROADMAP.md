@@ -82,7 +82,8 @@
 - [ ] RA (Registration Authority) workflows — request/approve/reject
 - [ ] Key escrow / key recovery
 - [ ] FIPS 140-3 compliance mode (HSM-only key generation)
-- [ ] Certificate transparency (CT) log submission
+- [ ] **CAA record checking at issuance (RFC 8659)** — enforce `issue`/`issuewild`/`iodef` for every issuance path (portal + ACME), with DNSSEC-validated lookups (SC-085v2, mandatory Mar 2026 for public CAs). *Baseline CAA was a roadmap gap; see Phase 12b for the ACME-specific RFC 8657 extensions.*
+- [ ] Certificate transparency (CT) log submission — record precerts/SCTs (effectively mandatory in browsers since 2018); consider exposing high-assurance CT *monitoring* (known-good inventory vs. CT stream) as a product feature
 - [ ] Policy constraints enforcement (name constraints, path length)
 
 ## Phase 10: Operations & Scale
@@ -130,6 +131,9 @@
 - [ ] Account management (newAccount, JWS-signed requests, key rollover)
 - [ ] Order flow: newOrder → authz → challenge → finalize → certificate
 - [ ] Challenge validation: http-01, dns-01, tls-alpn-01 (RFC 8737)
+  - [ ] **DNSSEC-validated lookups** for CAA + DNS-based DCV — CA/B Forum Ballot SC-085v2, mandatory for publicly-trusted CAs since **March 2026**
+- [ ] **CAA enforcement (RFC 8659 baseline)** at issuance — check `issue`/`issuewild` before signing (applies to *all* issuance, see Phase 9)
+- [ ] **ACME CAA extensions (RFC 8657)** — honor `accounturi` (lock issuance to a named ACME account; maps to EAB-vetted accounts) and `validationmethods` (restrict accepted challenge types). CA/B Forum Ballot SC-098v2 → mandatory for publicly-trusted CAs **March 2027**; Chrome Root Program already requires it for ACME-supporting CAs (**Feb 2026**). *Scope note: Baseline Requirements bind publicly-trusted CAs, not private UDAP trust — implement for UDAP server certs that may need public trust and as an EJBCA differentiator.*
 - [ ] CSR-driven issuance applying Sigyll certificate templates/profiles
 - [ ] Revocation (revokeCert)
 - [ ] **External Account Binding (EAB)** (RFC 8555 §7.3.4) — bind ACME accounts to portal-vetted accounts so automated issuance stays scoped to vetted identities
@@ -149,6 +153,20 @@
 - [ ] EF Core migration to rename tables and columns in PostgreSQL
 - [ ] Update all services, ViewModels, and UI references
 - [ ] **Rationale**: "Community" conflicts with the UDAP specification's use of the same term. "Trust Domain" is standard PKI terminology for a group of entities sharing a common trust anchor and policy.
+
+## Standards Watch (CA/Browser Forum mandates)
+Tracked because they shape Phase 9 (CAA/CT) and Phase 12b (ACME). These are **Baseline Requirements for publicly-trusted CAs** — they do not legally bind private UDAP/FHIR trust, but matter for UDAP server certs needing public trust and as an EJBCA differentiator.
+
+| Requirement | Ballot / source | Status |
+|---|---|---|
+| DNSSEC validation for CAA + DCV | CA/B Forum SC-085v2 (Jun 2025) | Mandatory **Mar 2026** (live) |
+| ACME CAA support required of ACME CAs | Chrome Root Program Policy | Live since **Feb 2026** |
+| RFC 8657 ACME CAA extensions (`accounturi`, `validationmethods`) | CA/B Forum SC-098v2 (May 2026) | Mandatory **Mar 2027** |
+| Baseline CAA checking (RFC 8659) | CA/B Forum Baseline Requirements | Mandatory since Sep 2017 |
+
+Background reading (Red Sift, Ivan Ristic):
+- RFC 8657 ACME CAA extensions — https://redsift.com/blog/acme-caa-extensions-rfc-8657
+- High-assurance CT monitoring — https://redsift.com/guides/a-guide-to-high-assurance-certificate-transparency-monitoring
 
 ## Architecture Notes
 - **Stack**: .NET 10+, Blazor Server (InteractiveServer), FluentUI v4, PostgreSQL, BouncyCastle, Serilog
