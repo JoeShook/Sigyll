@@ -12,40 +12,38 @@
 
 <PageTitle>My Requests</PageTitle>
 
-<div class="d-flex justify-content-between align-items-center">
-    <h1>My Requests</h1>
-    <a class="btn btn-primary" href="requests/new">New Request</a>
-</div>
+<FluentStack VerticalAlignment="VerticalAlignment.Center" Style="margin-bottom: 1rem;">
+    <FluentLabel Typo="Typography.PageTitle">My Requests</FluentLabel>
+    <FluentSpacer />
+    <FluentAnchor Href="requests/new" Appearance="Appearance.Accent"
+                  IconStart="@(new Icons.Regular.Size20.AddCircle())">New Request</FluentAnchor>
+</FluentStack>
 
 @if (_requests is null)
 {
-    <p><em>Loading…</em></p>
+    <FluentProgressRing />
 }
 else if (_requests.Count == 0)
 {
-    <p>You have no requests yet.</p>
+    <FluentLabel Typo="Typography.Body">You have no requests yet.</FluentLabel>
 }
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr><th>#</th><th>Subject</th><th>Template</th><th>Trust domain</th><th>Status</th><th>Created</th><th></th></tr>
-        </thead>
-        <tbody>
-            @foreach (var r in _requests)
-            {
-                <tr>
-                    <td>@r.Id</td>
-                    <td class="text-truncate" style="max-width:260px">@r.SubjectDn</td>
-                    <td>@r.TemplateName</td>
-                    <td>@r.TrustDomainName</td>
-                    <td><span class="badge @StatusClass(r.Status)">@r.Status</span></td>
-                    <td>@r.CreatedAt.ToLocalTime().ToString("g")</td>
-                    <td><a class="btn btn-sm btn-outline-secondary" href="requests/@r.Id">View</a></td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <FluentDataGrid Items="@_requests.AsQueryable()" GridTemplateColumns="0.5fr 2fr 1.2fr 1.2fr 1fr 1.2fr 0.6fr">
+        <PropertyColumn Property="@(r => r.Id)" Title="#" Sortable="true" />
+        <PropertyColumn Property="@(r => r.SubjectDn)" Title="Subject" />
+        <PropertyColumn Property="@(r => r.TemplateName)" Title="Template" />
+        <PropertyColumn Property="@(r => r.TrustDomainName)" Title="Trust domain" />
+        <TemplateColumn Title="Status">
+            <FluentBadge BackgroundColor="@StatusColor(context.Status)" Color="white">@context.Status</FluentBadge>
+        </TemplateColumn>
+        <TemplateColumn Title="Created">
+            @context.CreatedAt.ToLocalTime().ToString("g")
+        </TemplateColumn>
+        <TemplateColumn Title="">
+            <FluentAnchor Href="@($"requests/{context.Id}")" Appearance="Appearance.Outline">View</FluentAnchor>
+        </TemplateColumn>
+    </FluentDataGrid>
 }
 
 @code {
@@ -61,11 +59,11 @@ else
             .ToListAsync();
     }
 
-    private static string StatusClass(RequestStatus s) => s switch
+    private static string StatusColor(RequestStatus s) => s switch
     {
-        RequestStatus.Issued => "bg-success",
-        RequestStatus.Failed or RequestStatus.Rejected => "bg-danger",
-        RequestStatus.PendingRaApproval or RequestStatus.PendingValidation => "bg-warning text-dark",
-        _ => "bg-secondary",
+        RequestStatus.Issued => "#4caf50",
+        RequestStatus.Failed or RequestStatus.Rejected => "#e94560",
+        RequestStatus.PendingRaApproval or RequestStatus.PendingValidation => "#ff9800",
+        _ => "#888",
     };
 }

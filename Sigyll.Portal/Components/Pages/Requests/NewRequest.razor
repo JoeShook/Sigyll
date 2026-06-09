@@ -12,107 +12,88 @@
 @inject NavigationManager Nav
 
 <PageTitle>New Certificate Request</PageTitle>
-<h1>Request a Certificate</h1>
+
+<FluentLabel Typo="Typography.PageTitle" Style="margin-bottom: 1rem;">Request a Certificate</FluentLabel>
 
 @if (_catalog is null)
 {
-    <p><em>Loading catalog…</em></p>
+    <FluentProgressRing />
 }
 else if (_catalog.Templates.Count == 0)
 {
-    <div class="alert alert-warning">
+    <FluentCard Style="border-left: 4px solid var(--warning, #ff9800); max-width: 720px;">
         The CA catalog is empty or unreachable. Confirm the CA core is running and reachable at the
         configured <code>Portal:CaBaseUrl</code>.
-    </div>
+    </FluentCard>
 }
 else
 {
-    <div class="row">
-        <div class="col-lg-8">
-            <div class="mb-3">
-                <label class="form-label">Trust domain</label>
-                <select class="form-select" @bind="_trustDomain">
-                    <option value="">— select —</option>
-                    @foreach (var td in _catalog.TrustDomains.Where(t => t.Enabled))
-                    {
-                        <option value="@td.Name">@td.Name</option>
-                    }
-                </select>
-            </div>
+    <FluentCard Style="max-width: 760px;">
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="14">
+            <FluentSelect TOption="string" Items="@_trustDomainNames" @bind-SelectedOption="_trustDomain"
+                          Label="Trust domain" Style="width: 100%;" />
 
-            <div class="mb-3">
-                <label class="form-label">Certificate type (template)</label>
-                <select class="form-select" @bind="_templateName">
-                    <option value="">— select —</option>
-                    @foreach (var t in _catalog.Templates)
-                    {
-                        <option value="@t.Name">@t.Name (@t.CertificateType)</option>
-                    }
-                </select>
-                @if (SelectedTemplate is { } tpl)
-                {
-                    <div class="form-text">
-                        @(tpl.RequiresRaApproval
-                            ? "This classification requires Registration Authority approval."
-                            : tpl.AllowAutoIssue
-                                ? "Eligible for automated issuance after domain validation."
-                                : "Subject to policy review.")
-                    </div>
-                }
-            </div>
+            <FluentSelect TOption="string" Items="@_templateNames" @bind-SelectedOption="_templateName"
+                          Label="Certificate type (template)" Style="width: 100%;" />
+            @if (SelectedTemplate is { } tpl)
+            {
+                <FluentLabel Typo="Typography.Body" Style="opacity: 0.75; margin-top: -8px;">
+                    @(tpl.RequiresRaApproval
+                        ? "This classification requires Registration Authority approval."
+                        : tpl.AllowAutoIssue
+                            ? "Eligible for automated issuance after domain validation."
+                            : "Subject to policy review.")
+                </FluentLabel>
+            }
 
-            <div class="mb-3">
-                <label class="form-label">CSR (PKCS#10, PEM)</label>
-                <textarea class="form-control font-monospace" rows="8" @bind="_csrPem"
-                          placeholder="-----BEGIN CERTIFICATE REQUEST-----"></textarea>
-                <button class="btn btn-outline-secondary btn-sm mt-2" @onclick="ParseCsr"
-                        disabled="@string.IsNullOrWhiteSpace(_csrPem)">Parse CSR</button>
-            </div>
+            <FluentTextArea @bind-Value="_csrPem" Label="CSR (PKCS#10, PEM)"
+                            Style="width: 100%; min-height: 180px; font-family: monospace; font-size: 12px;"
+                            Placeholder="-----BEGIN CERTIFICATE REQUEST-----" />
+            <FluentButton Appearance="Appearance.Outline" OnClick="ParseCsr"
+                          Disabled="@string.IsNullOrWhiteSpace(_csrPem)"
+                          IconStart="@(new Icons.Regular.Size20.DocumentSearch())">Parse CSR</FluentButton>
 
             @if (!string.IsNullOrEmpty(_subjectDn))
             {
-                <div class="mb-3">
-                    <label class="form-label">Subject (from CSR)</label>
-                    <input class="form-control" value="@_subjectDn" readonly />
-                </div>
+                <FluentTextField Value="@_subjectDn" Label="Subject (from CSR)" ReadOnly="true" Style="width: 100%;" />
             }
 
-            <div class="mb-3">
-                <label class="form-label">Subject Alternative Names</label>
+            <div>
+                <FluentLabel Typo="Typography.Subject" Style="margin-bottom: 6px;">Subject Alternative Names</FluentLabel>
                 @foreach (var san in _sans)
                 {
-                    <div class="input-group mb-1">
-                        <select class="form-select" style="max-width:140px" @bind="san.Type">
-                            <option>Dns</option>
-                            <option>Uri</option>
-                            <option>Email</option>
-                            <option>IpAddress</option>
-                        </select>
-                        <input class="form-control" @bind="san.Value" />
-                        <button class="btn btn-outline-danger" @onclick="() => _sans.Remove(san)">✕</button>
-                    </div>
+                    <FluentStack HorizontalGap="8" Style="margin-bottom: 6px;" VerticalAlignment="VerticalAlignment.Center">
+                        <FluentSelect TOption="string" Items="@_sanTypes" @bind-SelectedOption="san.Type" Style="width: 140px;" />
+                        <FluentTextField @bind-Value="san.Value" Style="flex: 1;" />
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _sans.Remove(san))"
+                                      IconStart="@(new Icons.Regular.Size20.Delete())" Title="Remove" />
+                    </FluentStack>
                 }
-                <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => _sans.Add(new ApiSanEntry { Type = "Dns" }))">
-                    + Add SAN
-                </button>
+                <FluentButton Appearance="Appearance.Outline"
+                              OnClick="@(() => _sans.Add(new ApiSanEntry { Type = "Dns" }))"
+                              IconStart="@(new Icons.Regular.Size20.Add())">Add SAN</FluentButton>
             </div>
 
             @if (_error is not null)
             {
-                <div class="alert alert-danger">@_error</div>
+                <FluentCard Style="border-left: 4px solid var(--error, #e94560);">@_error</FluentCard>
             }
 
-            <button class="btn btn-primary" @onclick="Submit" disabled="@(_submitting || !CanSubmit)">
+            <FluentButton Appearance="Appearance.Accent" OnClick="Submit" Disabled="@(_submitting || !CanSubmit)">
                 @(_submitting ? "Submitting…" : "Submit request")
-            </button>
-        </div>
-    </div>
+            </FluentButton>
+        </FluentStack>
+    </FluentCard>
 }
 
 @code {
     private CatalogResponse? _catalog;
-    private string _trustDomain = "";
-    private string _templateName = "";
+    private List<string> _trustDomainNames = new();
+    private List<string> _templateNames = new();
+    private readonly List<string> _sanTypes = new() { "Dns", "Uri", "Email", "IpAddress" };
+
+    private string? _trustDomain;
+    private string? _templateName;
     private string _csrPem = "";
     private string _subjectDn = "";
     private readonly List<ApiSanEntry> _sans = new();
@@ -130,6 +111,8 @@ else
     protected override async Task OnInitializedAsync()
     {
         _catalog = await Catalog.GetCatalogAsync();
+        _trustDomainNames = _catalog.TrustDomains.Where(t => t.Enabled).Select(t => t.Name).ToList();
+        _templateNames = _catalog.Templates.Select(t => t.Name).ToList();
     }
 
     private void ParseCsr()
@@ -157,14 +140,13 @@ else
             var state = await AuthState.GetAuthenticationStateAsync();
             var userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
 
-            // Ensure subject is populated even if the user skipped Parse.
             if (string.IsNullOrEmpty(_subjectDn))
             {
-                try { _subjectDn = CsrParser.Parse(_csrPem).SubjectDn; } catch { /* validated below */ }
+                try { _subjectDn = CsrParser.Parse(_csrPem).SubjectDn; } catch { /* surfaced below if invalid */ }
             }
 
             var request = await Workflow.SubmitAsync(
-                userId, organizationId: null, _trustDomain, _templateName, _subjectDn,
+                userId, organizationId: null, _trustDomain!, _templateName!, _subjectDn,
                 _sans.Where(s => !string.IsNullOrWhiteSpace(s.Value)).ToList(), _csrPem);
 
             Nav.NavigateTo($"/requests/{request.Id}");

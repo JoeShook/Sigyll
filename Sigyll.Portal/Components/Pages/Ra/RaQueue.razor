@@ -13,47 +13,41 @@
 @inject AuthenticationStateProvider AuthState
 
 <PageTitle>RA Queue</PageTitle>
-<h1>Registration Authority — Pending Requests</h1>
-
-@if (_pending is null)
-{
-    <p><em>Loading…</em></p>
-}
-else if (_pending.Count == 0)
-{
-    <p>No requests are awaiting approval.</p>
-}
-else
-{
-    <table class="table">
-        <thead>
-            <tr><th>#</th><th>Subject</th><th>Template</th><th>Trust domain</th><th>Requester</th><th>Policy</th><th>Decision</th></tr>
-        </thead>
-        <tbody>
-            @foreach (var r in _pending)
-            {
-                <tr>
-                    <td>@r.Id</td>
-                    <td class="text-truncate" style="max-width:240px">@r.SubjectDn</td>
-                    <td>@r.TemplateName</td>
-                    <td>@r.TrustDomainName</td>
-                    <td class="small">@r.RequesterId</td>
-                    <td class="small">@r.PolicyReason</td>
-                    <td style="min-width:260px">
-                        <input class="form-control form-control-sm mb-1" placeholder="reason"
-                               @bind="_reasons[r.Id]" />
-                        <button class="btn btn-success btn-sm" @onclick="() => Approve(r.Id)" disabled="@_busy">Approve</button>
-                        <button class="btn btn-danger btn-sm" @onclick="() => Reject(r.Id)" disabled="@_busy">Reject</button>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-}
+<FluentLabel Typo="Typography.PageTitle" Style="margin-bottom: 1rem;">Registration Authority — Pending Requests</FluentLabel>
 
 @if (_message is not null)
 {
-    <div class="alert alert-info">@_message</div>
+    <FluentCard Style="margin-bottom: 1rem; border-left: 4px solid var(--accent-fill-rest);">@_message</FluentCard>
+}
+
+@if (_pending is null)
+{
+    <FluentProgressRing />
+}
+else if (_pending.Count == 0)
+{
+    <FluentLabel Typo="Typography.Body">No requests are awaiting approval.</FluentLabel>
+}
+else
+{
+    <FluentDataGrid Items="@_pending.AsQueryable()" GridTemplateColumns="0.4fr 1.6fr 1fr 1fr 1.4fr 2fr">
+        <PropertyColumn Property="@(r => r.Id)" Title="#" />
+        <PropertyColumn Property="@(r => r.SubjectDn)" Title="Subject" />
+        <PropertyColumn Property="@(r => r.TemplateName)" Title="Template" />
+        <PropertyColumn Property="@(r => r.TrustDomainName)" Title="Trust domain" />
+        <TemplateColumn Title="Policy">
+            <span style="font-size: .85rem; opacity: .8;">@context.PolicyReason</span>
+        </TemplateColumn>
+        <TemplateColumn Title="Decision">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="6">
+                <FluentTextField @bind-Value="_reasons[context.Id]" Placeholder="reason" Style="width: 100%;" />
+                <FluentStack HorizontalGap="6">
+                    <FluentButton Appearance="Appearance.Accent" Disabled="@_busy" OnClick="@(() => Approve(context.Id))">Approve</FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" Disabled="@_busy" OnClick="@(() => Reject(context.Id))">Reject</FluentButton>
+                </FluentStack>
+            </FluentStack>
+        </TemplateColumn>
+    </FluentDataGrid>
 }
 
 @code {
@@ -70,6 +64,8 @@ else
             .Where(r => r.Status == RequestStatus.PendingRaApproval)
             .OrderBy(r => r.Id)
             .ToListAsync();
+        foreach (var r in _pending)
+            _reasons.TryAdd(r.Id, "");
     }
 
     private async Task<string> RaUserId()

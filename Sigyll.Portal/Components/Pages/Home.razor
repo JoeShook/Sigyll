@@ -3,21 +3,28 @@
 
 <PageTitle>Sigyll Portal</PageTitle>
 
-<h1>Sigyll Certificate Request Portal</h1>
+<FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+    <FluentLabel Typo="Typography.PageTitle">Sigyll Certificate Request Portal</FluentLabel>
 
-<p class="lead">
-    Request and manage certificates issued by the Sigyll CA. Sign in with a passkey, submit a CSR,
-    and either complete automated domain validation (for TLS server certificates) or have a
-    Registration Authority review your request.
-</p>
+    <FluentLabel Typo="Typography.Body" Style="max-width: 680px;">
+        Request and manage certificates issued by the Sigyll CA. Sign in with a passkey, submit a
+        CSR, and either complete automated domain validation (for TLS server certificates) or have a
+        Registration Authority review your request.
+    </FluentLabel>
 
-<AuthorizeView>
-    <Authorized>
-        <a class="btn btn-primary" href="requests/new">Request a certificate</a>
-        <a class="btn btn-outline-secondary" href="requests">View my requests</a>
-    </Authorized>
-    <NotAuthorized>
-        <a class="btn btn-primary" href="Account/Login">Sign in</a>
-        <a class="btn btn-outline-secondary" href="Account/Register">Create an account</a>
-    </NotAuthorized>
-</AuthorizeView>
+    <AuthorizeView>
+        <Authorized>
+            <FluentStack HorizontalGap="12">
+                <FluentAnchor Href="requests/new" Appearance="Appearance.Accent"
+                              IconStart="@(new Icons.Regular.Size20.AddCircle())">Request a certificate</FluentAnchor>
+                <FluentAnchor Href="requests" Appearance="Appearance.Outline">View my requests</FluentAnchor>
+            </FluentStack>
+        </Authorized>
+        <NotAuthorized>
+            <FluentStack HorizontalGap="12">
+                <FluentAnchor Href="Account/Login" Appearance="Appearance.Accent">Sign in</FluentAnchor>
+                <FluentAnchor Href="Account/Register" Appearance="Appearance.Outline">Create an account</FluentAnchor>
+            </FluentStack>
+        </NotAuthorized>
+    </AuthorizeView>
+</FluentStack>

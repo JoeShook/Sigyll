@@ -16,77 +16,85 @@
 
 @if (_request is null)
 {
-    <p><em>Loading…</em></p>
+    <FluentProgressRing />
 }
 else
 {
-    <h1>Request #@_request.Id</h1>
-    <dl class="row">
-        <dt class="col-sm-3">Status</dt>
-        <dd class="col-sm-9"><span class="badge bg-secondary">@_request.Status</span></dd>
-        <dt class="col-sm-3">Subject</dt>
-        <dd class="col-sm-9">@_request.SubjectDn</dd>
-        <dt class="col-sm-3">Template</dt>
-        <dd class="col-sm-9">@_request.TemplateName (@_request.TrustDomainName)</dd>
-        <dt class="col-sm-3">Policy</dt>
-        <dd class="col-sm-9">@_request.PolicyDecision — @_request.PolicyReason</dd>
-        @if (_request.FailureReason is not null)
-        {
-            <dt class="col-sm-3 text-danger">Failure</dt>
-            <dd class="col-sm-9 text-danger">@_request.FailureReason</dd>
-        }
-    </dl>
+    <FluentStack VerticalAlignment="VerticalAlignment.Center" Style="margin-bottom: 1rem;">
+        <FluentLabel Typo="Typography.PageTitle">Request #@_request.Id</FluentLabel>
+        <FluentBadge BackgroundColor="@StatusColor(_request.Status)" Color="white">@_request.Status</FluentBadge>
+    </FluentStack>
+
+    <FluentCard Style="max-width: 820px; margin-bottom: 1rem;">
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="6">
+            <div><strong>Subject:</strong> @_request.SubjectDn</div>
+            <div><strong>Template:</strong> @_request.TemplateName <span style="opacity:.6;">(@_request.TrustDomainName)</span></div>
+            <div><strong>Policy:</strong> @_request.PolicyDecision — @_request.PolicyReason</div>
+            @if (_request.FailureReason is not null)
+            {
+                <div style="color: var(--error, #e94560);"><strong>Failure:</strong> @_request.FailureReason</div>
+            }
+        </FluentStack>
+    </FluentCard>
 
     @if (_request.Status is RequestStatus.PendingValidation && _request.Challenges.Count > 0)
     {
-        <div class="card mb-3">
-            <div class="card-header">Domain validation (http-01)</div>
-            <div class="card-body">
-                <p>For each identifier, serve the exact content at the URL shown, then click Verify.</p>
-                @foreach (var c in _request.Challenges)
-                {
-                    <div class="mb-3 border-bottom pb-2">
-                        <div><strong>@c.Identifier</strong>
-                            <span class="badge @(c.Status == DomainValidationStatus.Valid ? "bg-success" : "bg-secondary")">@c.Status</span>
-                        </div>
-                        <div class="small">URL: <code>@DomainValidationService.ChallengeUrl(c)</code></div>
-                        <div class="small">Content: <code>@c.KeyAuthorization</code></div>
+        <FluentCard Style="max-width: 820px; margin-bottom: 1rem;">
+            <FluentLabel Typo="Typography.Subject" Style="margin-bottom: 8px;">Domain validation (http-01)</FluentLabel>
+            <FluentLabel Typo="Typography.Body" Style="margin-bottom: 10px;">
+                For each identifier, serve the exact content at the URL shown, then click Verify &amp; issue.
+            </FluentLabel>
+            @foreach (var c in _request.Challenges)
+            {
+                <div style="margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--neutral-stroke-rest);">
+                    <div>
+                        <strong>@c.Identifier</strong>
+                        <FluentBadge BackgroundColor="@(c.Status == DomainValidationStatus.Valid ? "#4caf50" : "#888")" Color="white">@c.Status</FluentBadge>
                     </div>
-                }
-                <button class="btn btn-primary" @onclick="VerifyAndIssue" disabled="@_busy">
-                    @(_busy ? "Checking…" : "Verify & issue")
-                </button>
-            </div>
-        </div>
+                    <div style="font-size: .85rem;">URL: <code>@DomainValidationService.ChallengeUrl(c)</code></div>
+                    <div style="font-size: .85rem;">Content: <code>@c.KeyAuthorization</code></div>
+                </div>
+            }
+            <FluentButton Appearance="Appearance.Accent" OnClick="VerifyAndIssue" Disabled="@_busy">
+                @(_busy ? "Checking…" : "Verify & issue")
+            </FluentButton>
+        </FluentCard>
     }
 
     @if (_request.Status == RequestStatus.PendingRaApproval)
     {
-        <div class="alert alert-info">Awaiting Registration Authority approval.</div>
+        <FluentCard Style="max-width: 820px; margin-bottom: 1rem; border-left: 4px solid var(--accent-fill-rest);">
+            Awaiting Registration Authority approval.
+        </FluentCard>
     }
 
     @if (_request.Status == RequestStatus.Issued)
     {
-        <div class="card mb-3">
-            <div class="card-header">Issued certificate</div>
-            <div class="card-body">
-                <p>Serial: <code>@_request.SerialNumber</code><br />Thumbprint: <code>@_request.Thumbprint</code></p>
-                <a class="btn btn-outline-primary btn-sm" href="requests/@_request.Id/download/cert" target="_blank">Download certificate (PEM)</a>
-                <a class="btn btn-outline-secondary btn-sm" href="requests/@_request.Id/download/chain" target="_blank">Download chain (PEM)</a>
+        <FluentCard Style="max-width: 820px; margin-bottom: 1rem;">
+            <FluentLabel Typo="Typography.Subject" Style="margin-bottom: 8px;">Issued certificate</FluentLabel>
+            <div style="font-size: .9rem; margin-bottom: 10px;">
+                Serial: <code>@_request.SerialNumber</code><br />Thumbprint: <code>@_request.Thumbprint</code>
             </div>
-        </div>
+            <FluentStack HorizontalGap="10">
+                <FluentAnchor Href="@($"requests/{_request.Id}/download/cert")" Target="_blank" Appearance="Appearance.Accent"
+                              IconStart="@(new Icons.Regular.Size20.ArrowDownload())">Certificate (PEM)</FluentAnchor>
+                <FluentAnchor Href="@($"requests/{_request.Id}/download/chain")" Target="_blank" Appearance="Appearance.Outline"
+                              IconStart="@(new Icons.Regular.Size20.ArrowDownload())">Chain (PEM)</FluentAnchor>
+            </FluentStack>
+        </FluentCard>
     }
 
-    <h5>History</h5>
-    <ul class="list-group">
+    <FluentLabel Typo="Typography.Subject" Style="margin-bottom: 6px;">History</FluentLabel>
+    <FluentCard Style="max-width: 820px;">
         @foreach (var e in _request.Events.OrderBy(e => e.Id))
         {
-            <li class="list-group-item d-flex justify-content-between">
-                <span><strong>@e.EventType</strong> — @e.Detail <span class="text-muted">(@e.Actor)</span></span>
-                <span class="text-muted small">@e.At.ToLocalTime().ToString("g")</span>
-            </li>
+            <FluentStack VerticalAlignment="VerticalAlignment.Center" Style="padding: 4px 0; border-bottom: 1px solid var(--neutral-stroke-rest);">
+                <span><strong>@e.EventType</strong> — @e.Detail <span style="opacity:.6;">(@e.Actor)</span></span>
+                <FluentSpacer />
+                <span style="opacity:.6; font-size:.8rem;">@e.At.ToLocalTime().ToString("g")</span>
+            </FluentStack>
         }
-    </ul>
+    </FluentCard>
 }
 
 @code {
@@ -118,4 +126,12 @@ else
         }
         finally { _busy = false; }
     }
+
+    private static string StatusColor(RequestStatus s) => s switch
+    {
+        RequestStatus.Issued => "#4caf50",
+        RequestStatus.Failed or RequestStatus.Rejected => "#e94560",
+        RequestStatus.PendingRaApproval or RequestStatus.PendingValidation => "#ff9800",
+        _ => "#888",
+    };
 }

@@ -1,20 +1,57 @@
-﻿@inherits LayoutComponentBase
+@* (c) 2026 Joseph Shook. See LICENSE in the project root. *@
+@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
+<FluentLayout>
+    <FluentHeader>
+        <span style="font-weight: 600; font-size: 1.1rem;">Sigyll</span>
+        <span style="opacity: 0.6; margin-left: 0.5rem; font-size: 0.85rem;">Certificate Request Portal</span>
+        <FluentSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <FluentAnchor Href="Account/Manage" Appearance="Appearance.Stealth"
+                              IconStart="@(new Icons.Regular.Size20.Person())">
+                    @context.User.Identity?.Name
+                </FluentAnchor>
+                <form action="Account/Logout" method="post" style="display: inline;">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="ReturnUrl" value="" />
+                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Stealth"
+                                  IconStart="@(new Icons.Regular.Size20.SignOut())" Title="Sign out">
+                        Logout
+                    </FluentButton>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <FluentAnchor Href="Account/Login" Appearance="Appearance.Stealth">Sign in</FluentAnchor>
+                <FluentAnchor Href="Account/Register" Appearance="Appearance.Accent">Register</FluentAnchor>
+            </NotAuthorized>
+        </AuthorizeView>
+        <ThemeToggle />
+    </FluentHeader>
+
+    <div style="display: flex; height: calc(100vh - 50px); overflow: hidden;">
+        <FluentNavMenu Width="240" Collapsible="true" Title="Navigation">
+            <FluentNavLink Href="/" Match="NavLinkMatch.All" Icon="@(new Icons.Regular.Size20.Home())">Home</FluentNavLink>
+            <AuthorizeView>
+                <Authorized>
+                    <FluentNavLink Href="requests/new" Icon="@(new Icons.Regular.Size20.AddCircle())">New Request</FluentNavLink>
+                    <FluentNavLink Href="requests" Match="NavLinkMatch.All" Icon="@(new Icons.Regular.Size20.DocumentBulletList())">My Requests</FluentNavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="RA,PortalAdmin">
+                <Authorized>
+                    <FluentNavLink Href="ra/queue" Icon="@(new Icons.Regular.Size20.ShieldTask())">RA Queue</FluentNavLink>
+                </Authorized>
+            </AuthorizeView>
+        </FluentNavMenu>
+
+        <main style="flex: 1; overflow-y: auto; background: var(--neutral-layer-1); color: var(--neutral-foreground-rest);">
+            <div style="padding: 1.5rem 2rem; padding-bottom: 4rem; max-width: 1100px;">
+                @Body
+            </div>
+        </main>
     </div>
-
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+</FluentLayout>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.

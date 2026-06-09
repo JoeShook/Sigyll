@@ -1,5 +1,12 @@
 html, body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    margin: 0;
+}
+
+/* Follow the Fluent theme (set by FluentDesignTheme) so static Identity pages also adapt. */
+body {
+    background-color: var(--neutral-layer-1, #1a1a2e);
+    color: var(--neutral-foreground-rest, #e8e8e8);
 }
 
 a, .btn-link {
