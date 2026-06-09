@@ -26,6 +26,8 @@ using Sigyll.Common.Services;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
+using Sigyll.Common.ViewModels;
+using Sigyll.Contracts;
 using Sigyll.Did.Services;
 using Sigyll.Gcp;
 using Sigyll.Services;
@@ -280,6 +282,116 @@ try
         return Results.File(pemBytes, "application/x-pem-file", $"{cert.Name}.pem");
     });
 
+    // ── RA portal internal API (true RA/CA split) ────────────────────────────────
+    // The isolated request portal calls these endpoints to read the issuance catalog and to
+    // submit CSR-based issuance requests. The portal never holds CA keys; only the CA signs.
+    // Authentication is mTLS (production) or a shared API key (dev), see RaAuth/RaOptions below.
+    var raOptions = builder.Configuration.GetSection("Ra").Get<RaOptions>() ?? new RaOptions();
+
+    app.MapGet("/api/ra/catalog", async (HttpContext http, IDbContextFactory<SigyllDbContext> dbFactory) =>
+    {
+        if (!RaAuth.IsAuthorized(http, raOptions)) return Results.Unauthorized();
+
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var trustDomains = await db.TrustDomains.Where(t => t.Enabled).ToListAsync();
+        var templates = await db.CertificateTemplates
+            .Where(t => t.CertificateType == CertificateType.EndEntityClient
+                     || t.CertificateType == CertificateType.EndEntityServer)
+            .ToListAsync();
+
+        var response = new CatalogResponse
+        {
+            TrustDomains = trustDomains.Select(t => new CatalogTrustDomain
+            {
+                Name = t.Name,
+                Description = t.Description,
+                Enabled = t.Enabled,
+            }).ToList(),
+            Templates = templates.Select(t => new CatalogTemplate
+            {
+                Name = t.Name,
+                Description = t.Description,
+                CertificateType = t.CertificateType.ToString(),
+                AllowedSanTypes = t.SubjectAltNameTypes,
+                AllowAutoIssue = t.AllowAutoIssue,
+                RequiresRaApproval = t.RequiresRaApproval,
+            }).ToList(),
+        };
+        return Results.Ok(response);
+    });
+
+    app.MapPost("/api/ra/issue", async (
+        HttpContext http,
+        IssuanceApiRequest apiRequest,
+        IDbContextFactory<SigyllDbContext> dbFactory,
+        CertificateIssuanceService issuanceService) =>
+    {
+        if (!RaAuth.IsAuthorized(http, raOptions)) return Results.Unauthorized();
+
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var trustDomain = await db.TrustDomains
+            .FirstOrDefaultAsync(t => t.Name == apiRequest.TrustDomainName && t.Enabled);
+        if (trustDomain == null)
+            return Results.BadRequest(IssuanceApiResult.Failure(
+                $"Unknown or disabled trust domain '{apiRequest.TrustDomainName}'."));
+
+        var template = await db.CertificateTemplates
+            .FirstOrDefaultAsync(t => t.Name == apiRequest.TemplateName);
+        if (template == null)
+            return Results.BadRequest(IssuanceApiResult.Failure(
+                $"Unknown template '{apiRequest.TemplateName}'."));
+
+        // Defense in depth: re-check the RA's claim. Every DNS identifier must be domain-validated
+        // unless a human RA approved the request.
+        if (string.IsNullOrWhiteSpace(apiRequest.RaApprovalRef))
+        {
+            var validated = new HashSet<string>(apiRequest.ValidatedIdentifiers, StringComparer.OrdinalIgnoreCase);
+            var unvalidated = apiRequest.RequestedSans
+                .Where(s => string.Equals(s.Type, "Dns", StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.Value)
+                .Where(d => !validated.Contains(d))
+                .ToList();
+            if (unvalidated.Count > 0)
+                return Results.Json(IssuanceApiResult.Failure(
+                    $"Identifiers are not domain-validated and no RA approval is present: {string.Join(", ", unvalidated)}"),
+                    statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        // Select an issuing CA in this trust domain with signing capability (prefer an intermediate).
+        var issuingCa = await db.CaCertificates
+            .Where(c => c.TrustDomainId == trustDomain.Id && c.Enabled && !c.IsArchived && !c.IsRevoked
+                     && (c.EncryptedPfxBytes != null || c.StoreProviderHint != null))
+            .OrderByDescending(c => c.ParentId != null) // intermediates before root
+            .ThenByDescending(c => c.Id)
+            .FirstOrDefaultAsync();
+        if (issuingCa == null)
+            return Results.BadRequest(IssuanceApiResult.Failure(
+                $"No issuing CA with signing capability found in trust domain '{trustDomain.Name}'."));
+
+        var csrRequest = new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = issuingCa.Id,
+            TemplateId = template.Id,
+            TrustDomainId = trustDomain.Id,
+            CsrPem = apiRequest.CsrPem,
+            SubjectAltNames = apiRequest.RequestedSans.Select(MapSan).ToList(),
+        };
+
+        var result = await issuanceService.IssueCertificateFromCsrAsync(csrRequest);
+        if (!result.Success)
+            return Results.BadRequest(IssuanceApiResult.Failure(result.Error ?? "Issuance failed."));
+
+        return Results.Ok(new IssuanceApiResult
+        {
+            Success = true,
+            CertificatePem = result.CertificatePem,
+            ChainPem = result.ChainPem,
+            SerialNumber = result.SerialNumber,
+            Thumbprint = result.Thumbprint,
+        });
+    });
+
     app.Run();
 }
 catch (Exception ex)
@@ -290,6 +402,18 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+// Maps a wire SAN entry from the RA portal to the internal SanEntry type.
+static SanEntry MapSan(ApiSanEntry s) => new(
+    s.Type.ToLowerInvariant() switch
+    {
+        "uri" => SanType.Uri,
+        "dns" => SanType.Dns,
+        "email" => SanType.Email,
+        "ipaddress" or "ip" => SanType.IpAddress,
+        _ => SanType.Dns
+    },
+    s.Value);
 
 static async Task SeedTemplatesAsync(SigyllDbContext db)
 {
@@ -350,6 +474,8 @@ static async Task SeedTemplatesAsync(SigyllDbContext db)
             IncludeAia = true,
             SubjectAltNameTypes = "URI",
             IsPreset = true,
+            // UDAP client certs require organizational vetting — always route to a human RA.
+            RequiresRaApproval = true,
         },
         new CertificateTemplate
         {
@@ -368,6 +494,8 @@ static async Task SeedTemplatesAsync(SigyllDbContext db)
             IncludeCdp = true,
             SubjectAltNameTypes = "DNS",
             IsPreset = true,
+            // TLS server certs can auto-issue after domain validation (Let's-Encrypt-style).
+            AllowAutoIssue = true,
         }
     );
 
@@ -432,4 +560,45 @@ static async Task SeedCredentialSchemasAsync(SigyllDbContext db)
 class AllowAllDashboardAuthorizationFilter : IDashboardAuthorizationFilter
 {
     public bool Authorize(DashboardContext context) => true;
+}
+
+/// <summary>
+/// Configuration for authenticating the RA portal to the CA's internal issuance API
+/// (config section "Ra"). Production uses mutual TLS (the portal presents an RA client cert whose
+/// thumbprint is allow-listed). A shared API key is provided as a development fallback only.
+/// </summary>
+class RaOptions
+{
+    /// <summary>When true, require an allow-listed client certificate (mTLS). When false, accept
+    /// the dev API key instead. Always set true in production.</summary>
+    public bool UseMtls { get; set; }
+
+    /// <summary>Dev fallback shared secret expected in the <c>X-RA-ApiKey</c> header.</summary>
+    public string? ApiKey { get; set; }
+
+    /// <summary>Allow-listed RA client-certificate thumbprints (mTLS mode).</summary>
+    public string[] AllowedClientCertThumbprints { get; set; } = [];
+}
+
+/// <summary>
+/// Authorizes calls to the RA issuance API. mTLS path validates the negotiated client certificate
+/// thumbprint against the allow-list; dev path validates the shared API key header.
+/// </summary>
+static class RaAuth
+{
+    public static bool IsAuthorized(HttpContext http, RaOptions opts)
+    {
+        if (opts.UseMtls)
+        {
+            var clientCert = http.Connection.ClientCertificate;
+            if (clientCert == null) return false;
+            return opts.AllowedClientCertThumbprints
+                .Any(tp => string.Equals(tp, clientCert.Thumbprint, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Development fallback: shared API key. Refuse if no key is configured.
+        if (string.IsNullOrEmpty(opts.ApiKey)) return false;
+        return http.Request.Headers.TryGetValue("X-RA-ApiKey", out var provided)
+            && string.Equals(provided.ToString(), opts.ApiKey, StringComparison.Ordinal);
+    }
 }

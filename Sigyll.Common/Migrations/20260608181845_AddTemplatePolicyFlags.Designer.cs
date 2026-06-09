@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Sigyll.Common.Data;
@@ -11,9 +12,11 @@ using Sigyll.Common.Data;
 namespace Sigyll.Common.Migrations
 {
     [DbContext(typeof(SigyllDbContext))]
-    partial class SigyllDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260608181845_AddTemplatePolicyFlags")]
+    partial class AddTemplatePolicyFlags
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

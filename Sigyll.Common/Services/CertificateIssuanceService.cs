@@ -319,6 +319,219 @@ public class CertificateIssuanceService
     }
 
     /// <summary>
+    /// Issues a CA-signed end-entity certificate from a caller-supplied PKCS#10 CSR. The CSR's
+    /// public key and subject are used as-is; no private key is generated or stored — the requester
+    /// retains the private key. This is the issuance path used by the RA portal over the internal
+    /// API, preserving the true RA/CA split (the portal never holds key material).
+    /// </summary>
+    public async Task<CsrIssuanceResult> IssueCertificateFromCsrAsync(CsrIssuanceRequest request)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var template = await db.CertificateTemplates.FindAsync(request.TemplateId);
+        if (template == null)
+            return CsrIssuanceResult.Failure("Template not found.");
+
+        if (template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa)
+            return CsrIssuanceResult.Failure("CSR issuance is only supported for end-entity templates.");
+
+        var trustDomain = await db.TrustDomains.FindAsync(request.TrustDomainId);
+        if (trustDomain == null)
+            return CsrIssuanceResult.Failure("Trust domain not found.");
+
+        if (string.IsNullOrWhiteSpace(request.CsrPem))
+            return CsrIssuanceResult.Failure("CSR is required.");
+
+        // Parse the CSR. Signature validation (proof-of-possession) stays on; SHA-256 covers the
+        // common case. Broader signer-hash detection for SHA-384/512 CSRs is a follow-up.
+        CertificateRequest csr;
+        try
+        {
+            csr = CertificateRequest.LoadSigningRequestPem(request.CsrPem, HashAlgorithmName.SHA256);
+        }
+        catch (Exception ex)
+        {
+            return CsrIssuanceResult.Failure($"Failed to parse CSR: {ex.Message}");
+        }
+
+        var badSanUri = request.SubjectAltNames
+            .FirstOrDefault(s => s.Type == SanType.Uri && !Uri.TryCreate(s.Value, UriKind.Absolute, out _));
+        if (badSanUri != null)
+            return CsrIssuanceResult.Failure($"SAN URI is not a valid absolute URI: '{badSanUri.Value}'.");
+
+        var issuingCaEntity = await db.CaCertificates.FindAsync(request.IssuingCaCertificateId);
+        if (issuingCaEntity == null)
+            return CsrIssuanceResult.Failure("Issuing CA not found.");
+
+        X509Certificate2? issuingCert = null;
+        SigningKeyReference? issuerKeyRef = null;
+        try
+        {
+            // Resolve the issuer's signing material (local PFX vs remote key reference).
+            if (issuingCaEntity.StoreProviderHint?.StartsWith("vault-transit:") == true)
+            {
+                var vaultKeyName = issuingCaEntity.StoreProviderHint["vault-transit:".Length..];
+                issuerKeyRef = new SigningKeyReference(
+                    "vault-transit", vaultKeyName, issuingCaEntity.KeyAlgorithm, issuingCaEntity.KeySize);
+                issuingCert = X509Certificate2.CreateFromPem(issuingCaEntity.X509CertificatePem);
+            }
+            else if (issuingCaEntity.StoreProviderHint?.StartsWith("gcp-kms:") == true)
+            {
+                var kmsKeyId = issuingCaEntity.StoreProviderHint["gcp-kms:".Length..];
+                issuerKeyRef = new SigningKeyReference(
+                    "gcp-kms", kmsKeyId, issuingCaEntity.KeyAlgorithm, issuingCaEntity.KeySize);
+                issuingCert = X509Certificate2.CreateFromPem(issuingCaEntity.X509CertificatePem);
+            }
+            else
+            {
+                if (issuingCaEntity.EncryptedPfxBytes == null || string.IsNullOrEmpty(issuingCaEntity.PfxPassword))
+                    return CsrIssuanceResult.Failure("Issuing CA does not have a private key. Import the PFX first.");
+
+                issuingCert = X509CertificateLoader.LoadPkcs12(
+                    issuingCaEntity.EncryptedPfxBytes, issuingCaEntity.PfxPassword, X509KeyStorageFlags.Exportable);
+            }
+
+            var hashAlg = template.HashAlgorithm?.ToUpperInvariant() switch
+            {
+                "SHA384" => HashAlgorithmName.SHA384,
+                "SHA512" => HashAlgorithmName.SHA512,
+                _ => HashAlgorithmName.SHA256
+            };
+
+            // Reuse the existing extension builders via an equivalent issuance request. Subject DN
+            // comes from the CSR; SANs are the authoritative set supplied by the caller (template-driven).
+            var extReq = new CertificateIssuanceRequest
+            {
+                IssuingCaCertificateId = request.IssuingCaCertificateId,
+                TemplateId = request.TemplateId,
+                TrustDomainId = request.TrustDomainId,
+                SubjectDn = csr.SubjectName.Name,
+                CertificateName = request.CertificateName,
+                SubjectAltNames = request.SubjectAltNames,
+                CdpUrls = request.CdpUrls,
+                AiaUrls = request.AiaUrls,
+                NotBefore = request.NotBefore,
+                NotAfter = request.NotAfter,
+            };
+
+            var notBefore = request.NotBefore ?? DateTimeOffset.UtcNow;
+            var notAfter = request.NotAfter ?? notBefore.AddDays(template.ValidityDays);
+            if (notAfter > issuingCert.NotAfter)
+                notAfter = new DateTimeOffset(issuingCert.NotAfter.ToUniversalTime(), TimeSpan.Zero);
+
+            bool isRsaSubject = csr.PublicKey.Oid.Value == "1.2.840.113549.1.1.1";
+
+            X509Certificate2 cert;
+            if (issuerKeyRef != null)
+            {
+                // Issuer signs remotely (Vault Transit / Cloud KMS). The subject public key is the CSR's.
+                AsymmetricAlgorithm subjectPublicKey =
+                    (AsymmetricAlgorithm?)csr.PublicKey.GetRSAPublicKey()
+                    ?? csr.PublicKey.GetECDsaPublicKey()
+                    ?? throw new InvalidOperationException("Unsupported CSR public key algorithm.");
+
+                using (subjectPublicKey)
+                {
+                    var extensions = BuildExtensionsForRemote(template, extReq, subjectPublicKey, issuingCert);
+                    cert = await RemoteCertificateBuilder.CreateSignedAsync(
+                        _signingProvider, issuerKeyRef, issuingCert, subjectPublicKey,
+                        csr.SubjectName.Name, notBefore, notAfter, extensions, hashAlg);
+                }
+            }
+            else
+            {
+                // Local issuer signing — build a CertificateRequest bound to the CSR's public key.
+                var certRequest = new CertificateRequest(
+                    csr.SubjectName, csr.PublicKey, hashAlg,
+                    isRsaSubject ? RSASignaturePadding.Pkcs1 : null);
+
+                AddExtensions(certRequest, template, extReq, issuingCert);
+
+                var serialBytes = RandomNumberGenerator.GetBytes(16);
+                cert = certRequest.Create(
+                    issuingCert.SubjectName,
+                    CreateSignatureGenerator(issuingCert),
+                    notBefore, notAfter, serialBytes);
+            }
+
+            using (cert)
+            {
+                var issuerError = VerifyIssuedBy(cert, issuingCert);
+                if (issuerError != null)
+                    return CsrIssuanceResult.Failure(issuerError);
+
+                var pem = cert.ExportCertificatePem();
+                var chainPem = await BuildChainPemAsync(db, issuingCaEntity);
+
+                var certName = string.IsNullOrWhiteSpace(request.CertificateName)
+                    ? ExtractCnFromDn(csr.SubjectName.Name) ?? csr.SubjectName.Name
+                    : request.CertificateName;
+
+                var sanString = request.SubjectAltNames.Count > 0
+                    ? string.Join(";", request.SubjectAltNames.Select(s => $"{s.Type}:{s.Value}"))
+                    : null;
+
+                var issuedEntity = new IssuedCertificate
+                {
+                    IssuingCaCertificateId = request.IssuingCaCertificateId,
+                    TemplateId = request.TemplateId,
+                    Name = certName,
+                    Subject = cert.Subject,
+                    SubjectAltNames = sanString,
+                    X509CertificatePem = pem,
+                    EncryptedPfxBytes = null, // requester holds the private key — CA never sees it
+                    PfxPassword = null,
+                    Thumbprint = cert.Thumbprint,
+                    SerialNumber = cert.SerialNumber,
+                    KeyAlgorithm = template.KeyAlgorithm,
+                    KeySize = GetKeySize(cert),
+                    NotBefore = cert.NotBefore.ToUniversalTime(),
+                    NotAfter = cert.NotAfter.ToUniversalTime(),
+                };
+
+                db.IssuedCertificates.Add(issuedEntity);
+                await db.SaveChangesAsync();
+
+                return new CsrIssuanceResult
+                {
+                    Success = true,
+                    EntityId = issuedEntity.Id,
+                    EntityType = "IssuedCertificate",
+                    Thumbprint = cert.Thumbprint,
+                    SerialNumber = cert.SerialNumber,
+                    CertificatePem = pem,
+                    ChainPem = chainPem,
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            return CsrIssuanceResult.Failure($"CSR issuance failed: {ex.Message}");
+        }
+        finally
+        {
+            issuingCert?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Builds a PEM chain from the issuing CA up to the root by following ParentId links.
+    /// </summary>
+    private static async Task<string?> BuildChainPemAsync(SigyllDbContext db, CaCertificate issuingCa)
+    {
+        var sb = new System.Text.StringBuilder();
+        CaCertificate? current = issuingCa;
+        var seen = new HashSet<int>();
+        while (current != null && seen.Add(current.Id))
+        {
+            sb.AppendLine(current.X509CertificatePem.Trim());
+            if (current.ParentId == null) break;
+            current = await db.CaCertificates.FindAsync(current.ParentId.Value);
+        }
+        return sb.Length > 0 ? sb.ToString() : null;
+    }
+
+    /// <summary>
     /// Re-signs an existing certificate with the same key pair but new serial and validity.
     /// The SKI remains the same so downstream certificate chains continue to validate.
     /// Creates a new certificate entity; the old one is preserved.

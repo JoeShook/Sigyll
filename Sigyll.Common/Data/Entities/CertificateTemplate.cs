@@ -74,6 +74,19 @@ public class CertificateTemplate
     /// </summary>
     public bool IsPreset { get; set; }
 
+    /// <summary>
+    /// RA-portal policy flag: when true, requests for this template (classification) may be
+    /// auto-issued after successful domain validation (Let's-Encrypt-style), without human review.
+    /// Surfaced to the portal via the catalog API; the CA remains the source of truth.
+    /// </summary>
+    public bool AllowAutoIssue { get; set; }
+
+    /// <summary>
+    /// RA-portal policy flag: when true, requests for this template always require human RA
+    /// approval before issuance (e.g. UDAP client certs that need organizational vetting).
+    /// </summary>
+    public bool RequiresRaApproval { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<IssuedCertificate> IssuedCertificates { get; set; } = new List<IssuedCertificate>();
