@@ -1,0 +1,121 @@
+@* (c) 2026 Joseph Shook. See LICENSE in the project root. *@
+@page "/requests/{Id:int}"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Sigyll.Portal.Data
+@using Sigyll.Portal.Data.Entities
+@using Sigyll.Portal.Services
+@inject PortalDbContext Db
+@inject RequestWorkflowService Workflow
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Request @Id</PageTitle>
+
+@if (_request is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <h1>Request #@_request.Id</h1>
+    <dl class="row">
+        <dt class="col-sm-3">Status</dt>
+        <dd class="col-sm-9"><span class="badge bg-secondary">@_request.Status</span></dd>
+        <dt class="col-sm-3">Subject</dt>
+        <dd class="col-sm-9">@_request.SubjectDn</dd>
+        <dt class="col-sm-3">Template</dt>
+        <dd class="col-sm-9">@_request.TemplateName (@_request.TrustDomainName)</dd>
+        <dt class="col-sm-3">Policy</dt>
+        <dd class="col-sm-9">@_request.PolicyDecision — @_request.PolicyReason</dd>
+        @if (_request.FailureReason is not null)
+        {
+            <dt class="col-sm-3 text-danger">Failure</dt>
+            <dd class="col-sm-9 text-danger">@_request.FailureReason</dd>
+        }
+    </dl>
+
+    @if (_request.Status is RequestStatus.PendingValidation && _request.Challenges.Count > 0)
+    {
+        <div class="card mb-3">
+            <div class="card-header">Domain validation (http-01)</div>
+            <div class="card-body">
+                <p>For each identifier, serve the exact content at the URL shown, then click Verify.</p>
+                @foreach (var c in _request.Challenges)
+                {
+                    <div class="mb-3 border-bottom pb-2">
+                        <div><strong>@c.Identifier</strong>
+                            <span class="badge @(c.Status == DomainValidationStatus.Valid ? "bg-success" : "bg-secondary")">@c.Status</span>
+                        </div>
+                        <div class="small">URL: <code>@DomainValidationService.ChallengeUrl(c)</code></div>
+                        <div class="small">Content: <code>@c.KeyAuthorization</code></div>
+                    </div>
+                }
+                <button class="btn btn-primary" @onclick="VerifyAndIssue" disabled="@_busy">
+                    @(_busy ? "Checking…" : "Verify & issue")
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (_request.Status == RequestStatus.PendingRaApproval)
+    {
+        <div class="alert alert-info">Awaiting Registration Authority approval.</div>
+    }
+
+    @if (_request.Status == RequestStatus.Issued)
+    {
+        <div class="card mb-3">
+            <div class="card-header">Issued certificate</div>
+            <div class="card-body">
+                <p>Serial: <code>@_request.SerialNumber</code><br />Thumbprint: <code>@_request.Thumbprint</code></p>
+                <a class="btn btn-outline-primary btn-sm" href="requests/@_request.Id/download/cert" target="_blank">Download certificate (PEM)</a>
+                <a class="btn btn-outline-secondary btn-sm" href="requests/@_request.Id/download/chain" target="_blank">Download chain (PEM)</a>
+            </div>
+        </div>
+    }
+
+    <h5>History</h5>
+    <ul class="list-group">
+        @foreach (var e in _request.Events.OrderBy(e => e.Id))
+        {
+            <li class="list-group-item d-flex justify-content-between">
+                <span><strong>@e.EventType</strong> — @e.Detail <span class="text-muted">(@e.Actor)</span></span>
+                <span class="text-muted small">@e.At.ToLocalTime().ToString("g")</span>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private CertificateRequest? _request;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+        _request = await Db.CertificateRequests
+            .Include(r => r.Challenges)
+            .Include(r => r.Events)
+            .FirstOrDefaultAsync(r => r.Id == Id && r.RequesterId == userId);
+    }
+
+    private async Task VerifyAndIssue()
+    {
+        _busy = true;
+        try
+        {
+            var state = await AuthState.GetAuthenticationStateAsync();
+            var userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+            await Workflow.VerifyAndIssueAsync(Id, userId);
+            await Load();
+        }
+        finally { _busy = false; }
+    }
+}

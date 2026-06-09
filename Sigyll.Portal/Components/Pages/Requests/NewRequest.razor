@@ -1,0 +1,181 @@
+@* (c) 2026 Joseph Shook. See LICENSE in the project root. *@
+@page "/requests/new"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Sigyll.Contracts
+@using Sigyll.Portal.Services
+@inject CatalogService Catalog
+@inject RequestWorkflowService Workflow
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>New Certificate Request</PageTitle>
+<h1>Request a Certificate</h1>
+
+@if (_catalog is null)
+{
+    <p><em>Loading catalog…</em></p>
+}
+else if (_catalog.Templates.Count == 0)
+{
+    <div class="alert alert-warning">
+        The CA catalog is empty or unreachable. Confirm the CA core is running and reachable at the
+        configured <code>Portal:CaBaseUrl</code>.
+    </div>
+}
+else
+{
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="mb-3">
+                <label class="form-label">Trust domain</label>
+                <select class="form-select" @bind="_trustDomain">
+                    <option value="">— select —</option>
+                    @foreach (var td in _catalog.TrustDomains.Where(t => t.Enabled))
+                    {
+                        <option value="@td.Name">@td.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Certificate type (template)</label>
+                <select class="form-select" @bind="_templateName">
+                    <option value="">— select —</option>
+                    @foreach (var t in _catalog.Templates)
+                    {
+                        <option value="@t.Name">@t.Name (@t.CertificateType)</option>
+                    }
+                </select>
+                @if (SelectedTemplate is { } tpl)
+                {
+                    <div class="form-text">
+                        @(tpl.RequiresRaApproval
+                            ? "This classification requires Registration Authority approval."
+                            : tpl.AllowAutoIssue
+                                ? "Eligible for automated issuance after domain validation."
+                                : "Subject to policy review.")
+                    </div>
+                }
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">CSR (PKCS#10, PEM)</label>
+                <textarea class="form-control font-monospace" rows="8" @bind="_csrPem"
+                          placeholder="-----BEGIN CERTIFICATE REQUEST-----"></textarea>
+                <button class="btn btn-outline-secondary btn-sm mt-2" @onclick="ParseCsr"
+                        disabled="@string.IsNullOrWhiteSpace(_csrPem)">Parse CSR</button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_subjectDn))
+            {
+                <div class="mb-3">
+                    <label class="form-label">Subject (from CSR)</label>
+                    <input class="form-control" value="@_subjectDn" readonly />
+                </div>
+            }
+
+            <div class="mb-3">
+                <label class="form-label">Subject Alternative Names</label>
+                @foreach (var san in _sans)
+                {
+                    <div class="input-group mb-1">
+                        <select class="form-select" style="max-width:140px" @bind="san.Type">
+                            <option>Dns</option>
+                            <option>Uri</option>
+                            <option>Email</option>
+                            <option>IpAddress</option>
+                        </select>
+                        <input class="form-control" @bind="san.Value" />
+                        <button class="btn btn-outline-danger" @onclick="() => _sans.Remove(san)">✕</button>
+                    </div>
+                }
+                <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => _sans.Add(new ApiSanEntry { Type = "Dns" }))">
+                    + Add SAN
+                </button>
+            </div>
+
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger">@_error</div>
+            }
+
+            <button class="btn btn-primary" @onclick="Submit" disabled="@(_submitting || !CanSubmit)">
+                @(_submitting ? "Submitting…" : "Submit request")
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private CatalogResponse? _catalog;
+    private string _trustDomain = "";
+    private string _templateName = "";
+    private string _csrPem = "";
+    private string _subjectDn = "";
+    private readonly List<ApiSanEntry> _sans = new();
+    private string? _error;
+    private bool _submitting;
+
+    private CatalogTemplate? SelectedTemplate =>
+        _catalog?.Templates.FirstOrDefault(t => t.Name == _templateName);
+
+    private bool CanSubmit =>
+        !string.IsNullOrWhiteSpace(_trustDomain)
+        && !string.IsNullOrWhiteSpace(_templateName)
+        && !string.IsNullOrWhiteSpace(_csrPem);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _catalog = await Catalog.GetCatalogAsync();
+    }
+
+    private void ParseCsr()
+    {
+        _error = null;
+        try
+        {
+            var parsed = CsrParser.Parse(_csrPem);
+            _subjectDn = parsed.SubjectDn;
+            _sans.Clear();
+            _sans.AddRange(parsed.Sans);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not parse CSR: {ex.Message}";
+        }
+    }
+
+    private async Task Submit()
+    {
+        _error = null;
+        _submitting = true;
+        try
+        {
+            var state = await AuthState.GetAuthenticationStateAsync();
+            var userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+
+            // Ensure subject is populated even if the user skipped Parse.
+            if (string.IsNullOrEmpty(_subjectDn))
+            {
+                try { _subjectDn = CsrParser.Parse(_csrPem).SubjectDn; } catch { /* validated below */ }
+            }
+
+            var request = await Workflow.SubmitAsync(
+                userId, organizationId: null, _trustDomain, _templateName, _subjectDn,
+                _sans.Where(s => !string.IsNullOrWhiteSpace(s.Value)).ToList(), _csrPem);
+
+            Nav.NavigateTo($"/requests/{request.Id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+}

@@ -6,6 +6,7 @@
   <Project Path="Sigyll.Certificate.Server/Sigyll.Certificate.Server.csproj" />
   <Project Path="Sigyll.Common/Sigyll.Common.csproj" />
   <Project Path="Sigyll.Contracts/Sigyll.Contracts.csproj" />
+  <Project Path="Sigyll.Portal/Sigyll.Portal.csproj" />
   <Project Path="Sigyll.Did/Sigyll.Did.csproj" />
   <Project Path="Sigyll.Vc/Sigyll.Vc.csproj" />
   <Project Path="Sigyll.FileSystem/Sigyll.FileSystem.csproj" />

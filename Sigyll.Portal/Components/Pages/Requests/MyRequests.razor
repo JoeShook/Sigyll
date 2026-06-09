@@ -1,0 +1,71 @@
+@* (c) 2026 Joseph Shook. See LICENSE in the project root. *@
+@page "/requests"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Sigyll.Portal.Data
+@using Sigyll.Portal.Data.Entities
+@inject PortalDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>My Requests</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center">
+    <h1>My Requests</h1>
+    <a class="btn btn-primary" href="requests/new">New Request</a>
+</div>
+
+@if (_requests is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_requests.Count == 0)
+{
+    <p>You have no requests yet.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr><th>#</th><th>Subject</th><th>Template</th><th>Trust domain</th><th>Status</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var r in _requests)
+            {
+                <tr>
+                    <td>@r.Id</td>
+                    <td class="text-truncate" style="max-width:260px">@r.SubjectDn</td>
+                    <td>@r.TemplateName</td>
+                    <td>@r.TrustDomainName</td>
+                    <td><span class="badge @StatusClass(r.Status)">@r.Status</span></td>
+                    <td>@r.CreatedAt.ToLocalTime().ToString("g")</td>
+                    <td><a class="btn btn-sm btn-outline-secondary" href="requests/@r.Id">View</a></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<CertificateRequest>? _requests;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+        _requests = await Db.CertificateRequests
+            .Where(r => r.RequesterId == userId)
+            .OrderByDescending(r => r.Id)
+            .ToListAsync();
+    }
+
+    private static string StatusClass(RequestStatus s) => s switch
+    {
+        RequestStatus.Issued => "bg-success",
+        RequestStatus.Failed or RequestStatus.Rejected => "bg-danger",
+        RequestStatus.PendingRaApproval or RequestStatus.PendingValidation => "bg-warning text-dark",
+        _ => "bg-secondary",
+    };
+}

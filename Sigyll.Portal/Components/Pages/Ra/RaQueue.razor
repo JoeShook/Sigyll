@@ -1,0 +1,109 @@
+@* (c) 2026 Joseph Shook. See LICENSE in the project root. *@
+@page "/ra/queue"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "RA,PortalAdmin")]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Sigyll.Portal.Data
+@using Sigyll.Portal.Data.Entities
+@using Sigyll.Portal.Services
+@inject PortalDbContext Db
+@inject RequestWorkflowService Workflow
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>RA Queue</PageTitle>
+<h1>Registration Authority — Pending Requests</h1>
+
+@if (_pending is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_pending.Count == 0)
+{
+    <p>No requests are awaiting approval.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr><th>#</th><th>Subject</th><th>Template</th><th>Trust domain</th><th>Requester</th><th>Policy</th><th>Decision</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var r in _pending)
+            {
+                <tr>
+                    <td>@r.Id</td>
+                    <td class="text-truncate" style="max-width:240px">@r.SubjectDn</td>
+                    <td>@r.TemplateName</td>
+                    <td>@r.TrustDomainName</td>
+                    <td class="small">@r.RequesterId</td>
+                    <td class="small">@r.PolicyReason</td>
+                    <td style="min-width:260px">
+                        <input class="form-control form-control-sm mb-1" placeholder="reason"
+                               @bind="_reasons[r.Id]" />
+                        <button class="btn btn-success btn-sm" @onclick="() => Approve(r.Id)" disabled="@_busy">Approve</button>
+                        <button class="btn btn-danger btn-sm" @onclick="() => Reject(r.Id)" disabled="@_busy">Reject</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (_message is not null)
+{
+    <div class="alert alert-info">@_message</div>
+}
+
+@code {
+    private List<CertificateRequest>? _pending;
+    private readonly Dictionary<int, string> _reasons = new();
+    private bool _busy;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _pending = await Db.CertificateRequests
+            .Where(r => r.Status == RequestStatus.PendingRaApproval)
+            .OrderBy(r => r.Id)
+            .ToListAsync();
+    }
+
+    private async Task<string> RaUserId()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        return state.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "ra";
+    }
+
+    private async Task Approve(int id)
+    {
+        _busy = true;
+        try
+        {
+            var result = await Workflow.ApproveAsync(id, await RaUserId(), Reason(id));
+            _message = result.Status == RequestStatus.Issued
+                ? $"Request #{id} approved and issued (serial {result.SerialNumber})."
+                : $"Request #{id} approved but issuance reported: {result.FailureReason ?? result.Status.ToString()}.";
+            await Load();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Reject(int id)
+    {
+        _busy = true;
+        try
+        {
+            await Workflow.RejectAsync(id, await RaUserId(), Reason(id));
+            _message = $"Request #{id} rejected.";
+            await Load();
+        }
+        finally { _busy = false; }
+    }
+
+    private string Reason(int id) =>
+        _reasons.TryGetValue(id, out var r) && !string.IsNullOrWhiteSpace(r) ? r : "(no reason given)";
+}

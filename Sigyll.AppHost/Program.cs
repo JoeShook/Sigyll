@@ -113,4 +113,13 @@ switch (hostMode)
         break;
 }
 
+// Certificate request portal (isolated RA). True RA/CA split: the portal holds no CA keys and
+// reaches the CA only via the internal RA API. CaBaseUrl is wired to the running CA endpoint;
+// the dev RA API key matches the CA's "Ra:ApiKey". The portal uses its own 'portal' database.
+builder.AddProject<Projects.Sigyll_Portal>("portal")
+    .WithEnvironment("Portal__CaBaseUrl", sigil.GetEndpoint("https"))
+    .WithEnvironment("Portal__UseMtls", "false")
+    .WithEnvironment("Portal__RaApiKey", "dev-ra-key-change-me")
+    .WaitFor(sigil);
+
 builder.Build().Run();

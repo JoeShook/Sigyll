@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Sigyll\Sigyll.csproj" />
     <ProjectReference Include="..\Sigyll.Certificate.Server\Sigyll.Certificate.Server.csproj" />
+    <ProjectReference Include="..\Sigyll.Portal\Sigyll.Portal.csproj" />
   </ItemGroup>
 
 </Project>

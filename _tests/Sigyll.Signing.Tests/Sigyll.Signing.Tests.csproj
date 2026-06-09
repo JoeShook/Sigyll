@@ -24,6 +24,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Sigyll.Common\Sigyll.Common.csproj" />
+    <ProjectReference Include="..\..\Sigyll.Contracts\Sigyll.Contracts.csproj" />
+    <ProjectReference Include="..\..\Sigyll.Portal\Sigyll.Portal.csproj" />
     <ProjectReference Include="..\..\Sigyll.Did\Sigyll.Did.csproj" />
     <ProjectReference Include="..\..\Sigyll.Vc\Sigyll.Vc.csproj" />
     <ProjectReference Include="..\..\Sigyll.Vault\Sigyll.Vault.csproj" />
