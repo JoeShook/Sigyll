@@ -203,6 +203,27 @@
     </FluentDialogFooter>
 </FluentDialog>
 
+@* .p12 download options dialog *@
+<FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true"
+              Style="min-width: 440px;">
+    <FluentDialogHeader>Download .p12</FluentDialogHeader>
+    <FluentDialogBody>
+        <p style="font-size: 0.9rem;">
+            Download <code>@selectedNode?.Name</code> as a PKCS#12 file.
+            Only this certificate's private key is exported — chain certificates
+            are included as public certs only.
+        </p>
+        <FluentCheckbox @bind-Value="p12IncludeChain"
+                        Label="Include certificate chain (issuing CA public certs)" />
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Accent" OnClick="DownloadP12Async">
+            Download
+        </FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => p12DialogHidden = true)">Cancel</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
 @* Move to trust domain dialog *@
 <FluentDialog @bind-Hidden="@moveDialogHidden" Modal="true" TrapFocus="true"
               Style="min-width: 400px; overflow: visible;">
@@ -936,12 +957,12 @@ else if (treeNodes.Count > 0)
                         </FluentButton>
                         @if (selectedNodeHasPrivateKey)
                         {
-                            <FluentAnchor Href="@GetPfxDownloadUrl()"
-                                          Appearance="Appearance.Outline"
+                            <FluentButton Appearance="Appearance.Outline"
+                                          IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                                          OnClick="ShowP12DownloadDialog"
                                           title="Download certificate + private key (.p12)">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
                                 .p12
-                            </FluentAnchor>
+                            </FluentButton>
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.Key())"
                                           OnClick="CopyPrivateKeyAsync"

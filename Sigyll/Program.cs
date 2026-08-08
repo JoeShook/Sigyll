@@ -223,13 +223,12 @@ try
         return Results.File(cerBytes, "application/x-pem-file", $"{ca.Name}.cer");
     });
 
-    app.MapGet("/api/ca/{id}/download/p12", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
+    app.MapGet("/api/ca/{id}/download/p12", async (int id, CertificateExportService exportService, bool chain = false) =>
     {
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var ca = await db.CaCertificates.FindAsync(id);
-        if (ca?.EncryptedPfxBytes == null) return Results.NotFound("No private key available");
-
-        return Results.File(ca.EncryptedPfxBytes, "application/x-pkcs12", $"{ca.Name}.p12");
+        var result = await exportService.ExportPfxAsync(id, "CaCertificate", chain);
+        return result.Success
+            ? Results.File(result.PfxBytes!, "application/x-pkcs12", result.FileName)
+            : Results.NotFound(result.Error);
     });
 
     app.MapGet("/api/issued/{id}/download/cer", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
@@ -242,13 +241,12 @@ try
         return Results.File(cerBytes, "application/x-pem-file", $"{cert.Name}.cer");
     });
 
-    app.MapGet("/api/issued/{id}/download/p12", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
+    app.MapGet("/api/issued/{id}/download/p12", async (int id, CertificateExportService exportService, bool chain = false) =>
     {
-        await using var db = await dbFactory.CreateDbContextAsync();
-        var cert = await db.IssuedCertificates.FindAsync(id);
-        if (cert?.EncryptedPfxBytes == null) return Results.NotFound("No private key available");
-
-        return Results.File(cert.EncryptedPfxBytes, "application/x-pkcs12", $"{cert.Name}.p12");
+        var result = await exportService.ExportPfxAsync(id, "IssuedCertificate", chain);
+        return result.Success
+            ? Results.File(result.PfxBytes!, "application/x-pkcs12", result.FileName)
+            : Results.NotFound(result.Error);
     });
 
     app.MapGet("/api/crl/{id}/download", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>

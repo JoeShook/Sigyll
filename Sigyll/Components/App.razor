@@ -26,6 +26,15 @@
             return navigator.clipboard.writeText(text).then(function() { return true; }, function() { return false; });
         };
 
+        window.sigilDownloadFile = function(url) {
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        };
+
         // FluentDataGrid v4 quirk: when GridTemplateColumns uses minmax/fr/auto and
         // ResizableColumns="true", the resize handles only become reliably grabbable
         // after the first drag — Fluent's own moveHandler converts every minmax track

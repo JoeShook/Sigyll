@@ -856,6 +856,29 @@ public partial class CertificateExplorer : IDisposable
             : $"/api/issued/{selectedNode.Id}/download/p12";
     }
 
+    // --- .p12 download dialog ---
+
+    private bool p12DialogHidden = true;
+    private bool p12IncludeChain;
+
+    private void ShowP12DownloadDialog()
+    {
+        if (selectedNode == null) return;
+        p12IncludeChain = false;
+        p12DialogHidden = false;
+    }
+
+    private async Task DownloadP12Async()
+    {
+        if (selectedNode == null) return;
+
+        var url = GetPfxDownloadUrl();
+        if (p12IncludeChain) url += "?chain=true";
+
+        p12DialogHidden = true;
+        await JS.InvokeVoidAsync("sigilDownloadFile", url);
+    }
+
     private async Task CopyPrivateKeyAsync()
     {
         if (selectedNode == null) return;
