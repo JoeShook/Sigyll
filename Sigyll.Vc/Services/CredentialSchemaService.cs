@@ -8,7 +8,7 @@
 // */
 #endregion
 
-using System.Text.Json.Nodes;
+using System.Text.Json;
 using Json.Schema;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -104,14 +104,15 @@ public class CredentialSchemaService
     public static string? ValidateClaims(string schemaJson, string claimsJson)
     {
         JsonSchema schema;
-        JsonNode? claims;
+        JsonDocument claimsDoc;
         try { schema = JsonSchema.FromText(schemaJson); }
         catch (Exception ex) { return $"Schema parse error: {ex.Message}"; }
 
-        try { claims = JsonNode.Parse(claimsJson); }
+        try { claimsDoc = JsonDocument.Parse(claimsJson); }
         catch (Exception ex) { return $"Claims parse error: {ex.Message}"; }
 
-        var results = schema.Evaluate(claims, new EvaluationOptions
+        using var claims = claimsDoc;
+        var results = schema.Evaluate(claims.RootElement, new EvaluationOptions
         {
             OutputFormat = OutputFormat.List
         });
@@ -127,7 +128,7 @@ public class CredentialSchemaService
 
     private static void CollectErrors(EvaluationResults results, List<string> sink)
     {
-        if (results.HasErrors && results.Errors != null)
+        if (results.Errors is { Count: > 0 })
         {
             foreach (var (key, val) in results.Errors)
                 sink.Add($"{results.EvaluationPath}: {key}: {val}");
