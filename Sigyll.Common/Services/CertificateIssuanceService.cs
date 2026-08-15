@@ -85,6 +85,15 @@ public class CertificateIssuanceService
         if (badSanUri != null)
             return CertificateIssuanceResult.Failure($"SAN URI is not a valid absolute URI: '{badSanUri.Value}'. Use http:// or https:// (or a custom scheme like spiffe://).");
 
+        var badSanValue = _validator.ValidateSanValues(request.SubjectAltNames);
+        if (badSanValue != null)
+            return CertificateIssuanceResult.Failure(badSanValue);
+
+        // SAN types declared on the template are mandatory, not hints
+        var missingSanError = _validator.ValidateRequiredSanTypes(template, request.SubjectAltNames);
+        if (missingSanError != null)
+            return CertificateIssuanceResult.Failure(missingSanError);
+
         // Determine effective signing mode for this request
         bool useRemoteSigning = request.SigningProviderOverride != null
             ? request.SigningProviderOverride != "local"
@@ -358,6 +367,15 @@ public class CertificateIssuanceService
             .FirstOrDefault(s => s.Type == SanType.Uri && !Uri.TryCreate(s.Value, UriKind.Absolute, out _));
         if (badSanUri != null)
             return CsrIssuanceResult.Failure($"SAN URI is not a valid absolute URI: '{badSanUri.Value}'.");
+
+        var badSanValue = _validator.ValidateSanValues(request.SubjectAltNames);
+        if (badSanValue != null)
+            return CsrIssuanceResult.Failure(badSanValue);
+
+        // SAN types declared on the template are mandatory, not hints
+        var missingSanError = _validator.ValidateRequiredSanTypes(template, request.SubjectAltNames);
+        if (missingSanError != null)
+            return CsrIssuanceResult.Failure(missingSanError);
 
         var issuingCaEntity = await db.CaCertificates.FindAsync(request.IssuingCaCertificateId);
         if (issuingCaEntity == null)

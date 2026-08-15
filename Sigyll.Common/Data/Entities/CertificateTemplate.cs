@@ -65,7 +65,8 @@ public class CertificateTemplate
     public string? AiaUrlTemplate { get; set; }
 
     /// <summary>
-    /// Semicolon-delimited SAN type hints for the issuance UI: "URI;DNS;Email;IP".
+    /// Semicolon-delimited SAN types: "URI;DNS;Email;IP". Each listed type is required at
+    /// issuance — requests must include at least one SAN entry of every listed type.
     /// </summary>
     public string? SubjectAltNameTypes { get; set; }
 

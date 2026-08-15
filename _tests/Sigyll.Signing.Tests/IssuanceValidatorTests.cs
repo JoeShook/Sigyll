@@ -11,12 +11,152 @@
 using Shouldly;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Validators;
+using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Signing.Tests;
 
 public class IssuanceValidatorTests
 {
     private readonly IssuanceValidator _validator = new();
+
+    [Fact]
+    public void ParseSanTypes_ParsesAllKnownTypes()
+    {
+        var types = IssuanceValidator.ParseSanTypes("URI;DNS;Email;IP");
+
+        types.ShouldBe([SanType.Uri, SanType.Dns, SanType.Email, SanType.IpAddress]);
+    }
+
+    [Fact]
+    public void ParseSanTypes_IgnoresUnknownTokensAndDuplicates()
+    {
+        var types = IssuanceValidator.ParseSanTypes("DNS; dns ;Bogus;;");
+
+        types.ShouldBe([SanType.Dns]);
+    }
+
+    [Fact]
+    public void ParseSanTypes_NullOrEmpty_ReturnsEmpty()
+    {
+        IssuanceValidator.ParseSanTypes(null).ShouldBeEmpty();
+        IssuanceValidator.ParseSanTypes("").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ValidateRequiredSanTypes_MissingDeclaredType_ReturnsError()
+    {
+        var template = new CertificateTemplate { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
+
+        var error = _validator.ValidateRequiredSanTypes(template, []);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("mTLS Server");
+        error.ShouldContain("DNS");
+    }
+
+    [Fact]
+    public void ValidateRequiredSanTypes_WhitespaceOnlyValue_StillMissing()
+    {
+        var template = new CertificateTemplate { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
+
+        var error = _validator.ValidateRequiredSanTypes(template, [new SanEntry(SanType.Dns, "  ")]);
+
+        error.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void ValidateRequiredSanTypes_WrongTypeProvided_ReturnsError()
+    {
+        var template = new CertificateTemplate { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
+
+        var error = _validator.ValidateRequiredSanTypes(template, [new SanEntry(SanType.Uri, "https://a.example.com")]);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("DNS");
+    }
+
+    [Fact]
+    public void ValidateRequiredSanTypes_AllDeclaredTypesPresent_ReturnsNull()
+    {
+        var template = new CertificateTemplate { Name = "UDAP Client", SubjectAltNameTypes = "URI;DNS" };
+
+        var error = _validator.ValidateRequiredSanTypes(template,
+            [new SanEntry(SanType.Uri, "https://fhir.example.com"), new SanEntry(SanType.Dns, "fhir.example.com")]);
+
+        error.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateRequiredSanTypes_PartiallyPresent_NamesOnlyMissingTypes()
+    {
+        var template = new CertificateTemplate { Name = "UDAP Client", SubjectAltNameTypes = "URI;DNS" };
+
+        var error = _validator.ValidateRequiredSanTypes(template, [new SanEntry(SanType.Uri, "https://fhir.example.com")]);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("DNS");
+        error.ShouldNotContain("URI");
+    }
+
+    [Fact]
+    public void ValidateRequiredSanTypes_NoDeclaredTypes_ReturnsNull()
+    {
+        var template = new CertificateTemplate { Name = "Plain", SubjectAltNameTypes = null };
+
+        _validator.ValidateRequiredSanTypes(template, []).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateSanValues_DnsWithPort_ReturnsError()
+    {
+        var error = _validator.ValidateSanValues([new SanEntry(SanType.Dns, "api.example.com:8443")]);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("port");
+        error.ShouldContain("URI SAN");
+    }
+
+    [Fact]
+    public void ValidateSanValues_UriWithPort_IsValid()
+    {
+        _validator.ValidateSanValues([new SanEntry(SanType.Uri, "https://api.example.com:8443/fhir")])
+            .ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateSanValues_PlainDns_IsValid()
+    {
+        _validator.ValidateSanValues([new SanEntry(SanType.Dns, "api.example.com")]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateSanValues_WildcardDns_IsValid()
+    {
+        _validator.ValidateSanValues([new SanEntry(SanType.Dns, "*.example.com")]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ValidateSanValues_DnsWithScheme_ReturnsError()
+    {
+        _validator.ValidateSanValues([new SanEntry(SanType.Dns, "https://api.example.com")])
+            .ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void ValidateSanValues_IpInDnsSan_SuggestsIpType()
+    {
+        var error = _validator.ValidateSanValues([new SanEntry(SanType.Dns, "10.0.0.5")]);
+
+        error.ShouldNotBeNull();
+        error.ShouldContain("IP SAN type");
+    }
+
+    [Fact]
+    public void ValidateSanValues_DnsWithPath_ReturnsError()
+    {
+        _validator.ValidateSanValues([new SanEntry(SanType.Dns, "example.com/path")])
+            .ShouldNotBeNull();
+    }
 
     [Fact]
     public void CompareTemplateUrls_NoChanges_ReturnsEmpty()

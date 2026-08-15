@@ -9,6 +9,7 @@
 #endregion
 
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Validators;
 
@@ -39,6 +40,88 @@ public class IssuanceValidator
 
         return superseded;
     }
+
+    /// <summary>
+    /// Parses a template's semicolon-delimited SubjectAltNameTypes ("URI;DNS;Email;IP")
+    /// into SanType values. Unknown tokens are ignored.
+    /// </summary>
+    public static List<SanType> ParseSanTypes(string? subjectAltNameTypes) =>
+        (subjectAltNameTypes ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(t => t.ToUpperInvariant() switch
+            {
+                "URI" => (SanType?)SanType.Uri,
+                "DNS" => SanType.Dns,
+                "EMAIL" => SanType.Email,
+                "IP" => SanType.IpAddress,
+                _ => null
+            })
+            .Where(t => t != null)
+            .Select(t => t!.Value)
+            .Distinct()
+            .ToList();
+
+    /// <summary>
+    /// A SAN type declared on a template is a requirement: every declared type must have at
+    /// least one non-empty SAN entry in the request. Returns an error message naming the
+    /// missing types, or null when the request satisfies the template.
+    /// </summary>
+    public string? ValidateRequiredSanTypes(CertificateTemplate template, IEnumerable<SanEntry> subjectAltNames)
+    {
+        var missing = FindMissingSanTypes(template.SubjectAltNameTypes,
+            subjectAltNames.Where(s => !string.IsNullOrWhiteSpace(s.Value)).Select(s => s.Type));
+
+        if (missing.Count == 0) return null;
+
+        var names = string.Join(", ", missing.Select(SanTypeDisplayName));
+        return $"Template '{template.Name}' requires a Subject Alternative Name of type: {names}.";
+    }
+
+    /// <summary>
+    /// Returns the template-declared SAN types that have no entry among the provided types.
+    /// </summary>
+    public static List<SanType> FindMissingSanTypes(string? subjectAltNameTypes, IEnumerable<SanType> providedTypes)
+    {
+        var provided = new HashSet<SanType>(providedTypes);
+        return ParseSanTypes(subjectAltNameTypes).Where(t => !provided.Contains(t)).ToList();
+    }
+
+    /// <summary>
+    /// Validates individual SAN values. A DNS SAN (dNSName, RFC 5280) must be a bare host
+    /// name — no port, scheme, or path; ports are fine in URI SANs. Wildcard prefixes
+    /// ("*.example.com") are allowed. Returns an error for the first invalid entry, or null.
+    /// </summary>
+    public string? ValidateSanValues(IEnumerable<SanEntry> subjectAltNames)
+    {
+        foreach (var san in subjectAltNames.Where(s => s.Type == SanType.Dns))
+        {
+            var host = san.Value.Trim();
+
+            if (host.Contains(':'))
+                return $"DNS SAN '{san.Value}' must be a bare host name — no port or scheme. " +
+                       "Use a URI SAN to carry a port.";
+
+            var checkTarget = host.StartsWith("*.") ? host[2..] : host;
+            var hostNameType = Uri.CheckHostName(checkTarget);
+
+            if (hostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6)
+                return $"DNS SAN '{san.Value}' is an IP address. Use the IP SAN type instead.";
+
+            if (hostNameType != UriHostNameType.Dns)
+                return $"DNS SAN '{san.Value}' is not a valid DNS host name.";
+        }
+
+        return null;
+    }
+
+    public static string SanTypeDisplayName(SanType type) => type switch
+    {
+        SanType.Uri => "URI",
+        SanType.Dns => "DNS",
+        SanType.Email => "Email",
+        SanType.IpAddress => "IP",
+        _ => type.ToString()
+    };
 
     public List<IssuanceWarning> CompareTemplateUrls(
         List<string> originalCdpUrls,

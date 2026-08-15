@@ -107,6 +107,95 @@ public class CsrIssuanceTests
         result.Error.ShouldContain("end-entity");
     }
 
+    [Fact]
+    public async Task IssueFromCsr_TemplateRequiresDnsSan_MissingSan_Fails()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+        await SetTemplateSanTypesAsync(templateId, "DNS");
+
+        using var subjectKey = RSA.Create(2048);
+        var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
+            SubjectAltNames = [],
+        });
+
+        result.Success.ShouldBeFalse();
+        result.Error.ShouldContain("requires a Subject Alternative Name");
+        result.Error.ShouldContain("DNS");
+    }
+
+    [Fact]
+    public async Task IssueFromCsr_TemplateRequiresDnsSan_SanProvided_Succeeds()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+        await SetTemplateSanTypesAsync(templateId, "DNS");
+
+        using var subjectKey = RSA.Create(2048);
+        var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+        });
+
+        result.Success.ShouldBeTrue(result.Error);
+    }
+
+    [Fact]
+    public async Task Issue_TemplateRequiresDnsSan_MissingSan_Fails()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+        await SetTemplateSanTypesAsync(templateId, "DNS");
+
+        var result = await CreateService().IssueCertificateAsync(new CertificateIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            SubjectDn = "CN=api.example.com",
+            CertificateName = "api",
+            PfxPassword = "test-password",
+            SubjectAltNames = [new SanEntry(SanType.Uri, "https://api.example.com")],
+        });
+
+        result.Success.ShouldBeFalse();
+        result.Error.ShouldContain("requires a Subject Alternative Name");
+        result.Error.ShouldContain("DNS");
+    }
+
+    [Fact]
+    public async Task IssueFromCsr_DnsSanWithPort_Fails()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+
+        using var subjectKey = RSA.Create(2048);
+        var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com:8443")],
+        });
+
+        result.Success.ShouldBeFalse();
+        result.Error.ShouldContain("port");
+    }
+
+    private async Task SetTemplateSanTypesAsync(int templateId, string sanTypes)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        var template = await db.CertificateTemplates.FindAsync(templateId);
+        template!.SubjectAltNameTypes = sanTypes;
+        await db.SaveChangesAsync();
+    }
+
     private static string BuildCsrPem(RSA key, string subjectDn)
     {
         var req = new CertificateRequest(subjectDn, key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);

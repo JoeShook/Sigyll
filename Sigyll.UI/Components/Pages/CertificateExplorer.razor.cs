@@ -21,6 +21,7 @@ using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
+using Sigyll.Common.Validators;
 using Sigyll.Common.ViewModels;
 using Sigyll.Gcp;
 using Sigyll.UI.Services;
@@ -2209,6 +2210,30 @@ public partial class CertificateExplorer : IDisposable
     {
         issuanceSans.Add(new IssuanceSanEntry { Type = SanType.Uri, Value = string.Empty });
     }
+
+    /// <summary>
+    /// SAN types the selected template declares that have no non-empty entry yet.
+    /// Each declared type is required at issuance.
+    /// </summary>
+    private List<SanType> MissingRequiredSanTypes()
+    {
+        if (selectedTemplate == null) return [];
+        return IssuanceValidator.FindMissingSanTypes(
+            selectedTemplate.SubjectAltNameTypes,
+            issuanceSans.Where(s => !string.IsNullOrWhiteSpace(s.Value)).Select(s => s.Type));
+    }
+
+    private string MissingRequiredSanTypesDisplay() =>
+        string.Join(", ", MissingRequiredSanTypes().Select(IssuanceValidator.SanTypeDisplayName));
+
+    /// <summary>
+    /// Error for a malformed SAN value (e.g. a port in a DNS SAN), or null when all are valid.
+    /// </summary>
+    private string? InvalidSanError() =>
+        IssuanceService.Validator.ValidateSanValues(
+            issuanceSans
+                .Where(s => !string.IsNullOrWhiteSpace(s.Value))
+                .Select(s => new SanEntry(s.Type, s.Value)));
 
     private void RemoveSanEntry(IssuanceSanEntry entry)
     {

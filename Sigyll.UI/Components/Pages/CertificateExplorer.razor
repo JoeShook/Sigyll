@@ -483,6 +483,20 @@
                                       OnClick="AddSanEntry">
                             Add SAN
                         </FluentButton>
+                        @if (MissingRequiredSanTypes().Count > 0)
+                        {
+                            <div style="color: #e94560; font-size: 0.8rem;">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Warning())" Color="Color.Error" Style="vertical-align: middle;" />
+                                This template requires a SAN of type: @MissingRequiredSanTypesDisplay()
+                            </div>
+                        }
+                        @if (InvalidSanError() is string invalidSan)
+                        {
+                            <div style="color: #e94560; font-size: 0.8rem;">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Warning())" Color="Color.Error" Style="vertical-align: middle;" />
+                                @invalidSan
+                            </div>
+                        }
                     </div>
                 </ChildContent>
             </FluentAccordionItem>
@@ -529,7 +543,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="IssueCertificateAsync"
-                      Disabled="@(isIssuing || string.IsNullOrWhiteSpace(issuanceSubjectDn) || (issuanceKeyStorage == "local" && string.IsNullOrWhiteSpace(issuancePfxPassword)) || selectedTemplate == null)">
+                      Disabled="@(isIssuing || string.IsNullOrWhiteSpace(issuanceSubjectDn) || (issuanceKeyStorage == "local" && string.IsNullOrWhiteSpace(issuancePfxPassword)) || selectedTemplate == null || MissingRequiredSanTypes().Count > 0 || InvalidSanError() != null)">
             @(isIssuing ? "Generating..." : "Generate Certificate")
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => issuanceDialogHidden = true)"
