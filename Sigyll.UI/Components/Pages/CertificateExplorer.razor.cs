@@ -2603,7 +2603,42 @@ public partial class CertificateExplorer : IDisposable
         if (selectedTemplate != null)
             await EnsureTemplateSanListsLoadedAsync(selectedTemplate);
 
-        issuanceCertName = selectedNode.Name + " (renewed)";
+        issuanceCertName = await NextRenewalNameAsync(db, selectedNode.Name);
+    }
+
+    /// <summary>
+    /// Proposes a versioned name for a renewed certificate: "api" → "api (2)" → "api (3)".
+    /// The index is derived from existing names in the trust domain (there is no stored
+    /// counter); legacy " (renewed)" suffixes are treated as part of the same family.
+    /// </summary>
+    private async Task<string> NextRenewalNameAsync(SigyllDbContext db, string currentName)
+    {
+        var baseName = currentName.Trim();
+        while (System.Text.RegularExpressions.Regex.Match(baseName, @"^(.*) \((?:renewed|\d+)\)$")
+                   is { Success: true } m)
+        {
+            baseName = m.Groups[1].Value.TrimEnd();
+        }
+
+        var issuedNames = await db.IssuedCertificates
+            .Where(i => i.IssuingCaCertificate.TrustDomainId == TrustDomainId && i.Name.StartsWith(baseName))
+            .Select(i => i.Name)
+            .ToListAsync();
+        var caNames = await db.CaCertificates
+            .Where(c => c.TrustDomainId == TrustDomainId && c.Name.StartsWith(baseName))
+            .Select(c => c.Name)
+            .ToListAsync();
+
+        var highest = 1;
+        var suffixPattern = $@"^{System.Text.RegularExpressions.Regex.Escape(baseName)} \((\d+)\)$";
+        foreach (var name in issuedNames.Concat(caNames))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(name.Trim(), suffixPattern);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var n))
+                highest = Math.Max(highest, n);
+        }
+
+        return $"{baseName} ({highest + 1})";
     }
 
     // --- Re-sign Methods ---
