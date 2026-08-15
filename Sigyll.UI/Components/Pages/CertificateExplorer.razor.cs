@@ -2433,37 +2433,7 @@ public partial class CertificateExplorer : IDisposable
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
         isRenewMode = true;
 
-        var targetType = selectedNode.CertificateRole switch
-        {
-            "RootCA" => CertificateType.RootCa,
-            "IntermediateCA" => CertificateType.IntermediateCa,
-            "EndEntity" => CertificateType.EndEntityClient,
-            _ => CertificateType.EndEntityClient
-        };
-
-        if (selectedNode.CertificateRole == "EndEntity")
-        {
-            var issued = await db.IssuedCertificates.FindAsync(selectedNode.Id);
-            if (issued?.TemplateId != null)
-            {
-                var match = availableTemplates.FirstOrDefault(t => t.Id == issued.TemplateId);
-                if (match != null)
-                {
-                    selectedTemplate = match;
-                    OnTemplateSelected(match);
-                }
-            }
-        }
-
-        if (selectedTemplate == null || selectedTemplate.CertificateType != targetType)
-        {
-            var match = availableTemplates.FirstOrDefault(t => t.CertificateType == targetType)
-                        ?? availableTemplates.FirstOrDefault();
-            if (match != null)
-            {
-                selectedTemplate = match;
-            }
-        }
+        await PreselectRenewalTemplateAsync(db);
 
         OnTemplateSelected(selectedTemplate);
         if (selectedTemplate != null)
@@ -2480,6 +2450,56 @@ public partial class CertificateExplorer : IDisposable
             issuanceAiaUrls = aiaUrls.Select(u => new IssuanceUrlEntry { Value = u }).ToList();
 
         isRenewMode = false;
+    }
+
+    /// <summary>
+    /// Pre-selects the template for a renew/similar flow. The certificate's stored TemplateId
+    /// is authoritative when it still exists — this is what distinguishes a client from a
+    /// server end-entity template. Without one (older or imported certs), fall back to a
+    /// template compatible with the cert's role, using the serverAuth EKU to prefer server
+    /// over client for end-entities.
+    /// </summary>
+    private async Task PreselectRenewalTemplateAsync(SigyllDbContext db)
+    {
+        if (selectedNode == null) return;
+
+        if (selectedNode.CertificateRole == "EndEntity")
+        {
+            var issued = await db.IssuedCertificates.FindAsync(selectedNode.Id);
+            if (issued?.TemplateId != null)
+            {
+                var stored = availableTemplates.FirstOrDefault(t => t.Id == issued.TemplateId);
+                if (stored != null)
+                {
+                    selectedTemplate = stored;
+                    return;
+                }
+            }
+        }
+
+        bool Compatible(CertificateType t) => selectedNode.CertificateRole switch
+        {
+            "RootCA" => t == CertificateType.RootCa,
+            "IntermediateCA" => t == CertificateType.IntermediateCa,
+            _ => t is CertificateType.EndEntityClient or CertificateType.EndEntityServer
+        };
+
+        if (selectedTemplate != null && Compatible(selectedTemplate.CertificateType))
+            return;
+
+        var hasServerAuthEku = selectedCert?.Extensions
+            .OfType<X509EnhancedKeyUsageExtension>()
+            .SelectMany(e => e.EnhancedKeyUsages.Cast<System.Security.Cryptography.Oid>())
+            .Any(o => o.Value == "1.3.6.1.5.5.7.3.1") == true;
+        var preferredEndEntityType = hasServerAuthEku
+            ? CertificateType.EndEntityServer
+            : CertificateType.EndEntityClient;
+
+        selectedTemplate =
+            availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType)
+                && (selectedNode.CertificateRole != "EndEntity" || t.CertificateType == preferredEndEntityType))
+            ?? availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType))
+            ?? availableTemplates.FirstOrDefault();
     }
 
     private static List<string> ExtractExtensionUrls(X509Certificate2? cert, string oid)
@@ -2576,40 +2596,7 @@ public partial class CertificateExplorer : IDisposable
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
         isRenewMode = true; // ShowIssuanceDialog resets it — restore
 
-        // Pre-select a template matching the original cert's role
-        var targetType = selectedNode.CertificateRole switch
-        {
-            "RootCA" => CertificateType.RootCa,
-            "IntermediateCA" => CertificateType.IntermediateCa,
-            "EndEntity" => CertificateType.EndEntityClient,
-            _ => CertificateType.EndEntityClient
-        };
-
-        // Try to match the original cert's template if it had one
-        if (selectedNode.CertificateRole == "EndEntity")
-        {
-            var issued = await db.IssuedCertificates.FindAsync(selectedNode.Id);
-            if (issued?.TemplateId != null)
-            {
-                var match = availableTemplates.FirstOrDefault(t => t.Id == issued.TemplateId);
-                if (match != null)
-                {
-                    selectedTemplate = match;
-                    OnTemplateSelected(match);
-                }
-            }
-        }
-
-        // Fallback: match by cert type
-        if (selectedTemplate == null || selectedTemplate.CertificateType != targetType)
-        {
-            var match = availableTemplates.FirstOrDefault(t => t.CertificateType == targetType)
-                        ?? availableTemplates.FirstOrDefault();
-            if (match != null)
-            {
-                selectedTemplate = match;
-            }
-        }
+        await PreselectRenewalTemplateAsync(db);
 
         // Always call OnTemplateSelected with isRenewMode=true to restore subject/SANs
         OnTemplateSelected(selectedTemplate);
