@@ -77,7 +77,7 @@
 
 ## Phase 9: Security & Compliance
 - [ ] Role-based access control (RBAC) — Admin, Operator, Auditor, RA roles
-- [ ] Full audit logging (who did what, when, to which cert)
+- [ ] Full audit logging (who did what, when, to which cert) — see **Phase 13** for the key-egress audit subset, which is sequenced earlier because revocation safety depends on it
 - [ ] Audit log viewer/export
 - [ ] RA (Registration Authority) workflows — request/approve/reject
 - [ ] Key escrow / key recovery
@@ -146,6 +146,22 @@
 - **UDAP client certs — pure ACME DV is a poor fit.** Client identifiers aren't necessarily web-reachable, and UDAP communities require organizational vetting that ACME's unattended domain-validation model doesn't provide.
 - **EAB is the bridge.** The portal/RA performs the one-time vetting and issues EAB credentials; ACME then automates (re)issuance + renewal scoped to that vetted account's authorized identifiers — for both server and client certs. This is *why the portal comes first*.
 - **No standardized "ACME-for-UDAP" profile exists today** — this would be a Sigyll / UDAP-community design effort (likely building on draft-ietf-acme-profiles).
+
+## Phase 13: Certificate Lifecycle Integrity & Key-Egress Auditing
+**Principle**: a CA must never forget a serial number it signed until that serial expires, and must never lose the ability to sign a CRL that covers it. Today a few clicks can violate both: deleting an unrevoked issued cert erases the serial (making it unrevocable — there is no revoke-by-serial), and deleting a CA removes its CRLs, its `CertificateRevocations` history, and destroys its remote signing key.
+
+**Sequencing matters** — each item depends on the previous:
+
+1. [ ] **Authentication on the CA app** — the main Sigyll host currently has no login; download endpoints (including `.p12` with private keys) are anonymous. Prerequisite for any "who did this" attribution, and closes an open key-disclosure hole. Reuse the 12a Identity/passkey stack or the RA endpoints' mTLS/API-key pattern.
+2. [ ] **Key-egress / download audit table** — record every artifact that leaves the CA: cert id + entity type, artifact kind (`p12`, `p12+chain`, `cer`, `pem`, `key-clipboard`), whether it contained private key material, authenticated user, remote IP, user agent, timestamp. Download counts fall out as queries.
+   - "Copy Key" (clipboard PKCS#8 export) is a release event, same as a download
+   - CSR-issued and portal-issued certs are **released at birth** — the CA never held the key
+   - Remote-key certs (Vault/KMS, no PFX) are provably contained unless the cert itself was exported
+   - "To where" is honestly limited to IP + user agent; final destination is unknowable server-side
+3. [ ] **Revoke-before-delete gate** — deleting an unexpired cert whose key material ever left containment (per the audit table) auto-revokes + regenerates the CRL first, so the serial lands in `CertificateRevocations` before the row dies. Provably-contained certs may delete silently; expired certs are exempt (CRLs may drop entries after expiry). Fix the inverted delete-impact warning: today the safe case (already revoked) warns and the dangerous case (live cert) is silent.
+4. [ ] **Tombstones + lineage family table** — a retained record (serial, thumbprint, subject, notAfter, family id, monotonic version counter) that survives any delete. One table solves: version-index reuse after delete, revocability of deleted certs, lineage gaps when a middle generation is deleted (`RenewalOfId` is SetNull), and gives ACME ARI (12b) a durable "replaces" handle. Builds on the `Version`/`RenewalOfId` columns already shipped.
+5. [ ] **CA-deletion hardening** — block CA deletion while any unexpired issued serial exists (including archived/tombstoned); never delete `CertificateRevocations` history; make remote key destruction its own explicit, loudly-confirmed step instead of a delete side effect (a destroyed CA key = permanent loss of CRL signing for the whole subtree).
+6. [ ] **UI posture** — archive as the prominent action; hard delete demoted to a danger zone gated on the rules above.
 
 ## Upcoming: Rename "Community" to "Trust Domain"
 - [ ] Rename entity `Community` → `TrustDomain` and `CommunityBaseUrl` → `TrustDomainBaseUrl`
