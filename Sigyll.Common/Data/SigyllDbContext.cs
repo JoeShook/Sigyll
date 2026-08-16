@@ -84,6 +84,11 @@ public class SigyllDbContext : DbContext
                 .WithMany(e => e.Children)
                 .HasForeignKey(e => e.ParentId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.RenewalOf)
+                .WithMany()
+                .HasForeignKey(e => e.RenewalOfId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // IssuedCertificate
@@ -107,6 +112,11 @@ public class SigyllDbContext : DbContext
             entity.HasOne(e => e.Template)
                 .WithMany(t => t.IssuedCertificates)
                 .HasForeignKey(e => e.TemplateId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.RenewalOf)
+                .WithMany()
+                .HasForeignKey(e => e.RenewalOfId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

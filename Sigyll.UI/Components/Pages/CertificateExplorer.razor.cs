@@ -173,6 +173,9 @@ public partial class CertificateExplorer : IDisposable
     private string issuanceKeyStorage = "local";
     private List<string> availableKeyStorageProviders = new() { "local" };
     private bool isRenewMode;
+    private int? renewalOfCertificateId;
+    private int selectedNodeVersion = 1;
+    private string? selectedNodeRenewalOfName;
     private List<IssuanceSanEntry> renewalSans = new();
     private string renewalSubjectDn = string.Empty;
     private List<string> renewalOriginalCdpUrls = new();
@@ -484,6 +487,8 @@ public partial class CertificateExplorer : IDisposable
         selectedNodeHasPrivateKey = false;
         selectedNodeHasRemoteKey = false;
         selectedNodeAutoRenew = true;
+        selectedNodeVersion = 1;
+        selectedNodeRenewalOfName = null;
         chainValidation = null;
         asn1Root = null;
         subjectAltNames.Clear();
@@ -537,6 +542,8 @@ public partial class CertificateExplorer : IDisposable
         selectedNodeHasPrivateKey = details.HasPrivateKey;
         selectedNodeHasRemoteKey = details.HasRemoteKey;
         selectedNodeAutoRenew = details.AutoRenew;
+        selectedNodeVersion = details.Version;
+        selectedNodeRenewalOfName = details.RenewalOfName;
 
         if (!string.IsNullOrEmpty(details.Pem))
         {
@@ -1962,6 +1969,7 @@ public partial class CertificateExplorer : IDisposable
     private async Task ShowIssuanceDialog(int? issuingCaId, string? issuingCaName)
     {
         isRenewMode = false;
+        renewalOfCertificateId = null;
         urlChangeWarnings.Clear();
         issuingCaIdForIssuance = issuingCaId;
         issuingCaNameForIssuance = issuingCaName;
@@ -2305,6 +2313,7 @@ public partial class CertificateExplorer : IDisposable
                 NotAfter = issuanceNotAfterNullable.HasValue ? new DateTimeOffset(issuanceNotAfterNullable.Value, TimeSpan.Zero) : null,
                 PfxPassword = issuancePfxPassword,
                 SigningProviderOverride = issuanceKeyStorage,
+                RenewalOfCertificateId = renewalOfCertificateId,
             };
 
             var result = await IssuanceService.IssueCertificateAsync(request);
@@ -2595,6 +2604,7 @@ public partial class CertificateExplorer : IDisposable
         isRenewMode = true;
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
         isRenewMode = true; // ShowIssuanceDialog resets it — restore
+        renewalOfCertificateId = selectedNode.Id; // record lineage: new cert renews this one
 
         await PreselectRenewalTemplateAsync(db);
 
@@ -2608,11 +2618,20 @@ public partial class CertificateExplorer : IDisposable
 
     /// <summary>
     /// Proposes a versioned name for a renewed certificate: "api" → "api (2)" → "api (3)".
-    /// The index is derived from existing names in the trust domain (there is no stored
-    /// counter); legacy " (renewed)" suffixes are treated as part of the same family.
+    /// The number comes from the predecessor's stored Version, floored by a scan of existing
+    /// names in the trust domain so legacy families (pre-Version rows, " (renewed)" suffixes)
+    /// don't collide.
     /// </summary>
     private async Task<string> NextRenewalNameAsync(SigyllDbContext db, string currentName)
     {
+        var predecessorVersion = 1;
+        if (selectedNode != null)
+        {
+            predecessorVersion = selectedNode.EntityType == "CaCertificate"
+                ? (await db.CaCertificates.FindAsync(selectedNode.Id))?.Version ?? 1
+                : (await db.IssuedCertificates.FindAsync(selectedNode.Id))?.Version ?? 1;
+        }
+
         var baseName = currentName.Trim();
         while (System.Text.RegularExpressions.Regex.Match(baseName, @"^(.*) \((?:renewed|\d+)\)$")
                    is { Success: true } m)
@@ -2629,7 +2648,7 @@ public partial class CertificateExplorer : IDisposable
             .Select(c => c.Name)
             .ToListAsync();
 
-        var highest = 1;
+        var highest = predecessorVersion;
         var suffixPattern = $@"^{System.Text.RegularExpressions.Regex.Escape(baseName)} \((\d+)\)$";
         foreach (var name in issuedNames.Concat(caNames))
         {

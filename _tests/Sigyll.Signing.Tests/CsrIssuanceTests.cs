@@ -188,6 +188,125 @@ public class CsrIssuanceTests
         result.Error.ShouldContain("port");
     }
 
+    [Fact]
+    public async Task IssueFromCsr_FirstIssuance_IsVersion1WithNoLineage()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+
+        using var subjectKey = RSA.Create(2048);
+        var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+        });
+
+        result.Success.ShouldBeTrue(result.Error);
+
+        await using var db = _dbFactory.CreateDbContext();
+        var entity = await db.IssuedCertificates.FindAsync(result.EntityId);
+        entity!.Version.ShouldBe(1);
+        entity.RenewalOfId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task IssueFromCsr_Renewal_IncrementsVersionAndLinksPredecessor()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var service = CreateService();
+
+        using var firstKey = RSA.Create(2048);
+        var first = await service.IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(firstKey, "CN=api.example.com"),
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+        });
+        first.Success.ShouldBeTrue(first.Error);
+
+        using var secondKey = RSA.Create(2048);
+        var second = await service.IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(secondKey, "CN=api.example.com"),
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+            RenewalOfCertificateId = first.EntityId,
+        });
+        second.Success.ShouldBeTrue(second.Error);
+
+        await using var db = _dbFactory.CreateDbContext();
+        var entity = await db.IssuedCertificates.FindAsync(second.EntityId);
+        entity!.Version.ShouldBe(2);
+        entity.RenewalOfId.ShouldBe(first.EntityId);
+    }
+
+    [Fact]
+    public async Task IssueFromCsr_RenewalOfNonexistentCert_Fails()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+
+        using var subjectKey = RSA.Create(2048);
+        var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+            RenewalOfCertificateId = 99999,
+        });
+
+        result.Success.ShouldBeFalse();
+        result.Error.ShouldContain("predecessor");
+    }
+
+    [Fact]
+    public async Task Issue_Renewal_IncrementsVersionAndLinksPredecessor()
+    {
+        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var service = CreateService();
+
+        var first = await service.IssueCertificateAsync(new CertificateIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            SubjectDn = "CN=api.example.com",
+            CertificateName = "api",
+            PfxPassword = "test-password",
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+        });
+        first.Success.ShouldBeTrue(first.Error);
+
+        var second = await service.IssueCertificateAsync(new CertificateIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            TemplateId = templateId,
+            TrustDomainId = trustDomainId,
+            SubjectDn = "CN=api.example.com",
+            CertificateName = "api (2)",
+            PfxPassword = "test-password",
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+            RenewalOfCertificateId = first.EntityId,
+        });
+        second.Success.ShouldBeTrue(second.Error);
+
+        await using var db = _dbFactory.CreateDbContext();
+        var entity = await db.IssuedCertificates.FindAsync(second.EntityId);
+        entity!.Version.ShouldBe(2);
+        entity.RenewalOfId.ShouldBe(first.EntityId);
+
+        var firstEntity = await db.IssuedCertificates.FindAsync(first.EntityId);
+        firstEntity!.Version.ShouldBe(1);
+        firstEntity.RenewalOfId.ShouldBeNull();
+    }
+
     private async Task SetTemplateSanTypesAsync(int templateId, string sanTypes)
     {
         await using var db = _dbFactory.CreateDbContext();

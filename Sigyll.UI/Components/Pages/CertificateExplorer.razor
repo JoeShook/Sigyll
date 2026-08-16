@@ -1104,6 +1104,13 @@ else if (treeNodes.Count > 0)
                                                     ValueChanged="@(v => ToggleAutoRenewAsync(v))"
                                                     Label="@(selectedNodeAutoRenew ? "Enabled" : "Disabled")" />
                                 </span>
+                                <strong>Version</strong>
+                                <span>@selectedNodeVersion</span>
+                                @if (selectedNodeRenewalOfName != null)
+                                {
+                                    <strong>Renewal Of</strong>
+                                    <span>@selectedNodeRenewalOfName</span>
+                                }
                             </div>
                         </FluentAccordionItem>
 

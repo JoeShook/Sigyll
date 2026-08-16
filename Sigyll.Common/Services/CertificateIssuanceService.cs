@@ -94,6 +94,13 @@ public class CertificateIssuanceService
         if (missingSanError != null)
             return CertificateIssuanceResult.Failure(missingSanError);
 
+        // Renewal lineage: the predecessor determines the new certificate's version
+        var (renewalVersion, renewalOfId, lineageError) = await ResolveRenewalLineageAsync(
+            db, request.RenewalOfCertificateId,
+            isCaLineage: template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa);
+        if (lineageError != null)
+            return CertificateIssuanceResult.Failure(lineageError);
+
         // Determine effective signing mode for this request
         bool useRemoteSigning = request.SigningProviderOverride != null
             ? request.SigningProviderOverride != "local"
@@ -168,14 +175,16 @@ public class CertificateIssuanceService
         if (useRemoteSigning)
         {
             return await IssueCertificateRemoteAsync(
-                db, template, request, isSelfSigned, issuingCert, issuingCaEntity, issuerKeyRef);
+                db, template, request, isSelfSigned, issuingCert, issuingCaEntity, issuerKeyRef,
+                renewalVersion, renewalOfId);
         }
 
         if (issuerKeyRef != null)
         {
             // Hybrid: local key + remote signing (e.g., end-entity with PFX, signed by Vault CA)
             return await IssueCertificateHybridAsync(
-                db, template, request, issuingCert!, issuingCaEntity!, issuerKeyRef);
+                db, template, request, issuingCert!, issuingCaEntity!, issuerKeyRef,
+                renewalVersion, renewalOfId);
         }
 
         try
@@ -263,6 +272,8 @@ public class CertificateIssuanceService
                         NotAfter = cert.NotAfter.ToUniversalTime(),
                         CrlDistributionPoint = request.CdpUrls.Count > 0 ? string.Join(";", request.CdpUrls) : null,
                         AuthorityInfoAccessUri = request.AiaUrls.Count > 0 ? string.Join(";", request.AiaUrls) : null,
+                        Version = renewalVersion,
+                        RenewalOfId = renewalOfId,
                     };
 
                     db.CaCertificates.Add(caEntity);
@@ -301,6 +312,8 @@ public class CertificateIssuanceService
                         KeySize = keySize,
                         NotBefore = cert.NotBefore.ToUniversalTime(),
                         NotAfter = cert.NotAfter.ToUniversalTime(),
+                        Version = renewalVersion,
+                        RenewalOfId = renewalOfId,
                     };
 
                     db.IssuedCertificates.Add(issuedEntity);
@@ -325,6 +338,26 @@ public class CertificateIssuanceService
         {
             issuingCert?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Resolves renewal lineage for an issuance request: the new certificate's Version is the
+    /// predecessor's + 1 and RenewalOfId links back to it. Returns an error when the
+    /// referenced predecessor doesn't exist in the expected table.
+    /// </summary>
+    private static async Task<(int Version, int? RenewalOfId, string? Error)> ResolveRenewalLineageAsync(
+        SigyllDbContext db, int? renewalOfCertificateId, bool isCaLineage)
+    {
+        if (renewalOfCertificateId is not int predecessorId)
+            return (1, null, null);
+
+        int? predecessorVersion = isCaLineage
+            ? (await db.CaCertificates.FindAsync(predecessorId))?.Version
+            : (await db.IssuedCertificates.FindAsync(predecessorId))?.Version;
+
+        return predecessorVersion == null
+            ? (1, null, "Renewal predecessor certificate not found.")
+            : (predecessorVersion.Value + 1, predecessorId, null);
     }
 
     /// <summary>
@@ -376,6 +409,12 @@ public class CertificateIssuanceService
         var missingSanError = _validator.ValidateRequiredSanTypes(template, request.SubjectAltNames);
         if (missingSanError != null)
             return CsrIssuanceResult.Failure(missingSanError);
+
+        // Renewal lineage: the predecessor determines the new certificate's version
+        var (renewalVersion, renewalOfId, lineageError) = await ResolveRenewalLineageAsync(
+            db, request.RenewalOfCertificateId, isCaLineage: false);
+        if (lineageError != null)
+            return CsrIssuanceResult.Failure(lineageError);
 
         var issuingCaEntity = await db.CaCertificates.FindAsync(request.IssuingCaCertificateId);
         if (issuingCaEntity == null)
@@ -505,6 +544,8 @@ public class CertificateIssuanceService
                     KeySize = GetKeySize(cert),
                     NotBefore = cert.NotBefore.ToUniversalTime(),
                     NotAfter = cert.NotAfter.ToUniversalTime(),
+                    Version = renewalVersion,
+                    RenewalOfId = renewalOfId,
                 };
 
                 db.IssuedCertificates.Add(issuedEntity);
@@ -748,7 +789,9 @@ public class CertificateIssuanceService
         bool isSelfSigned,
         X509Certificate2? issuingCert,
         CaCertificate? issuingCaEntity,
-        SigningKeyReference? issuerKeyRef)
+        SigningKeyReference? issuerKeyRef,
+        int renewalVersion,
+        int? renewalOfId)
     {
         try
         {
@@ -832,6 +875,8 @@ public class CertificateIssuanceService
                         AuthorityInfoAccessUri = request.AiaUrls.Count > 0 ? string.Join(";", request.AiaUrls) : null,
                         CertSecurityLevel = CertSecurityLevel.CloudKms,
                         StoreProviderHint = $"{_signingProvider.ProviderName}:{newKeyRef.KeyIdentifier}",
+                        Version = renewalVersion,
+                        RenewalOfId = renewalOfId,
                     };
 
                     db.CaCertificates.Add(caEntity);
@@ -872,6 +917,8 @@ public class CertificateIssuanceService
                         NotAfter = cert.NotAfter.ToUniversalTime(),
                         CertSecurityLevel = CertSecurityLevel.CloudKms,
                         StoreProviderHint = $"{_signingProvider.ProviderName}:{newKeyRef.KeyIdentifier}",
+                        Version = renewalVersion,
+                        RenewalOfId = renewalOfId,
                     };
 
                     db.IssuedCertificates.Add(issuedEntity);
@@ -916,7 +963,9 @@ public class CertificateIssuanceService
         CertificateIssuanceRequest request,
         X509Certificate2 issuingCert,
         CaCertificate issuingCaEntity,
-        SigningKeyReference issuerKeyRef)
+        SigningKeyReference issuerKeyRef,
+        int renewalVersion,
+        int? renewalOfId)
     {
         try
         {
@@ -990,6 +1039,8 @@ public class CertificateIssuanceService
                         NotAfter = certWithKey.NotAfter.ToUniversalTime(),
                         CrlDistributionPoint = request.CdpUrls.Count > 0 ? string.Join(";", request.CdpUrls) : null,
                         AuthorityInfoAccessUri = request.AiaUrls.Count > 0 ? string.Join(";", request.AiaUrls) : null,
+                        Version = renewalVersion,
+                        RenewalOfId = renewalOfId,
                         // Local key — standard software level, no provider hint
                     };
 
@@ -1029,6 +1080,8 @@ public class CertificateIssuanceService
                         KeySize = keySize,
                         NotBefore = certWithKey.NotBefore.ToUniversalTime(),
                         NotAfter = certWithKey.NotAfter.ToUniversalTime(),
+                        Version = renewalVersion,
+                        RenewalOfId = renewalOfId,
                         // Local key — no StoreProviderHint, standard security level
                     };
 

@@ -79,6 +79,13 @@ public class CertificateIssuanceRequest
     /// Null = use the globally configured provider.
     /// </summary>
     public string? SigningProviderOverride { get; set; }
+
+    /// <summary>
+    /// When this issuance is a renewal (re-key), the ID of the certificate being replaced
+    /// (a CaCertificate for CA templates, an IssuedCertificate for end-entity templates).
+    /// The new certificate records the lineage link and Version = predecessor + 1.
+    /// </summary>
+    public int? RenewalOfCertificateId { get; set; }
 }
 
 /// <summary>

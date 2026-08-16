@@ -35,6 +35,19 @@ public class IssuedCertificate
     public bool IsRevoked { get; set; }
     public DateTime? RevokedAt { get; set; }
     public int RevocationReason { get; set; }
+
+    /// <summary>
+    /// 1-based renewal generation within this certificate's lineage. Incremented each time
+    /// the certificate is re-keyed (renewed); the first issuance is version 1.
+    /// </summary>
+    public int Version { get; set; } = 1;
+
+    /// <summary>
+    /// The certificate this one was renewed from (its direct predecessor), or null for the
+    /// first issuance. Basis for renewal lineage and future ACME ARI "replaces" support.
+    /// </summary>
+    public int? RenewalOfId { get; set; }
+    public IssuedCertificate? RenewalOf { get; set; }
     public CertSecurityLevel CertSecurityLevel { get; set; } = CertSecurityLevel.Software;
     public string? StoreProviderHint { get; set; }
     public bool Enabled { get; set; } = true;

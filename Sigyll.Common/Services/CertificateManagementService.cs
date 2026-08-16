@@ -32,6 +32,12 @@ public class CertificateNodeDetails
     public bool HasRemoteKey { get; set; }
     public bool AutoRenew { get; set; } = true;
     public string? SubjectAltNames { get; set; }
+
+    /// <summary>Renewal generation (1 = first issuance).</summary>
+    public int Version { get; set; } = 1;
+
+    /// <summary>Name of the certificate this one renewed, when lineage is recorded.</summary>
+    public string? RenewalOfName { get; set; }
 }
 
 public class TrustDomainTreeData
@@ -106,6 +112,9 @@ public class CertificateManagementService
             details.HasPrivateKey = ca?.EncryptedPfxBytes != null;
             details.HasRemoteKey = !string.IsNullOrEmpty(ca?.StoreProviderHint);
             details.AutoRenew = ca?.AutoRenew ?? true;
+            details.Version = ca?.Version ?? 1;
+            if (ca?.RenewalOfId != null)
+                details.RenewalOfName = (await db.CaCertificates.FindAsync([ca.RenewalOfId.Value], ct))?.Name;
         }
         else
         {
@@ -114,6 +123,9 @@ public class CertificateManagementService
             details.SubjectAltNames = issued?.SubjectAltNames;
             details.HasPrivateKey = issued?.EncryptedPfxBytes != null;
             details.AutoRenew = issued?.AutoRenew ?? true;
+            details.Version = issued?.Version ?? 1;
+            if (issued?.RenewalOfId != null)
+                details.RenewalOfName = (await db.IssuedCertificates.FindAsync([issued.RenewalOfId.Value], ct))?.Name;
         }
 
         return details;

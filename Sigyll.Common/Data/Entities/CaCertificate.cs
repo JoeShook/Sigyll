@@ -48,6 +48,19 @@ public class CaCertificate
     public bool IsRevoked { get; set; }
     public DateTime? RevokedAt { get; set; }
     public int RevocationReason { get; set; }
+
+    /// <summary>
+    /// 1-based renewal generation within this CA's lineage. Incremented each time the CA
+    /// is re-keyed (renewed); the first issuance is version 1.
+    /// </summary>
+    public int Version { get; set; } = 1;
+
+    /// <summary>
+    /// The CA certificate this one was renewed from (its direct predecessor), or null for
+    /// the first issuance.
+    /// </summary>
+    public int? RenewalOfId { get; set; }
+    public CaCertificate? RenewalOf { get; set; }
     public bool Enabled { get; set; } = true;
     public bool AutoRenew { get; set; } = true;
     public bool IsArchived { get; set; }

@@ -43,6 +43,12 @@ public class CsrIssuanceRequest
 
     /// <summary>Override for the issuer's signing provider; null uses the configured provider.</summary>
     public string? SigningProviderOverride { get; set; }
+
+    /// <summary>
+    /// When this issuance is a renewal (re-key), the ID of the IssuedCertificate being
+    /// replaced. The new certificate records the lineage link and Version = predecessor + 1.
+    /// </summary>
+    public int? RenewalOfCertificateId { get; set; }
 }
 
 /// <summary>
