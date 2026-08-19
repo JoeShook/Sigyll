@@ -10,6 +10,8 @@
 @inject ILogger<Login> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment Environment
 
 <PageTitle>Log in</PageTitle>
 
@@ -59,6 +61,29 @@
                         <a href="Account/ResendEmailConfirmation">Resend email confirmation</a>
                     </p>
                 </div>
+                @if (demoLogins.Count > 0)
+                {
+                    @* Development-only convenience: rendered only in the Development environment
+                       AND when Auth:DemoLogins is configured. Fills the form; you press Log in. *@
+                    <hr />
+                    <div class="d-flex flex-column gap-2">
+                        <span class="text-secondary">Demo accounts (Development)</span>
+                        @foreach (var demo in demoLogins)
+                        {
+                            <button type="button" class="btn btn-outline-secondary btn-sm"
+                                    data-demo-email="@demo.Email" data-demo-password="@demo.Password"
+                                    onclick="sigyllFillDemoLogin(this)">
+                                Fill @demo.Email
+                            </button>
+                        }
+                    </div>
+                    <script>
+                        function sigyllFillDemoLogin(btn) {
+                            document.getElementById('Input.Email').value = btn.dataset.demoEmail;
+                            document.getElementById('Input.Password').value = btn.dataset.demoPassword;
+                        }
+                    </script>
+                }
             </EditForm>
         </section>
     </div>
@@ -74,6 +99,7 @@
 @code {
     private string? errorMessage;
     private EditContext editContext = default!;
+    private List<DemoLogin> demoLogins = [];
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
@@ -89,6 +115,11 @@
         Input ??= new();
 
         editContext = new EditContext(Input);
+
+        if (Environment.IsDevelopment())
+        {
+            demoLogins = Configuration.GetSection("Auth:DemoLogins").Get<List<DemoLogin>>() ?? [];
+        }
 
         if (HttpMethods.IsGet(HttpContext.Request.Method))
         {
@@ -144,6 +175,12 @@
         {
             errorMessage = "Error: Invalid login attempt.";
         }
+    }
+
+    private sealed class DemoLogin
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
     }
 
     private sealed class InputModel

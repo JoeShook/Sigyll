@@ -6,27 +6,29 @@
         <span style="font-weight: 600; font-size: 1.1rem;">Sigyll</span>
         <span style="opacity: 0.6; margin-left: 0.5rem; font-size: 0.85rem;">Certificate Request Portal</span>
         <FluentSpacer />
-        <AuthorizeView>
-            <Authorized>
-                <FluentAnchor Href="Account/Manage" Appearance="Appearance.Stealth"
-                              IconStart="@(new Icons.Regular.Size20.Person())">
-                    @context.User.Identity?.Name
-                </FluentAnchor>
-                <form action="Account/Logout" method="post" style="display: inline;">
-                    <AntiforgeryToken />
-                    <input type="hidden" name="ReturnUrl" value="" />
-                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Stealth"
-                                  IconStart="@(new Icons.Regular.Size20.SignOut())" Title="Sign out">
-                        Logout
-                    </FluentButton>
-                </form>
-            </Authorized>
-            <NotAuthorized>
-                <FluentAnchor Href="Account/Login" Appearance="Appearance.Stealth">Sign in</FluentAnchor>
-                <FluentAnchor Href="Account/Register" Appearance="Appearance.Accent">Register</FluentAnchor>
-            </NotAuthorized>
-        </AuthorizeView>
-        <ThemeToggle />
+        <div style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <AuthorizeView>
+                <Authorized>
+                    <FluentAnchor Href="Account/Manage" Appearance="Appearance.Stealth"
+                                  IconStart="@(new Icons.Regular.Size20.Person())">
+                        @context.User.Identity?.Name
+                    </FluentAnchor>
+                    <form action="Account/Logout" method="post" style="display: inline; margin: 0;">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="" />
+                        <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Stealth"
+                                      IconStart="@(new Icons.Regular.Size20.SignOut())" Title="Sign out">
+                            Logout
+                        </FluentButton>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <FluentAnchor Href="Account/Login" Appearance="Appearance.Stealth">Sign in</FluentAnchor>
+                    <FluentAnchor Href="Account/Register" Appearance="Appearance.Accent">Register</FluentAnchor>
+                </NotAuthorized>
+            </AuthorizeView>
+            <ThemeToggle />
+        </div>
     </FluentHeader>
 
     <div style="display: flex; height: calc(100vh - 50px); overflow: hidden;">
