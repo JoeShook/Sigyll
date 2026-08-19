@@ -10,10 +10,14 @@
 
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Serilog;
 using Sigyll.Components;
+using Sigyll.Components.Account;
+using Sigyll.Data;
 using Microsoft.Extensions.Options;
 using Sigyll.Common.Data;
 using Sigyll.ServiceDefaults;
@@ -57,6 +61,44 @@ try
     // PostgreSQL
     builder.Services.AddDbContextFactory<SigyllDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("SigyllDb")));
+
+    // CA operator authentication — deliberately a separate user store from the RA portal's
+    // requester accounts (true RA/CA split). Same database, own schema + migrations history.
+    builder.Services.AddDbContext<SigyllAuthDbContext>(options =>
+        options.UseNpgsql(builder.Configuration.GetConnectionString("SigyllDb"),
+            npgsql => npgsql.MigrationsHistoryTable(SigyllAuthDbContext.MigrationsHistoryTable, SigyllAuthDbContext.Schema)));
+
+    builder.Services.AddCascadingAuthenticationState();
+    builder.Services.AddScoped<IdentityRedirectManager>();
+    builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
+
+    builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultScheme = IdentityConstants.ApplicationScheme;
+            options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+        })
+        .AddIdentityCookies();
+
+    builder.Services.AddIdentityCore<SigyllUser>(options =>
+        {
+            // Operator accounts are created by an Admin — no self-registration, no email loop.
+            options.SignIn.RequireConfirmedAccount = false;
+            // Required for the AspNetUserPasskeys store (.NET 10 passkeys).
+            options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
+        })
+        .AddRoles<IdentityRole>()
+        .AddEntityFrameworkStores<SigyllAuthDbContext>()
+        .AddSignInManager()
+        .AddDefaultTokenProviders();
+
+    builder.Services.AddAuthorization();
+
+    // Pin the passkey Relying Party ID explicitly. A CA must not infer the RP ID from the
+    // host header (credential-scoping risk).
+    builder.Services.Configure<IdentityPasskeyOptions>(options =>
+    {
+        options.ServerDomain = builder.Configuration["Auth:Passkey:ServerDomain"];
+    });
 
     // Services
     builder.Services.AddScoped<CertificateImportService>();
@@ -151,6 +193,10 @@ try
         await SeedTemplatesAsync(db);
         await SeedDidTemplatesAsync(db);
         await SeedCredentialSchemasAsync(db);
+
+        var authDb = scope.ServiceProvider.GetRequiredService<SigyllAuthDbContext>();
+        await authDb.Database.MigrateAsync();
+        await SeedOperatorAuthAsync(scope.ServiceProvider, builder.Configuration);
     }
 
     app.UseSerilogRequestLogging(options =>
@@ -171,10 +217,10 @@ try
         };
     });
 
-    // Hangfire dashboard (Sigyll is a dev/internal tool — open access)
+    // Hangfire dashboard — Admin role only
     app.MapHangfireDashboard("/hangfire", new DashboardOptions
     {
-        Authorization = [new AllowAllDashboardAuthorizationFilter()]
+        Authorization = [new AdminDashboardAuthorizationFilter()]
     });
 
     // Register the recurring CRL auto-renewal job when it is missing OR when the
@@ -200,6 +246,8 @@ try
 
     app.UseStaticFiles();
     app.MapStaticAssets();
+    app.UseAuthentication();
+    app.UseAuthorization();
     app.UseAntiforgery();
     if (useServiceDefaults)
     {
@@ -212,6 +260,9 @@ try
             typeof(FluentButton).Assembly,
             typeof(Sigyll.UI.Components.Pages.Home).Assembly);
 
+    // Non-component endpoints required by the Identity /Account pages (logout, passkey options)
+    app.MapAdditionalIdentityEndpoints();
+
     // Download endpoints
     app.MapGet("/api/ca/{id}/download/cer", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -221,7 +272,7 @@ try
 
         var cerBytes = Encoding.UTF8.GetBytes(ca.X509CertificatePem);
         return Results.File(cerBytes, "application/x-pem-file", $"{ca.Name}.cer");
-    });
+    }).RequireAuthorization();
 
     app.MapGet("/api/ca/{id}/download/p12", async (int id, CertificateExportService exportService, bool chain = false) =>
     {
@@ -229,7 +280,7 @@ try
         return result.Success
             ? Results.File(result.PfxBytes!, "application/x-pkcs12", result.FileName)
             : Results.NotFound(result.Error);
-    });
+    }).RequireAuthorization();
 
     app.MapGet("/api/issued/{id}/download/cer", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -239,7 +290,7 @@ try
 
         var cerBytes = Encoding.UTF8.GetBytes(cert.X509CertificatePem);
         return Results.File(cerBytes, "application/x-pem-file", $"{cert.Name}.cer");
-    });
+    }).RequireAuthorization();
 
     app.MapGet("/api/issued/{id}/download/p12", async (int id, CertificateExportService exportService, bool chain = false) =>
     {
@@ -247,7 +298,7 @@ try
         return result.Success
             ? Results.File(result.PfxBytes!, "application/x-pkcs12", result.FileName)
             : Results.NotFound(result.Error);
-    });
+    }).RequireAuthorization();
 
     app.MapGet("/api/crl/{id}/download", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -257,7 +308,7 @@ try
 
         var fileName = crl.FileName ?? $"crl-{crl.CrlNumber}.crl";
         return Results.File(crl.RawBytes, "application/pkix-crl", fileName);
-    });
+    }).RequireAuthorization();
 
     // PEM download endpoints
     app.MapGet("/api/ca/{id}/download/pem", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
@@ -268,7 +319,7 @@ try
 
         var pemBytes = Encoding.UTF8.GetBytes(ca.X509CertificatePem);
         return Results.File(pemBytes, "application/x-pem-file", $"{ca.Name}.pem");
-    });
+    }).RequireAuthorization();
 
     app.MapGet("/api/issued/{id}/download/pem", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -278,7 +329,7 @@ try
 
         var pemBytes = Encoding.UTF8.GetBytes(cert.X509CertificatePem);
         return Results.File(pemBytes, "application/x-pem-file", $"{cert.Name}.pem");
-    });
+    }).RequireAuthorization();
 
     // ── RA portal internal API (true RA/CA split) ────────────────────────────────
     // The isolated request portal calls these endpoints to read the issuance catalog and to
@@ -412,6 +463,54 @@ static SanEntry MapSan(ApiSanEntry s) => new(
         _ => SanType.Dns
     },
     s.Value);
+
+// Seeds operator roles and, when no operator accounts exist at all, a bootstrap Admin from
+// configuration (Auth:BootstrapAdmin:Email/Password). After bootstrap, accounts are managed
+// in-app — there is no self-registration on the CA host.
+static async Task SeedOperatorAuthAsync(IServiceProvider services, IConfiguration config)
+{
+    var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
+    foreach (var role in SigyllRoles.All)
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+            await roleManager.CreateAsync(new IdentityRole(role));
+    }
+
+    var userManager = services.GetRequiredService<UserManager<SigyllUser>>();
+    if (await userManager.Users.AnyAsync())
+        return;
+
+    var email = config["Auth:BootstrapAdmin:Email"];
+    var password = config["Auth:BootstrapAdmin:Password"];
+    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+    {
+        Log.Warning(
+            "No operator accounts exist and Auth:BootstrapAdmin:Email/Password is not configured — " +
+            "the UI will be inaccessible until a bootstrap admin is configured and the app restarted.");
+        return;
+    }
+
+    var admin = new SigyllUser
+    {
+        UserName = email,
+        Email = email,
+        EmailConfirmed = true,
+        DisplayName = "Bootstrap Admin"
+    };
+    var result = await userManager.CreateAsync(admin, password);
+    if (result.Succeeded)
+    {
+        await userManager.AddToRoleAsync(admin, SigyllRoles.Admin);
+        Log.Warning(
+            "Bootstrap admin '{Email}' created from configuration. Sign in, change the password, " +
+            "and enroll a passkey immediately.", email);
+    }
+    else
+    {
+        Log.Error("Failed to create bootstrap admin: {Errors}",
+            string.Join("; ", result.Errors.Select(e => e.Description)));
+    }
+}
 
 static async Task SeedTemplatesAsync(SigyllDbContext db)
 {
@@ -553,11 +652,15 @@ static async Task SeedCredentialSchemasAsync(SigyllDbContext db)
 }
 
 /// <summary>
-/// Allows all requests to the Hangfire dashboard. Used in development only.
+/// Restricts the Hangfire dashboard to authenticated operators in the Admin role.
 /// </summary>
-class AllowAllDashboardAuthorizationFilter : IDashboardAuthorizationFilter
+class AdminDashboardAuthorizationFilter : IDashboardAuthorizationFilter
 {
-    public bool Authorize(DashboardContext context) => true;
+    public bool Authorize(DashboardContext context)
+    {
+        var user = context.GetHttpContext().User;
+        return user.Identity?.IsAuthenticated == true && user.IsInRole(SigyllRoles.Admin);
+    }
 }
 
 /// <summary>

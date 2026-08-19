@@ -1,0 +1,22 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@inherits LayoutComponentBase
+
+@* Minimal SSR layout for the /Account pages, styled to match the FluentUI app (dark theme,
+   accent green). account.css implements the Identity template's class names in Sigyll's
+   design language — bootstrap is not used. Linked here (not App.razor) so it only loads on
+   account pages. *@
+<link rel="stylesheet" href="/css/account.css" />
+
+<div class="account-shell">
+    <header class="account-header">
+        <a href="/">Sigyll</a>
+        <span class="text-secondary">Certificate Authority</span>
+    </header>
+    <div class="account-card">
+        @Body
+    </div>
+</div>

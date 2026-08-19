@@ -4,10 +4,14 @@
    See LICENSE in the project root for license information. *@
 
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.FluentUI.AspNetCore.Components
+@* Every page in this library is CA management surface — require a signed-in operator.
+   (Inert on non-page components; the /Account pages live in the host and stay anonymous.) *@
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
 @using Sigyll.UI.Components.Layout
 @using Sigyll.UI.Components.Shared

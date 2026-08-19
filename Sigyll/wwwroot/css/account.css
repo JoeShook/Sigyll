@@ -1,0 +1,155 @@
+/* (c) 2026 Joseph Shook. All rights reserved.
+   Styles for the SSR /Account pages. The markup comes from the ASP.NET Identity template
+   (bootstrap class names), but this implements just the classes those pages use, in Sigyll's
+   design language (dark theme, #2d6a4f accent) — bootstrap itself is not shipped. */
+
+:root {
+    --acct-bg: #1a1a2e;
+    --acct-card: rgba(255, 255, 255, 0.035);
+    --acct-border: #34345c;
+    --acct-text: #e0e0e0;
+    --acct-muted: #9a9ab0;
+    --acct-accent: #2d6a4f;
+    --acct-accent-hover: #38845f;
+    --acct-danger: #e94560;
+    --acct-warning: #ff9800;
+    --acct-success: #4caf50;
+}
+
+/* FluentUI's reboot.css paints body white; the main app re-darkens it via FluentDesignTheme,
+   which doesn't run on these static pages — reclaim the app's dark background here. */
+html, body {
+    background-color: var(--acct-bg);
+    color: var(--acct-text);
+}
+
+/* ---- layout ---- */
+.row { display: flex; flex-wrap: wrap; gap: 1rem; }
+.col-lg-3 { flex: 0 0 220px; }
+.col-lg-6, .col-xl-6 { flex: 1 1 420px; max-width: 560px; }
+.col-lg-9, .col-md-12 { flex: 1 1 420px; min-width: 0; }
+.col-md-4 { flex: 1 1 260px; max-width: 340px; }
+.d-flex { display: flex; }
+.flex-column { flex-direction: column; }
+.gap-2 { gap: 0.5rem; }
+.mx-auto { margin-left: auto; margin-right: auto; }
+.w-100 { width: 100%; }
+.mb-1 { margin-bottom: 0.25rem; }
+.mb-3 { margin-bottom: 1rem; }
+.mt-2 { margin-top: 0.5rem; }
+
+h1, h2, h3 { font-weight: 600; }
+h1 { font-size: 1.6rem; margin: 0 0 1rem; }
+h2 { font-size: 1.15rem; margin: 0.75rem 0; opacity: 0.9; }
+h3 { font-size: 1.05rem; margin: 0.75rem 0; opacity: 0.9; }
+hr { border: none; border-top: 1px solid var(--acct-border); margin: 1rem 0; }
+a { color: var(--acct-accent-hover); }
+
+/* ---- forms ---- */
+.form-floating { display: flex; flex-direction: column-reverse; }
+.form-floating > label { font-size: 0.8rem; color: var(--acct-muted); margin-bottom: 0.25rem; }
+.form-label, .control-label { font-size: 0.85rem; color: var(--acct-muted); }
+
+.form-control {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--acct-text);
+    border: 1px solid var(--acct-border);
+    border-radius: 4px;
+    padding: 0.5rem 0.65rem;
+    font: inherit;
+}
+.form-control:focus {
+    outline: none;
+    border-color: var(--acct-accent-hover);
+    box-shadow: 0 0 0 1px var(--acct-accent-hover);
+}
+
+.checkbox label { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+.form-check-input, .darker-border-checkbox { accent-color: var(--acct-accent); width: 1rem; height: 1rem; }
+
+/* ---- buttons ---- */
+.btn {
+    display: inline-block;
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+    color: var(--acct-text);
+    background: rgba(255, 255, 255, 0.08);
+}
+.btn:hover { filter: brightness(1.15); }
+.btn-lg { padding: 0.6rem 1.25rem; font-size: 0.95rem; }
+.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.btn-primary { background: var(--acct-accent); border-color: var(--acct-accent); color: #fff; }
+.btn-primary:hover { background: var(--acct-accent-hover); border-color: var(--acct-accent-hover); filter: none; }
+.btn-danger { background: var(--acct-danger); border-color: var(--acct-danger); color: #fff; }
+.btn-link { background: transparent; color: var(--acct-accent-hover); }
+.btn-outline-secondary { background: transparent; border-color: var(--acct-border); color: var(--acct-text); }
+
+/* ---- text + alerts ---- */
+.text-danger { color: var(--acct-danger); font-size: 0.85rem; }
+.text-secondary { color: var(--acct-muted); font-size: 0.9rem; }
+
+.alert {
+    border-radius: 4px;
+    border: 1px solid var(--acct-border);
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    background: rgba(255, 255, 255, 0.05);
+}
+.alert-success { border-color: var(--acct-success); color: var(--acct-success); }
+.alert-danger { border-color: var(--acct-danger); color: var(--acct-danger); }
+.alert-warning { border-color: var(--acct-warning); color: var(--acct-warning); }
+.alert-info { border-color: var(--acct-accent-hover); }
+.glyphicon { display: none; }
+
+/* ---- manage nav (pills) ---- */
+.nav { list-style: none; margin: 0; padding: 0; }
+.nav-pills .nav-item { margin-bottom: 0.25rem; }
+.nav-pills .nav-link {
+    display: block;
+    padding: 0.45rem 0.75rem;
+    border-radius: 4px;
+    color: var(--acct-text);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+.nav-pills .nav-link:hover { background: rgba(255, 255, 255, 0.07); }
+.nav-pills .nav-link.active { background: var(--acct-accent); color: #fff; }
+
+/* ---- misc ---- */
+ol.list { padding-left: 1.25rem; }
+ol.list > li { margin-bottom: 0.75rem; }
+
+kbd, .recovery-code {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--acct-border);
+    border-radius: 4px;
+    padding: 0.15rem 0.4rem;
+    font-family: Consolas, monospace;
+    font-size: 0.9rem;
+}
+
+.table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.table th, .table td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--acct-border); }
+
+details > summary { cursor: pointer; color: var(--acct-muted); font-size: 0.9rem; }
+details[open] > summary { margin-bottom: 0.5rem; }
+
+/* ---- page chrome (used by AccountLayout) ---- */
+.account-shell { max-width: 880px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+.account-header { display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 1.5rem; }
+.account-header a { font-size: 1.35rem; font-weight: 600; color: var(--acct-text); text-decoration: none; }
+.account-card {
+    background: var(--acct-card);
+    border: 1px solid var(--acct-border);
+    border-radius: 8px;
+    padding: 1.75rem 2rem;
+}

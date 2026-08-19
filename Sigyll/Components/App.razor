@@ -16,11 +16,13 @@
     <link rel="stylesheet" href="/css/site.css" />
     <link href="/_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css" rel="stylesheet" />
     <link href="/Sigyll.styles.css" rel="stylesheet" />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes @rendermode="PageRenderMode" />
     <script src="/_framework/blazor.web.js"></script>
+    <script src="Components/Account/Shared/PasskeySubmit.razor.js" type="module"></script>
     <script>
         window.sigilCopyText = function(text) {
             return navigator.clipboard.writeText(text).then(function() { return true; }, function() { return false; });
@@ -272,3 +274,14 @@
     </script>
 </body>
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    // Account pages carry [ExcludeFromInteractiveRouting] and must render as static SSR —
+    // a hard-wired InteractiveServer render mode would prerender them and then have the
+    // interactive router reject the route as "Not found" once the circuit connects.
+    private IComponentRenderMode? PageRenderMode =>
+        HttpContext.AcceptsInteractiveRouting() ? InteractiveServer : null;
+}

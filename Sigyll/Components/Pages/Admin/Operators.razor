@@ -1,0 +1,236 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@page "/admin/operators"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = SigyllRoles.Admin)]
+@layout Sigyll.UI.Components.Layout.MainLayout
+
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
+@using Sigyll.Data
+@using Sigyll.UI.Services
+
+@inject UserManager<SigyllUser> UserManager
+@inject IToastService ToastService
+@inject IDialogService DialogService
+
+<PageTitle>Operators</PageTitle>
+
+<FluentLabel Typo="Typography.PageTitle" Style="margin-bottom: 0.25rem;">Operators</FluentLabel>
+<FluentLabel Style="opacity: 0.7; margin-bottom: 1rem;">
+    CA operator accounts. There is no self-registration — accounts are created here.
+    New operators should sign in, change their password, and enroll a passkey.
+</FluentLabel>
+
+<FluentStack Orientation="Orientation.Horizontal" Style="margin-bottom: 1rem;">
+    <FluentButton Appearance="Appearance.Accent"
+                  IconStart="@(new Icons.Regular.Size16.PersonAdd())"
+                  OnClick="@(() => createDialogHidden = false)">
+        New Operator
+    </FluentButton>
+</FluentStack>
+
+<table class="operators-table" style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+    <thead>
+        <tr style="text-align: left; border-bottom: 1px solid var(--neutral-stroke-rest);">
+            <th style="padding: 0.5rem;">Email</th>
+            <th style="padding: 0.5rem;">Display Name</th>
+            <th style="padding: 0.5rem;">Roles</th>
+            <th style="padding: 0.5rem;">Lockout</th>
+            <th style="padding: 0.5rem;"></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var row in operators)
+        {
+            <tr style="border-bottom: 1px solid var(--neutral-stroke-divider-rest);">
+                <td style="padding: 0.5rem;">@row.User.Email</td>
+                <td style="padding: 0.5rem;">@row.User.DisplayName</td>
+                <td style="padding: 0.5rem;">@string.Join(", ", row.Roles)</td>
+                <td style="padding: 0.5rem;">
+                    @(row.User.LockoutEnd > DateTimeOffset.UtcNow ? "Locked" : "—")
+                </td>
+                <td style="padding: 0.5rem; text-align: right;">
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.Key())"
+                                  OnClick="@(() => ShowSetPasswordDialog(row.User))"
+                                  title="Set a new password for this operator">
+                        Set Password
+                    </FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.Delete())"
+                                  OnClick="@(() => DeleteOperatorAsync(row.User))"
+                                  Disabled="@(row.User.Id == currentUserId)"
+                                  title="Delete this operator account">
+                        Delete
+                    </FluentButton>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@* Create operator dialog *@
+<FluentDialog @bind-Hidden="@createDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 420px;">
+    <FluentDialogHeader>New Operator</FluentDialogHeader>
+    <FluentDialogBody>
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
+            <FluentTextField @bind-Value="newEmail" Label="Email" Style="width: 100%;" />
+            <FluentTextField @bind-Value="newDisplayName" Label="Display name" Style="width: 100%;" />
+            <FluentTextField @bind-Value="newPassword" Label="Initial password"
+                             TextFieldType="TextFieldType.Password" Style="width: 100%;" />
+            <FluentLabel Typo="Typography.Subject">Roles</FluentLabel>
+            @foreach (var role in SigyllRoles.All)
+            {
+                <FluentCheckbox Value="@newRoles.Contains(role)"
+                                ValueChanged="@(v => ToggleNewRole(role, v))"
+                                Label="@role" />
+            }
+        </FluentStack>
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Accent" OnClick="CreateOperatorAsync"
+                      Disabled="@(string.IsNullOrWhiteSpace(newEmail) || string.IsNullOrWhiteSpace(newPassword) || newRoles.Count == 0)">
+            Create
+        </FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => createDialogHidden = true)">Cancel</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
+@* Set password dialog *@
+<FluentDialog @bind-Hidden="@setPasswordDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 420px;">
+    <FluentDialogHeader>Set Password</FluentDialogHeader>
+    <FluentDialogBody>
+        <p style="font-size: 0.9rem;">Set a new password for <code>@setPasswordTarget?.Email</code>.</p>
+        <FluentTextField @bind-Value="setPasswordValue" Label="New password"
+                         TextFieldType="TextFieldType.Password" Style="width: 100%;" />
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Accent" OnClick="SetPasswordAsync"
+                      Disabled="@(string.IsNullOrWhiteSpace(setPasswordValue))">
+            Set Password
+        </FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => setPasswordDialogHidden = true)">Cancel</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
+@code {
+    private record OperatorRow(SigyllUser User, IList<string> Roles);
+
+    private List<OperatorRow> operators = new();
+    private string? currentUserId;
+
+    private bool createDialogHidden = true;
+    private string newEmail = string.Empty;
+    private string newDisplayName = string.Empty;
+    private string newPassword = string.Empty;
+    private readonly HashSet<string> newRoles = new() { SigyllRoles.CaOperator };
+
+    private bool setPasswordDialogHidden = true;
+    private SigyllUser? setPasswordTarget;
+    private string setPasswordValue = string.Empty;
+
+    [CascadingParameter]
+    private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState != null)
+        {
+            var auth = await AuthState;
+            currentUserId = UserManager.GetUserId(auth.User);
+        }
+        await LoadOperatorsAsync();
+    }
+
+    private async Task LoadOperatorsAsync()
+    {
+        var users = await UserManager.Users.OrderBy(u => u.Email).ToListAsync();
+        var rows = new List<OperatorRow>();
+        foreach (var user in users)
+            rows.Add(new OperatorRow(user, await UserManager.GetRolesAsync(user)));
+        operators = rows;
+    }
+
+    private void ToggleNewRole(string role, bool selected)
+    {
+        if (selected) newRoles.Add(role);
+        else newRoles.Remove(role);
+    }
+
+    private async Task CreateOperatorAsync()
+    {
+        var user = new SigyllUser
+        {
+            UserName = newEmail.Trim(),
+            Email = newEmail.Trim(),
+            EmailConfirmed = true,
+            DisplayName = string.IsNullOrWhiteSpace(newDisplayName) ? null : newDisplayName.Trim()
+        };
+
+        var result = await UserManager.CreateAsync(user, newPassword);
+        if (!result.Succeeded)
+        {
+            ToastService.ShowCopyableError(string.Join("; ", result.Errors.Select(e => e.Description)));
+            return;
+        }
+
+        foreach (var role in newRoles)
+            await UserManager.AddToRoleAsync(user, role);
+
+        ToastService.ShowSuccess($"Operator '{user.Email}' created");
+        createDialogHidden = true;
+        newEmail = newDisplayName = newPassword = string.Empty;
+        newRoles.Clear();
+        newRoles.Add(SigyllRoles.CaOperator);
+        await LoadOperatorsAsync();
+    }
+
+    private void ShowSetPasswordDialog(SigyllUser user)
+    {
+        setPasswordTarget = user;
+        setPasswordValue = string.Empty;
+        setPasswordDialogHidden = false;
+    }
+
+    private async Task SetPasswordAsync()
+    {
+        if (setPasswordTarget == null) return;
+
+        var token = await UserManager.GeneratePasswordResetTokenAsync(setPasswordTarget);
+        var result = await UserManager.ResetPasswordAsync(setPasswordTarget, token, setPasswordValue);
+
+        if (result.Succeeded)
+        {
+            ToastService.ShowSuccess($"Password updated for '{setPasswordTarget.Email}'");
+            setPasswordDialogHidden = true;
+        }
+        else
+        {
+            ToastService.ShowCopyableError(string.Join("; ", result.Errors.Select(e => e.Description)));
+        }
+    }
+
+    private async Task DeleteOperatorAsync(SigyllUser user)
+    {
+        var dialog = await DialogService.ShowConfirmationAsync(
+            $"Delete operator '{user.Email}'? They will immediately lose access.",
+            "Delete", "Cancel", "Confirm Delete");
+        var result = await dialog.Result;
+        if (result.Cancelled) return;
+
+        var deleteResult = await UserManager.DeleteAsync(user);
+        if (deleteResult.Succeeded)
+        {
+            ToastService.ShowSuccess($"Operator '{user.Email}' deleted");
+            await LoadOperatorsAsync();
+        }
+        else
+        {
+            ToastService.ShowCopyableError(string.Join("; ", deleteResult.Errors.Select(e => e.Description)));
+        }
+    }
+}

@@ -21,6 +21,25 @@
         <span style="font-weight: bold; font-size: 1.1rem;">Sigyll</span>
         <span style="opacity: 0.6; margin-left: 0.5rem; font-size: 0.85rem;">PKI Management</span>
         <FluentSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <div style="display: inline-flex; align-items: center; gap: 0.4rem; margin-right: 0.5rem;">
+                    <FluentAnchor Href="/Account/Manage" Appearance="Appearance.Stealth" title="Account settings">
+                        <span style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem;">
+                            <FluentIcon Value="@(new Icons.Regular.Size16.Person())" />
+                            @context.User.Identity?.Name
+                        </span>
+                    </FluentAnchor>
+                    <form action="/Account/Logout" method="post" style="display: inline; margin: 0;">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="" />
+                        <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Stealth" Title="Sign out">
+                            <FluentIcon Value="@(new Icons.Regular.Size20.SignOut())" />
+                        </FluentButton>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
         <div style="position: relative;">
             <FluentButton Id="status-button" Appearance="Appearance.Stealth"
                           OnClick="ToggleStatusAsync"
@@ -140,6 +159,9 @@
             </FluentNavGroup>
             <FluentNavLink Href="/jobs" Icon="@(new Icons.Regular.Size20.Timer())">Jobs</FluentNavLink>
             <FluentNavLink Href="/import" Icon="@(new Icons.Regular.Size20.ArrowImport())">Import</FluentNavLink>
+            <AuthorizeView Roles="Admin">
+                <FluentNavLink Href="/admin/operators" Icon="@(new Icons.Regular.Size20.PeopleSettings())">Operators</FluentNavLink>
+            </AuthorizeView>
         </FluentNavMenu>
         <main style="flex: 1; overflow-y: auto;">
             <div style="padding: 1.5rem; padding-bottom: 4rem;">
