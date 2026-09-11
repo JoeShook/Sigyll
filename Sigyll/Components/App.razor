@@ -37,6 +37,22 @@
             a.remove();
         };
 
+        // Save in-memory binary data (base64-encoded, e.g. a freshly assembled .p12) as a file.
+        window.sigilDownloadBase64 = function(fileName, base64, mimeType) {
+            var bin = atob(base64);
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            var blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        };
+
         // Save in-memory text (PEM CSR, private key) as a file without a server round trip.
         window.sigilDownloadText = function(fileName, text, mimeType) {
             var blob = new Blob([text], { type: mimeType || 'text/plain' });

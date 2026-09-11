@@ -1,0 +1,247 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@page "/csr"
+
+<PageTitle>Sigyll - CSR from File</PageTitle>
+
+<FluentLabel Typo="Typography.PageTitle">CSR from File</FluentLabel>
+
+<FluentLabel Typo="Typography.Subject" Style="margin-top: 1rem; opacity: 0.8;">Step 1 — Generate a CSR from an existing certificate</FluentLabel>
+
+<FluentCard Style="margin-top: 0.5rem;">
+    <FluentMessageBar Intent="MessageIntent.Info">
+        Generate a certificate signing request from a certificate you already hold — typically a .p12 issued by
+        an external CA — without importing it into Sigyll or attaching it to any CA. The file is read in memory
+        only; nothing is stored.
+    </FluentMessageBar>
+
+    <FluentLabel Typo="Typography.Subject" Style="margin-top: 0.75rem;">Certificate file</FluentLabel>
+    <FluentInputFile Id="csr-file-input"
+                     Mode="InputFileMode.SaveToTemporaryFolder"
+                     MaximumFileSize="@(10 * 1024 * 1024)"
+                     MaximumFileCount="1"
+                     Accept=".pfx,.p12,.cer,.crt,.pem,.der"
+                     OnCompleted="OnFileUploaded"
+                     DragDropZoneVisible="true"
+                     Style="height: 100px; margin-top: 0.5rem; border: 2px dashed var(--accent-fill-rest); border-radius: 8px; cursor: pointer;">
+        <ChildContent>
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; opacity: 0.7; pointer-events: none;">
+                <FluentIcon Value="@(new Icons.Regular.Size24.ArrowUpload())" />
+                <span>Drag &amp; drop a .p12 / .pfx (or .cer / .pem for a new-key CSR), or click to select</span>
+            </div>
+        </ChildContent>
+    </FluentInputFile>
+
+    <FluentStack Orientation="Orientation.Horizontal" Style="margin-top: 0.75rem; gap: 0.5rem; align-items: flex-end;">
+        <FluentTextField @bind-Value="serverPath"
+                         Style="flex: 1;"
+                         Label="…or a file path on the Sigyll server"
+                         Placeholder="C:\certs\my-client.p12" />
+        <FluentTextField @bind-Value="password"
+                         Style="width: 220px;"
+                         Label="PKCS#12 password"
+                         TextFieldType="TextFieldType.Password" />
+        <FluentButton Appearance="Appearance.Accent"
+                      OnClick="LoadAsync"
+                      Loading="@isLoading"
+                      Disabled="@(uploadedBytes == null && string.IsNullOrWhiteSpace(serverPath))">
+            Load
+        </FluentButton>
+    </FluentStack>
+
+    @if (uploadedBytes != null && loadedCert == null)
+    {
+        <p style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.75;">
+            Selected <strong>@uploadedName</strong> (@uploadedBytes.Length bytes). Enter the password if it is a .p12, then click Load.
+        </p>
+    }
+
+    @if (loadError != null)
+    {
+        <FluentMessageBar Intent="MessageIntent.Error" Style="margin-top: 0.5rem;">@loadError</FluentMessageBar>
+    }
+</FluentCard>
+
+@if (loadedCert != null)
+{
+    <FluentCard Style="margin-top: 1rem;">
+        <FluentStack Orientation="Orientation.Horizontal" Style="align-items: center; gap: 0.5rem;">
+            <FluentLabel Typo="Typography.Subject">@loadedName</FluentLabel>
+            <FluentSpacer />
+            @if (loadedCert.HasPrivateKey)
+            {
+                <FluentBadge BackgroundColor="#2d6a4f" Color="white" Style="font-size: 0.75rem;">Private key present</FluentBadge>
+            }
+            else
+            {
+                <FluentBadge BackgroundColor="#666" Color="white" Style="font-size: 0.75rem;">Public certificate only</FluentBadge>
+            }
+        </FluentStack>
+
+        <div style="display: grid; grid-template-columns: 140px 1fr; gap: 0.4rem; font-size: 0.9rem; margin: 0.75rem 0 1rem 0;">
+            <strong>Serial</strong>
+            <code>@loadedCert.SerialNumber</code>
+            <strong>Thumbprint</strong>
+            <code>@loadedCert.Thumbprint</code>
+            <strong>Valid</strong>
+            <span>@loadedCert.NotBefore.ToUniversalTime():yyyy-MM-dd → @loadedCert.NotAfter.ToUniversalTime():yyyy-MM-dd UTC</span>
+        </div>
+
+        <CsrBuilder Certificate="@loadedCert"
+                    HasPrivateKey="@loadedCert.HasPrivateKey"
+                    SourceName="@loadedName"
+                    DefaultKeyMode="CsrKeyMode.GenerateNewKey"
+                    Generate="GenerateAsync"
+                    OnClose="Clear" />
+    </FluentCard>
+}
+
+<FluentLabel Typo="Typography.Subject" Style="margin-top: 1.5rem; opacity: 0.8;">Step 2 — Assemble a .p12 from the signed certificate</FluentLabel>
+
+<FluentCard Style="margin-top: 0.5rem;">
+    <FluentMessageBar Intent="MessageIntent.Info">
+        When the CA returns the signed certificate, join it with the private key that was downloaded alongside the
+        CSR. Sigyll checks the key really belongs to the certificate before building the bundle. In memory only —
+        unless you choose to import the result into a trust domain below.
+    </FluentMessageBar>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 0.75rem;">
+        <div>
+            <FluentLabel Typo="Typography.Body"><strong>Signed certificate</strong> (.cer / .pem / .p7b)</FluentLabel>
+            <FluentInputFile Id="bundle-cert-input"
+                             Mode="InputFileMode.SaveToTemporaryFolder"
+                             MaximumFileSize="@(5 * 1024 * 1024)"
+                             MaximumFileCount="1"
+                             Accept=".cer,.crt,.pem,.der,.p7b"
+                             OnCompleted="OnSignedCertUploaded"
+                             DragDropZoneVisible="true"
+                             Style="height: 70px; margin-top: 0.25rem; border: 2px dashed var(--accent-fill-rest); border-radius: 8px; cursor: pointer;">
+                <ChildContent>
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.7; pointer-events: none; font-size: 0.85rem;">
+                        @(bundleCertName ?? "Drop or click to select")
+                    </div>
+                </ChildContent>
+            </FluentInputFile>
+        </div>
+        <div>
+            <FluentLabel Typo="Typography.Body"><strong>Private key</strong> (.key from Step 1)</FluentLabel>
+            <FluentInputFile Id="bundle-key-input"
+                             Mode="InputFileMode.SaveToTemporaryFolder"
+                             MaximumFileSize="@(1024 * 1024)"
+                             MaximumFileCount="1"
+                             Accept=".key,.pem"
+                             OnCompleted="OnKeyUploaded"
+                             DragDropZoneVisible="true"
+                             Style="height: 70px; margin-top: 0.25rem; border: 2px dashed var(--accent-fill-rest); border-radius: 8px; cursor: pointer;">
+                <ChildContent>
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.7; pointer-events: none; font-size: 0.85rem;">
+                        @(bundleKeyName ?? "Drop or click to select")
+                    </div>
+                </ChildContent>
+            </FluentInputFile>
+        </div>
+        <div>
+            <FluentLabel Typo="Typography.Body"><strong>Chain</strong> (optional; intermediates / root)</FluentLabel>
+            <FluentInputFile Id="bundle-chain-input"
+                             Mode="InputFileMode.SaveToTemporaryFolder"
+                             MaximumFileSize="@(5 * 1024 * 1024)"
+                             MaximumFileCount="10"
+                             Accept=".cer,.crt,.pem,.der,.p7b"
+                             OnCompleted="OnChainUploaded"
+                             DragDropZoneVisible="true"
+                             Style="height: 70px; margin-top: 0.25rem; border: 2px dashed var(--accent-fill-rest); border-radius: 8px; cursor: pointer;">
+                <ChildContent>
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.7; pointer-events: none; font-size: 0.85rem;">
+                        @(bundleChain.Count > 0 ? $"{bundleChain.Count} file(s) selected" : "Drop or click to select")
+                    </div>
+                </ChildContent>
+            </FluentInputFile>
+        </div>
+    </div>
+
+    <FluentStack Orientation="Orientation.Horizontal" Style="margin-top: 0.75rem; gap: 0.5rem; align-items: flex-end;" Wrap="true">
+        <FluentTextField @bind-Value="bundleKeyPassphrase"
+                         Style="flex: 1; min-width: 200px;"
+                         Label="Private key passphrase"
+                         TextFieldType="TextFieldType.Password" />
+        <FluentTextField @bind-Value="bundleP12Password"
+                         Style="flex: 1; min-width: 200px;"
+                         Label="Password for the new .p12"
+                         TextFieldType="TextFieldType.Password" />
+        <FluentTextField @bind-Value="bundleName"
+                         Style="flex: 1; min-width: 200px;"
+                         Label="Name (file / import name)"
+                         Placeholder="defaults to the certificate CN" />
+        <FluentButton Appearance="Appearance.Accent"
+                      OnClick="AssembleBundle"
+                      Loading="@isAssembling"
+                      Disabled="@(bundleCertBytes == null || bundleKeyPem == null || string.IsNullOrEmpty(bundleP12Password))">
+            Build .p12
+        </FluentButton>
+        @if (bundleCertBytes != null || bundleKeyPem != null || bundleChain.Count > 0 || bundleResult != null)
+        {
+            <FluentButton Appearance="Appearance.Outline" OnClick="ResetBundle" Disabled="@isAssembling">
+                Reset
+            </FluentButton>
+        }
+    </FluentStack>
+
+    @if (bundleError != null)
+    {
+        <FluentMessageBar Intent="MessageIntent.Error" Style="margin-top: 0.5rem;">@bundleError</FluentMessageBar>
+    }
+
+    @if (bundleResult?.Success == true)
+    {
+        <FluentMessageBar Intent="MessageIntent.Success" Style="margin-top: 0.75rem;">
+            Bundle ready — <code>@bundleResult.Subject</code>, @bundleResult.KeyAlgorithm @bundleResult.KeySize-bit,
+            valid until @bundleResult.NotAfter.ToString("yyyy-MM-dd") UTC, @bundleResult.ChainDer.Count chain certificate(s) included.
+        </FluentMessageBar>
+
+        <div style="display: grid; grid-template-columns: 140px 1fr; gap: 0.4rem; font-size: 0.85rem; margin-top: 0.5rem;">
+            <strong>Issuer</strong>
+            <span>@bundleResult.Issuer</span>
+            <strong>Serial</strong>
+            <code>@bundleResult.SerialNumber</code>
+            <strong>Thumbprint</strong>
+            <code>@bundleResult.Thumbprint</code>
+        </div>
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="margin-top: 0.75rem; gap: 0.5rem; align-items: flex-end;" Wrap="true">
+            <FluentButton Appearance="Appearance.Accent"
+                          IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                          OnClick="DownloadBundleAsync">
+                Download @bundleResult.SuggestedFileName
+            </FluentButton>
+            <FluentSpacer />
+            <FluentSelect TOption="TrustDomainChoice"
+                          Items="@trustDomains"
+                          OptionText="@(t => t.Name)"
+                          @bind-SelectedOption="importTrustDomain"
+                          Label="Import into trust domain"
+                          Placeholder="Select…"
+                          Style="min-width: 220px;" />
+            <FluentButton Appearance="Appearance.Outline"
+                          IconStart="@(new Icons.Regular.Size16.ArrowImport())"
+                          OnClick="ImportBundleAsync"
+                          Loading="@isImporting"
+                          Disabled="@(importTrustDomain == null)">
+                Import
+            </FluentButton>
+        </FluentStack>
+
+        @if (importMessage != null)
+        {
+            <FluentMessageBar Intent="@(importSucceeded ? MessageIntent.Success : MessageIntent.Warning)" Style="margin-top: 0.5rem;">
+                @importMessage
+                @if (importSucceeded && importTrustDomain != null)
+                {
+                    <FluentAnchor Href="@($"/explorer/{importTrustDomain.Id}")" Appearance="Appearance.Hypertext" Style="margin-left: 0.5rem;">Open in Explorer</FluentAnchor>
+                }
+            </FluentMessageBar>
+        }
+    }
+</FluentCard>
