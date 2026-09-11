@@ -54,6 +54,7 @@ public partial class CertificateExplorer : IDisposable
     [Inject] private IJSRuntime JS { get; set; } = null!;
     [Inject] private NavigationManager Navigation { get; set; } = null!;
     [Inject] private CrlGenerationService CrlGenService { get; set; } = null!;
+    [Inject] private CsrGenerationService CsrGenService { get; set; } = null!;
     [Inject] private TimeDisplayService TimeDisplay { get; set; } = null!;
     [Inject] private IssuancePasswordCache PasswordCache { get; set; } = null!;
 
@@ -216,6 +217,9 @@ public partial class CertificateExplorer : IDisposable
 
     // Re-sign dialog
     private bool resignDialogHidden = true;
+
+    // Create CSR dialog state
+    private bool csrDialogHidden = true;
     private bool isResigning;
     private DateTime? resignNotBefore = DateTime.UtcNow;
     private DateTime? resignNotAfter = DateTime.UtcNow.AddYears(5);
@@ -1540,7 +1544,9 @@ public partial class CertificateExplorer : IDisposable
             }
 
             parsed.Certificate.Dispose();
-            ToastService.ShowCopyableSuccess($"Imported '{fileName}'");
+            ToastService.ShowCopyableSuccess(result.KeyPairedFrom != null
+                ? $"Imported '{fileName}' and paired it with the private key of '{result.KeyPairedFrom}'"
+                : $"Imported '{fileName}'");
         }
         catch (Exception ex)
         {
@@ -1629,7 +1635,9 @@ public partial class CertificateExplorer : IDisposable
 
             if (result.Success)
             {
-                ToastService.ShowCopyableSuccess($"Certificate '{importName}' imported successfully.");
+                ToastService.ShowCopyableSuccess(result.KeyPairedFrom != null
+                    ? $"Certificate '{importName}' imported and paired with the private key of '{result.KeyPairedFrom}'."
+                    : $"Certificate '{importName}' imported successfully.");
                 await LoadTrustDomainTreeAsync(TrustDomainId);
             }
             else
@@ -1783,8 +1791,9 @@ public partial class CertificateExplorer : IDisposable
         if (result.Success)
         {
             var label = result.AlreadyExists ? "Merged PFX into existing" : "assigned under";
+            var paired = result.KeyPairedFrom != null ? $" (private key paired from '{result.KeyPairedFrom}')" : "";
             ToastService.ShowCopyableSuccess(
-                $"'{result.ImportedName}' {label} '{selectedCaForAssignment!.Name}'");
+                $"'{result.ImportedName}' {label} '{selectedCaForAssignment!.Name}'{paired}");
         }
         else
         {
@@ -2762,6 +2771,31 @@ public partial class CertificateExplorer : IDisposable
             StateHasChanged();
         }
     }
+
+    // --- Create CSR Methods ---
+
+    /// <summary>
+    /// Opens the CSR dialog for the selected certificate. The form itself is the shared
+    /// <see cref="CsrBuilder"/> component, which seeds subject/SANs from the certificate.
+    /// </summary>
+    private void ShowCsrDialog()
+    {
+        if (selectedNode == null || selectedCert == null) return;
+        csrDialogHidden = false;
+    }
+
+    /// <summary>Callback for <see cref="CsrBuilder"/>: generate against the stored certificate.</summary>
+    private Task<CsrGenerationResult> GenerateCsrForSelectedAsync(CsrGenerationRequest request)
+    {
+        if (selectedNode == null)
+            return Task.FromResult(CsrGenerationResult.Failure("No certificate selected."));
+
+        request.CertificateId = selectedNode.Id;
+        request.EntityType = selectedNode.EntityType;
+        return CsrGenService.GenerateCsrAsync(request);
+    }
+
+    private void CloseCsrDialog() => csrDialogHidden = true;
 
     private static bool TryParseSan(string value, string prefix, SanType type, out IssuanceSanEntry entry)
     {

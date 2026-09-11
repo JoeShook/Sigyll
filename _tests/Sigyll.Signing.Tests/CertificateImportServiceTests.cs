@@ -164,6 +164,96 @@ public class CertificateImportServiceTests
         parsed.Certificate.Dispose();
     }
 
+    /// <summary>
+    /// CSR round trip: the operator generated a CSR reusing an existing certificate's key, the
+    /// external CA returned a new certificate (public only). Importing that .cer must pair it with
+    /// the stored private key and record it as the successor of the original.
+    /// </summary>
+    [Fact]
+    public async Task ImportParsed_PublicOnlyCertWithKnownPublicKey_PairsStoredPrivateKey()
+    {
+        var (trustDomainId, caId) = await SeedTrustDomainWithCaAsync();
+        var service = CreateService();
+
+        // Original certificate, imported earlier with its private key
+        var rsa = RSA.Create(2048);
+        var originalReq = new CertificateRequest("CN=Renewing Client", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var original = originalReq.CreateSelfSigned(DateTimeOffset.UtcNow.AddYears(-1), DateTimeOffset.UtcNow.AddDays(10));
+        var originalParsed = new ParsedCertificate
+        {
+            Certificate = X509CertificateLoader.LoadCertificate(original.RawData),
+            RawFileBytes = original.Export(X509ContentType.Pkcs12, "orig-pw"),
+            FileName = "renewing-client.pfx",
+            DetectedRole = DetectedCertRole.EndEntity,
+            Algorithm = "RSA",
+            KeySize = 2048,
+            HasPrivateKey = true
+        };
+        (await service.ImportParsedCertificateAsync(originalParsed, trustDomainId,
+            name: "renewing-client", password: "orig-pw", issuingCaId: caId)).Success.ShouldBeTrue();
+
+        // Renewal returned by the external CA: same public key, new serial/validity, no private key
+        var renewalReq = new CertificateRequest("CN=Renewing Client", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var renewalSigned = renewalReq.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(1));
+        var renewalPublic = X509CertificateLoader.LoadCertificate(renewalSigned.RawData);
+        var renewalParsed = new ParsedCertificate
+        {
+            Certificate = renewalPublic,
+            RawFileBytes = renewalPublic.RawData,
+            FileName = "renewing-client-2026.cer",
+            DetectedRole = DetectedCertRole.EndEntity,
+            Algorithm = "RSA",
+            KeySize = 2048,
+            HasPrivateKey = false
+        };
+
+        var result = await service.ImportParsedCertificateAsync(renewalParsed, trustDomainId,
+            name: "renewing-client-2026", issuingCaId: caId);
+
+        result.Success.ShouldBeTrue(result.Error);
+        result.KeyPairedFrom.ShouldBe("renewing-client");
+
+        await using var db = _dbFactory.CreateDbContext();
+        var stored = await db.IssuedCertificates.FirstAsync(i => i.Thumbprint == renewalPublic.Thumbprint);
+        var predecessor = await db.IssuedCertificates.FirstAsync(i => i.Thumbprint == original.Thumbprint);
+
+        stored.EncryptedPfxBytes.ShouldNotBeNull();
+        stored.PfxPassword.ShouldBe("orig-pw");
+        stored.RenewalOfId.ShouldBe(predecessor.Id);
+        stored.Version.ShouldBe(predecessor.Version + 1);
+
+        using var reloaded = X509CertificateLoader.LoadPkcs12(stored.EncryptedPfxBytes!, "orig-pw",
+            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+        reloaded.HasPrivateKey.ShouldBeTrue();
+        reloaded.Thumbprint.ShouldBe(renewalPublic.Thumbprint);
+        reloaded.GetRSAPublicKey()!.ExportSubjectPublicKeyInfo().ShouldBe(rsa.ExportSubjectPublicKeyInfo());
+
+        rsa.Dispose();
+        originalParsed.Certificate.Dispose();
+        renewalPublic.Dispose();
+    }
+
+    [Fact]
+    public async Task ImportParsed_PublicOnlyCertWithUnknownPublicKey_StaysTrustOnly()
+    {
+        var (trustDomainId, caId) = await SeedTrustDomainWithCaAsync();
+        var service = CreateService();
+
+        var parsed = CreateParsedEndEntity();
+        parsed.HasPrivateKey = false;
+        parsed.RawFileBytes = parsed.Certificate.RawData;
+
+        var result = await service.ImportParsedCertificateAsync(parsed, trustDomainId, issuingCaId: caId);
+
+        result.Success.ShouldBeTrue(result.Error);
+        result.KeyPairedFrom.ShouldBeNull();
+
+        await using var db = _dbFactory.CreateDbContext();
+        var stored = await db.IssuedCertificates.FirstAsync(i => i.Thumbprint == parsed.Certificate.Thumbprint);
+        stored.EncryptedPfxBytes.ShouldBeNull();
+        parsed.Certificate.Dispose();
+    }
+
     #region Helpers
 
     private async Task<int> SeedTrustDomainAsync()

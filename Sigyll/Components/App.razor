@@ -37,6 +37,19 @@
             a.remove();
         };
 
+        // Save in-memory text (PEM CSR, private key) as a file without a server round trip.
+        window.sigilDownloadText = function(fileName, text, mimeType) {
+            var blob = new Blob([text], { type: mimeType || 'text/plain' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        };
+
         // FluentDataGrid v4 quirk: when GridTemplateColumns uses minmax/fr/auto and
         // ResizableColumns="true", the resize handles only become reliably grabbable
         // after the first drag — Fluent's own moveHandler converts every minmax track

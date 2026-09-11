@@ -1,0 +1,166 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@* Builds a PKCS#10 CSR modeled on a certificate. Used by the Certificate Explorer (stored
+   certificate) and by the CSR from File page (uploaded .p12). The parent supplies the
+   Generate callback so this component never needs to know where the certificate came from. *@
+
+@if (result == null)
+{
+    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <FluentMessageBar Intent="MessageIntent.Info">
+            Builds a PKCS#10 request from this certificate's subject and SANs so an external CA can
+            issue the renewal. Nothing is stored — download or copy the CSR and submit it. If the CSR
+            reuses the certificate's key and the certificate is later imported into Sigyll, the
+            returned certificate is paired with that key automatically.
+        </FluentMessageBar>
+
+        <div style="display: grid; grid-template-columns: 120px 1fr; gap: 0.4rem; font-size: 0.9rem;">
+            <strong>Modeled on</strong>
+            <span>@SourceName</span>
+            <strong>Subject</strong>
+            <span>@Certificate.Subject</span>
+            <strong>Issuer</strong>
+            <span>@Certificate.Issuer</span>
+            <strong>Current key</strong>
+            <span>@DescribeCurrentKey() @(HasPrivateKey ? "" : "(no private key available)")</span>
+        </div>
+
+        <FluentSelect TOption="string"
+                      Items="@keyModeOptions"
+                      OptionText="@(o => o == "reuse" ? "Reuse this certificate's private key (renew only, same key)" : "Generate a new key pair (re-key) — subject, SANs and extensions still come from this certificate")"
+                      OptionDisabled="@(o => o == "reuse" && !HasPrivateKey)"
+                      @bind-SelectedOption="keyMode"
+                      Label="Key"
+                      Style="width: 100%;" />
+
+        @if (keyMode == "new")
+        {
+            <div style="display: flex; gap: 1rem;">
+                <FluentSelect TOption="string"
+                              Items="@keyAlgorithmOptions"
+                              SelectedOption="@newKeyAlgorithm"
+                              SelectedOptionChanged="OnKeyAlgorithmChanged"
+                              Label="Algorithm"
+                              Style="flex: 1;" />
+                <FluentSelect TOption="string"
+                              Items="@KeySizeOptions"
+                              OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
+                              @bind-SelectedOption="newKeySize"
+                              Label="Key size"
+                              Style="flex: 1;" />
+            </div>
+            <FluentTextField @bind-Value="newKeyPassphrase"
+                             Label="Passphrase for the downloaded private key"
+                             TextFieldType="TextFieldType.Password"
+                             Style="width: 100%;" />
+            <FluentMessageBar Intent="MessageIntent.Warning">
+                The new private key is <strong>not stored in Sigyll</strong>. Download it (PKCS#8, encrypted with
+                this passphrase) and keep it with the CSR. When the CA returns the certificate, combine them into a
+                .p12 before importing.
+            </FluentMessageBar>
+        }
+
+        <FluentTextField @bind-Value="subjectDn"
+                         Label="Subject DN"
+                         Style="width: 100%;" />
+
+        <FluentLabel Typo="Typography.Subject">Subject Alternative Names</FluentLabel>
+        @foreach (var san in sans)
+        {
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; align-items: end;">
+                <FluentSelect TOption="SanType"
+                              Items="@sanTypeOptions"
+                              OptionText="@(s => s.ToString())"
+                              @bind-SelectedOption="san.Type"
+                              Style="width: 120px;" />
+                <FluentTextField @bind-Value="san.Value" Style="flex: 1;"
+                                 Placeholder="@SanPlaceholder(san.Type)" />
+                <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                              IconStart="@(new Icons.Regular.Size16.Delete())"
+                              OnClick="@(() => sans.Remove(san))" />
+            </FluentStack>
+        }
+        <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                      IconStart="@(new Icons.Regular.Size16.Add())"
+                      OnClick="@(() => sans.Add(new EditableSan { Type = SanType.Uri, Value = string.Empty }))">
+            Add SAN
+        </FluentButton>
+
+        <FluentCheckbox @bind-Value="includeExtensions"
+                        Label="Include this certificate's Key Usage, Extended Key Usage and Basic Constraints as requested extensions" />
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; margin-top: 0.5rem;">
+            <FluentButton Appearance="Appearance.Accent" OnClick="GenerateAsync" Disabled="@FormInvalid">
+                @(isGenerating ? "Generating..." : "Generate CSR")
+            </FluentButton>
+            @if (OnClose.HasDelegate)
+            {
+                <FluentButton Appearance="Appearance.Outline" OnClick="CloseAsync" Disabled="@isGenerating">
+                    Cancel
+                </FluentButton>
+            }
+        </FluentStack>
+    </div>
+}
+else
+{
+    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <FluentMessageBar Intent="MessageIntent.Success">
+            CSR ready — @result.KeyAlgorithm @result.KeySize-bit, subject <code>@result.SubjectDn</code>.
+            Submit it to the external CA, then import the certificate it returns.
+        </FluentMessageBar>
+
+        <FluentTextArea Value="@result.CsrPem" ReadOnly="true" Rows="12"
+                        Style="width: 100%; font-family: monospace; font-size: 0.8rem;" />
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem;" Wrap="true">
+            <FluentButton Appearance="Appearance.Accent"
+                          IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                          OnClick="DownloadCsrAsync">
+                Download .csr
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Outline"
+                          IconStart="@(new Icons.Regular.Size16.Copy())"
+                          OnClick="CopyCsrAsync">
+                Copy CSR
+            </FluentButton>
+            @if (result.EncryptedPrivateKeyPem != null)
+            {
+                <FluentButton Appearance="Appearance.Outline"
+                              IconStart="@(new Icons.Regular.Size16.Key())"
+                              OnClick="DownloadPrivateKeyAsync"
+                              Style="color: #ff9800;">
+                    Download private key (.key)
+                </FluentButton>
+            }
+        </FluentStack>
+
+        @if (result.EncryptedPrivateKeyPem != null)
+        {
+            <FluentMessageBar Intent="MessageIntent.Warning">
+                This key exists only on this screen. Download it now — leaving discards it and the CSR
+                becomes unusable.
+            </FluentMessageBar>
+        }
+
+        <div style="display: grid; grid-template-columns: 160px 1fr; gap: 0.4rem; font-size: 0.85rem;">
+            <strong>Public key SHA-256</strong>
+            <code style="word-break: break-all;">@result.PublicKeyThumbprint</code>
+        </div>
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; margin-top: 0.5rem;">
+            <FluentButton Appearance="Appearance.Outline" OnClick="StartOver">
+                Start over
+            </FluentButton>
+            @if (OnClose.HasDelegate)
+            {
+                <FluentButton Appearance="Appearance.Accent" OnClick="CloseAsync">
+                    Close
+                </FluentButton>
+            }
+        </FluentStack>
+    </div>
+}

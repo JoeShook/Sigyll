@@ -149,6 +149,7 @@ try
     builder.Services.AddScoped<CredentialVerifier>();
 
     builder.Services.AddScoped<CrlGenerationService>();
+    builder.Services.AddScoped<CsrGenerationService>();
     builder.Services.AddScoped<CrlAutoRenewalJob>();
     builder.Services.AddScoped<Sigyll.UI.Services.TimeDisplayService>();
     builder.Services.AddScoped<Sigyll.UI.Services.IssuancePasswordCache>();

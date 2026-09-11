@@ -1035,6 +1035,12 @@ else if (treeNodes.Count > 0)
                                       title="Re-key: new key pair, new serial, new validity. Downstream certs need re-issuance.">
                             Re-key
                         </FluentButton>
+                        <FluentButton Appearance="Appearance.Outline"
+                                      IconStart="@(new Icons.Regular.Size16.DocumentBulletList())"
+                                      OnClick="ShowCsrDialog"
+                                      title="Create a PKCS#10 certificate signing request modeled on this certificate, to submit to an external CA">
+                            Create CSR
+                        </FluentButton>
                         @if (selectedNodeCanSign && selectedNode?.CertificateRole is "RootCA" or "IntermediateCA")
                         {
                             <FluentButton Appearance="Appearance.Outline"
@@ -1544,6 +1550,22 @@ else if (TrustDomainId > 0 && !showDropZone)
             Cancel
         </FluentButton>
     </FluentDialogFooter>
+</FluentDialog>
+
+@* Create CSR dialog — form lives in the shared CsrBuilder component *@
+<FluentDialog @bind-Hidden="@csrDialogHidden" Modal="true" TrapFocus="true"
+              Style="min-width: 640px; max-width: 800px;">
+    <FluentDialogHeader>Create Certificate Signing Request</FluentDialogHeader>
+    <FluentDialogBody>
+        @if (!csrDialogHidden && selectedNode != null && selectedCert != null)
+        {
+            <CsrBuilder Certificate="@selectedCert"
+                        HasPrivateKey="@selectedNodeHasPrivateKey"
+                        SourceName="@selectedNode.Name"
+                        Generate="GenerateCsrForSelectedAsync"
+                        OnClose="CloseCsrDialog" />
+        }
+    </FluentDialogBody>
 </FluentDialog>
 
 @* Publish CRL Dialog *@

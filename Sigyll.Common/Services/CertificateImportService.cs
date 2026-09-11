@@ -28,7 +28,15 @@ public record SingleImportResult
     public string? Error { get; init; }
     public string? ImportedName { get; init; }
 
-    public static SingleImportResult Imported(string name) => new() { Success = true, ImportedName = name };
+    /// <summary>
+    /// When a public-only certificate was imported and its public key matched a certificate
+    /// already stored with a private key (e.g. a CSR renewal that reused the key), the name of
+    /// that certificate. The imported certificate was stored with the paired private key.
+    /// </summary>
+    public string? KeyPairedFrom { get; init; }
+
+    public static SingleImportResult Imported(string name, string? keyPairedFrom = null) =>
+        new() { Success = true, ImportedName = name, KeyPairedFrom = keyPairedFrom };
     public static SingleImportResult Merged(string name) => new() { Success = true, AlreadyExists = true, ImportedName = name };
     public static SingleImportResult NoCaFound() => new() { NeedsCaSelection = true };
     public static SingleImportResult Failed(string error) => new() { Error = error };
@@ -96,6 +104,36 @@ public class CertificateImportService
             return SingleImportResult.Merged(existingIssued.Name);
         }
 
+        // --- Public-only import: pair with a stored private key if the public key is already known ---
+        // This completes the CSR round trip: the operator generated a CSR with an existing key,
+        // the external CA returned a new certificate, and importing that .cer should yield an
+        // operational certificate rather than a trust-only one.
+        var hasPrivateKey = parsed.HasPrivateKey;
+        string? keyPairedFrom = null;
+        KeyDonor? donor = null;
+        if (!hasPrivateKey)
+        {
+            donor = await FindKeyDonorAsync(db, trustDomainId, cert, ct);
+            if (donor != null)
+            {
+                try
+                {
+                    fileBytes = BuildPfxWithDonorKey(cert, donor);
+                    password = donor.PfxPassword;
+                    hasPrivateKey = true;
+                    keyPairedFrom = donor.Name;
+                    _logger.LogInformation(
+                        "Imported certificate '{Name}' paired with private key from '{Donor}' (same public key)",
+                        certName, donor.Name);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Public key matched '{Donor}' but the stored key could not be attached; importing as trust-only", donor.Name);
+                    donor = null;
+                }
+            }
+        }
+
         // --- New cert: determine chain placement ---
         if (parsed.DetectedRole is DetectedCertRole.RootCa or DetectedCertRole.IntermediateCa)
         {
@@ -110,6 +148,7 @@ public class CertificateImportService
                     db, trustDomainId, cert, ct);
             }
 
+            var caDonor = donor?.EntityType == "CaCertificate" ? donor : null;
             db.CaCertificates.Add(new CaCertificate
             {
                 TrustDomainId = trustDomainId,
@@ -117,8 +156,8 @@ public class CertificateImportService
                 Name = certName.Trim(),
                 Subject = cert.Subject,
                 X509CertificatePem = cert.ExportCertificatePem(),
-                EncryptedPfxBytes = parsed.HasPrivateKey ? fileBytes : null,
-                PfxPassword = parsed.HasPrivateKey ? password : null,
+                EncryptedPfxBytes = hasPrivateKey ? fileBytes : null,
+                PfxPassword = hasPrivateKey ? password : null,
                 Thumbprint = thumbprint,
                 SerialNumber = cert.SerialNumber,
                 KeyAlgorithm = parsed.Algorithm,
@@ -126,6 +165,9 @@ public class CertificateImportService
                 NotBefore = cert.NotBefore.ToUniversalTime(),
                 NotAfter = cert.NotAfter.ToUniversalTime(),
                 CertSecurityLevel = CertSecurityLevel.Software,
+                // Same key as an existing CA cert ⇒ this is a re-signed successor; record lineage
+                RenewalOfId = caDonor?.Id,
+                Version = caDonor != null ? caDonor.Version + 1 : 1,
                 Enabled = true
             });
         }
@@ -142,6 +184,7 @@ public class CertificateImportService
             if (resolvedCaId == null)
                 return SingleImportResult.NoCaFound();
 
+            var issuedDonor = donor?.EntityType == "IssuedCertificate" ? donor : null;
             db.IssuedCertificates.Add(new IssuedCertificate
             {
                 IssuingCaCertificateId = resolvedCaId.Value,
@@ -149,20 +192,107 @@ public class CertificateImportService
                 Subject = cert.Subject,
                 SubjectAltNames = parsed.SubjectAltNames,
                 X509CertificatePem = cert.ExportCertificatePem(),
-                EncryptedPfxBytes = parsed.HasPrivateKey ? fileBytes : null,
-                PfxPassword = parsed.HasPrivateKey ? password : null,
+                EncryptedPfxBytes = hasPrivateKey ? fileBytes : null,
+                PfxPassword = hasPrivateKey ? password : null,
                 Thumbprint = thumbprint,
                 SerialNumber = cert.SerialNumber,
                 KeyAlgorithm = parsed.Algorithm,
                 KeySize = parsed.KeySize,
                 NotBefore = cert.NotBefore.ToUniversalTime(),
                 NotAfter = cert.NotAfter.ToUniversalTime(),
+                RenewalOfId = issuedDonor?.Id,
+                Version = issuedDonor != null ? issuedDonor.Version + 1 : 1,
                 Enabled = true
             });
         }
 
         await db.SaveChangesAsync(ct);
-        return SingleImportResult.Imported(certName.Trim());
+        return SingleImportResult.Imported(certName.Trim(), keyPairedFrom);
+    }
+
+    /// <summary>A stored certificate whose private key matches a certificate being imported.</summary>
+    private sealed record KeyDonor(int Id, string EntityType, string Name, int Version, byte[] PfxBytes, string? PfxPassword);
+
+    /// <summary>
+    /// Finds a non-archived certificate in the trust domain that holds a software private key
+    /// for exactly the same public key as <paramref name="cert"/>. Candidates are narrowed by
+    /// key algorithm/size first so only a handful of PEMs are parsed.
+    /// </summary>
+    private static async Task<KeyDonor?> FindKeyDonorAsync(
+        SigyllDbContext db, int trustDomainId, X509Certificate2 cert, CancellationToken ct)
+    {
+        var spki = cert.PublicKey.ExportSubjectPublicKeyInfo();
+
+        var caCandidates = await db.CaCertificates
+            .Where(c => c.TrustDomainId == trustDomainId
+                        && !c.IsArchived
+                        && c.EncryptedPfxBytes != null
+                        && c.CertSecurityLevel == CertSecurityLevel.Software
+                        && c.Thumbprint != cert.Thumbprint)
+            .OrderByDescending(c => c.NotAfter)
+            .Select(c => new { c.Id, c.Name, c.Version, c.X509CertificatePem, c.EncryptedPfxBytes, c.PfxPassword })
+            .ToListAsync(ct);
+
+        foreach (var c in caCandidates)
+        {
+            if (PublicKeyMatches(c.X509CertificatePem, spki))
+                return new KeyDonor(c.Id, "CaCertificate", c.Name, c.Version, c.EncryptedPfxBytes!, c.PfxPassword);
+        }
+
+        var issuedCandidates = await db.IssuedCertificates
+            .Where(i => i.IssuingCaCertificate.TrustDomainId == trustDomainId
+                        && !i.IsArchived
+                        && i.EncryptedPfxBytes != null
+                        && i.CertSecurityLevel == CertSecurityLevel.Software
+                        && i.Thumbprint != cert.Thumbprint)
+            .OrderByDescending(i => i.NotAfter)
+            .Select(i => new { i.Id, i.Name, i.Version, i.X509CertificatePem, i.EncryptedPfxBytes, i.PfxPassword })
+            .ToListAsync(ct);
+
+        foreach (var i in issuedCandidates)
+        {
+            if (PublicKeyMatches(i.X509CertificatePem, spki))
+                return new KeyDonor(i.Id, "IssuedCertificate", i.Name, i.Version, i.EncryptedPfxBytes!, i.PfxPassword);
+        }
+
+        return null;
+    }
+
+    private static bool PublicKeyMatches(string? pem, byte[] spki)
+    {
+        if (string.IsNullOrWhiteSpace(pem)) return false;
+        try
+        {
+            using var candidate = X509Certificate2.CreateFromPem(pem);
+            return candidate.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(spki);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Attaches the donor's private key to the new certificate and re-exports as PKCS#12.</summary>
+    private static byte[] BuildPfxWithDonorKey(X509Certificate2 cert, KeyDonor donor)
+    {
+        using var donorCert = X509CertificateLoader.LoadPkcs12(donor.PfxBytes, donor.PfxPassword,
+            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+
+        using var rsa = donorCert.GetRSAPrivateKey();
+        if (rsa != null)
+        {
+            using var paired = cert.CopyWithPrivateKey(rsa);
+            return paired.Export(X509ContentType.Pkcs12, donor.PfxPassword);
+        }
+
+        using var ecdsa = donorCert.GetECDsaPrivateKey();
+        if (ecdsa != null)
+        {
+            using var paired = cert.CopyWithPrivateKey(ecdsa);
+            return paired.Export(X509ContentType.Pkcs12, donor.PfxPassword);
+        }
+
+        throw new InvalidOperationException("Donor private key algorithm is not supported.");
     }
 
     /// <summary>
