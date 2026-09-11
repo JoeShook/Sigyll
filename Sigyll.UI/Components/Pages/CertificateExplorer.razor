@@ -1047,8 +1047,8 @@ else if (treeNodes.Count > 0)
                                           IconStart="@(new Icons.Regular.Size16.ShieldKeyhole())"
                                           OnClick="GenerateCrlForSelectedAsync"
                                           Disabled="@isGeneratingCrl"
-                                          title="Regenerate CRL using trustDomain validity setting">
-                                @(isGeneratingCrl ? "Generating..." : "Regen CRL")
+                                          title="@(SelectedCaHasCrl ? "Regenerate CRL signed by this certificate, using the trust domain validity setting" : "Generate the first CRL signed by this certificate, using the trust domain validity setting")">
+                                @(isGeneratingCrl ? "Generating..." : SelectedCaHasCrl ? "Regen CRL" : "Generate CRL")
                             </FluentButton>
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.DocumentArrowRight())"
@@ -1057,6 +1057,15 @@ else if (treeNodes.Count > 0)
                                           title="Generate and publish a new CRL">
                                 Publish CRL
                             </FluentButton>
+                            @if (GetLatestCrlNode() is { } latestCrlNode)
+                            {
+                                <FluentAnchor Href="@($"/api/crl/{latestCrlNode.Id}/download")"
+                                              Appearance="Appearance.Outline"
+                                              title="@($"Download the latest CRL ({latestCrlNode.Name}) to hand to an external CA or CDP host")">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
+                                    Download CRL
+                                </FluentAnchor>
+                            }
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.Certificate())"
                                           OnClick="PublishAiaForSelectedAsync"
@@ -1392,7 +1401,7 @@ else if (TrustDomainId > 0 && !showDropZone)
         {
             <FluentMenuItem OnClick="GenerateCrlForSelectedAsync" Disabled="@isGeneratingCrl">
                 <FluentIcon Value="@(new Icons.Regular.Size16.ShieldKeyhole())" slot="start" />
-                Regen CRL
+                @(SelectedCaHasCrl ? "Regen CRL" : "Generate CRL")
             </FluentMenuItem>
             <FluentMenuItem OnClick="ShowPublishCrlDialog" Disabled="@isGeneratingCrl">
                 <FluentIcon Value="@(new Icons.Regular.Size16.DocumentArrowRight())" slot="start" />

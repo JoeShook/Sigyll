@@ -652,6 +652,34 @@ public partial class CertificateExplorer : IDisposable
         }
     }
 
+    /// <summary>True when the selected CA node already has a non-archived CRL.</summary>
+    private bool SelectedCaHasCrl =>
+        selectedNode?.EntityType == "CaCertificate"
+        && selectedNode.LatestCrlFreshness != CrlFreshness.Missing;
+
+    /// <summary>
+    /// The latest (highest CRL number, non-archived) CRL node under the selected CA, if any.
+    /// Drives the "Download CRL" action on the CA detail panel.
+    /// </summary>
+    private CertificateChainNodeViewModel? GetLatestCrlNode() =>
+        selectedNode?.EntityType == "CaCertificate"
+            ? selectedNode.Children.FirstOrDefault(c => c.EntityType == "Crl" && c.IsLatestCrl)
+            : null;
+
+    /// <summary>
+    /// Reloads the tree and re-selects the node with the given thumbprint so the detail
+    /// panel stays on the certificate the operator was working with.
+    /// </summary>
+    private async Task ReloadTreeAndReselectAsync(string? thumbprint)
+    {
+        await LoadTrustDomainTreeAsync(TrustDomainId);
+        if (string.IsNullOrEmpty(thumbprint)) return;
+
+        var node = FindNodeByThumbprint(treeNodes, thumbprint);
+        if (node != null)
+            await SelectNode(node);
+    }
+
     private async Task GenerateCrlForSelectedAsync()
     {
         if (isGeneratingCrl || selectedNode == null) return;
@@ -662,11 +690,12 @@ public partial class CertificateExplorer : IDisposable
 
         try
         {
+            var caThumbprint = selectedNode.Thumbprint;
             var result = await CrlGenService.GenerateCrlAsync(selectedNode.Id);
             if (result.IsSuccess)
             {
-                ToastService.ShowSuccess($"CRL #{result.CrlNumber} generated ({result.RevokedCount} revoked certs)");
-                await LoadTrustDomainTreeAsync(TrustDomainId);
+                ToastService.ShowSuccess($"CRL #{result.CrlNumber} generated ({result.RevokedCount} revoked certs). Use Download CRL to save it.");
+                await ReloadTreeAndReselectAsync(caThumbprint);
             }
             else
             {
@@ -715,11 +744,12 @@ public partial class CertificateExplorer : IDisposable
 
         try
         {
+            var caThumbprint = selectedNode.Thumbprint;
             var result = await CrlGenService.GenerateCrlAsync(selectedNode.Id, validity);
             if (result.IsSuccess)
             {
-                ToastService.ShowSuccess($"CRL #{result.CrlNumber} generated (next update: {result.NextUpdate:yyyy-MM-dd HH:mm} UTC)");
-                await LoadTrustDomainTreeAsync(TrustDomainId);
+                ToastService.ShowSuccess($"CRL #{result.CrlNumber} generated (next update: {result.NextUpdate:yyyy-MM-dd HH:mm} UTC). Use Download CRL to save it.");
+                await ReloadTreeAndReselectAsync(caThumbprint);
             }
             else
             {

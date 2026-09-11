@@ -318,9 +318,11 @@ public class CrlGenerationService
         crlGen.AddExtension(X509Extensions.CrlNumber, false,
             new CrlNumber(new BigInteger(crlNumber.ToString())));
 
-        // Authority Key Identifier
+        // Authority Key Identifier — taken from the CA certificate's own SKI so the CRL
+        // chains to the certificate as issued (matters for imported CAs whose issuer
+        // computed the SKI with something other than SHA-1 over the public key).
         crlGen.AddExtension(X509Extensions.AuthorityKeyIdentifier, false,
-            new AuthorityKeyIdentifierStructure(bouncyCaCert.GetPublicKey()));
+            BuildAuthorityKeyIdentifier(bouncyCaCert));
 
         var crl = crlGen.Generate(new Asn1SignatureFactory(sigAlgName, privateKey));
 
@@ -345,9 +347,12 @@ public class CrlGenerationService
         var hashAlgorithm = HashAlgorithmName.SHA256;
         var sigAlgId = RemoteCertificateBuilder.GetSignatureAlgorithmIdentifier(ca.KeyAlgorithm, hashAlgorithm);
 
-        // Build TBS CRL using BouncyCastle
+        // Build TBS CRL using BouncyCastle. Issuer DN and AKI come from the CA's actual
+        // certificate (not re-parsed from the subject string) so the encoding matches
+        // byte-for-byte what relying parties see in the certificate.
+        var issuerCert = LoadIssuerCertificate(ca);
         var tbsGen = new V2TbsCertListGenerator();
-        var issuerDn = new Org.BouncyCastle.Asn1.X509.X509Name(ca.Subject);
+        var issuerDn = issuerCert?.SubjectDN ?? new Org.BouncyCastle.Asn1.X509.X509Name(ca.Subject);
 
         tbsGen.SetIssuer(issuerDn);
         tbsGen.SetThisUpdate(new Org.BouncyCastle.Asn1.X509.Time(thisUpdate));
@@ -374,15 +379,24 @@ public class CrlGenerationService
         extGen.AddExtension(X509Extensions.CrlNumber, false,
             new CrlNumber(new BigInteger(crlNumber.ToString())));
 
-        // Authority Key Identifier — get public key from provider
-        var publicKey = await _signingProvider.GetPublicKeyAsync(keyRef, ct);
-        var bcPublicKey = PublicKeyFactory.CreateKey(
-            publicKey is RSA rsa
-                ? rsa.ExportSubjectPublicKeyInfo()
-                : ((ECDsa)publicKey).ExportSubjectPublicKeyInfo());
+        // Authority Key Identifier — prefer the CA certificate's own SKI; fall back to
+        // deriving it from the provider's public key when the certificate is unavailable.
+        AuthorityKeyIdentifier akiValue;
+        if (issuerCert != null)
+        {
+            akiValue = BuildAuthorityKeyIdentifier(issuerCert);
+        }
+        else
+        {
+            var publicKey = await _signingProvider.GetPublicKeyAsync(keyRef, ct);
+            var bcPublicKey = PublicKeyFactory.CreateKey(
+                publicKey is RSA rsa
+                    ? rsa.ExportSubjectPublicKeyInfo()
+                    : ((ECDsa)publicKey).ExportSubjectPublicKeyInfo());
 
-        var akiValue = new AuthorityKeyIdentifier(
-            SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(bcPublicKey));
+            akiValue = new AuthorityKeyIdentifier(
+                SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(bcPublicKey));
+        }
         extGen.AddExtension(X509Extensions.AuthorityKeyIdentifier, false, akiValue);
 
         tbsGen.SetExtensions(extGen.Generate());
@@ -439,6 +453,41 @@ public class CrlGenerationService
         keyAlgorithm.Equals("RSA", StringComparison.OrdinalIgnoreCase)
             ? "SHA256WithRSAEncryption"
             : "SHA256WithECDSA";
+
+    /// <summary>
+    /// Loads the CA's public certificate (from its stored PEM) as a BouncyCastle certificate.
+    /// Returns null when the PEM is missing or unparsable; callers fall back to entity fields.
+    /// </summary>
+    private static Org.BouncyCastle.X509.X509Certificate? LoadIssuerCertificate(CaCertificate ca)
+    {
+        if (string.IsNullOrWhiteSpace(ca.X509CertificatePem)) return null;
+        try
+        {
+            using var x509 = X509Certificate2.CreateFromPem(ca.X509CertificatePem);
+            return DotNetUtilities.FromX509Certificate(x509);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Builds the CRL's Authority Key Identifier from the issuing certificate. Uses the
+    /// certificate's Subject Key Identifier verbatim when present (RFC 5280 §5.2.1 requires
+    /// the CRL AKI to match the CA cert's SKI); otherwise derives it from the public key.
+    /// </summary>
+    internal static AuthorityKeyIdentifier BuildAuthorityKeyIdentifier(Org.BouncyCastle.X509.X509Certificate issuerCert)
+    {
+        var skiOctets = issuerCert.GetExtensionValue(X509Extensions.SubjectKeyIdentifier);
+        if (skiOctets != null)
+        {
+            var ski = SubjectKeyIdentifier.GetInstance(X509ExtensionUtilities.FromExtensionValue(skiOctets));
+            return new AuthorityKeyIdentifier(ski.GetKeyIdentifier());
+        }
+
+        return new AuthorityKeyIdentifierStructure(issuerCert.GetPublicKey());
+    }
 }
 
 public class CrlStatusSummary
