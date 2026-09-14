@@ -259,6 +259,74 @@ public class CsrGenerationServiceTests
     }
 
     [Fact]
+    public async Task UriSanWithoutPath_IsPreservedExactly_NoTrailingSlash()
+    {
+        // .NET's SubjectAlternativeNameBuilder would emit "https://host/" — UDAP needs the exact base URL
+        var (id, entityType, _) = await SeedImportedEndEntityAsync();
+        const string bareHost = "https://shin-sand-idp.dev.surescripts.tech";
+
+        var result = await _service.GenerateCsrAsync(new CsrGenerationRequest
+        {
+            CertificateId = id,
+            EntityType = entityType,
+            KeyMode = CsrKeyMode.ReuseExistingKey,
+            SubjectAltNames = [new SanEntry(SanType.Uri, bareHost)]
+        });
+
+        result.Success.ShouldBeTrue(result.Error);
+
+        var csr = CertificateRequest.LoadSigningRequestPem(result.CsrPem!, HashAlgorithmName.SHA256,
+            CertificateRequestLoadOptions.UnsafeLoadCertificateExtensions);
+        var sanExt = csr.CertificateExtensions.Single(e => e.Oid?.Value == "2.5.29.17");
+
+        // Re-read with the same BouncyCastle-based reader the UI uses
+        using var probe = MakeCertWithExtension(sanExt);
+        var sans = CsrGenerationService.ExtractSubjectAltNames(probe);
+        sans.ShouldBe([new SanEntry(SanType.Uri, bareHost)]);
+        sanExt.Format(false).ShouldNotContain(bareHost + "/");
+    }
+
+    [Fact]
+    public void SanExtensionBuilder_PreservesUriText_AndEncodesAllTypes()
+    {
+        var ext = SanExtensionBuilder.Build(
+        [
+            new SanEntry(SanType.Uri, "https://host.example"),          // no path — must NOT gain "/"
+            new SanEntry(SanType.Uri, "https://host.example/fhir/r4"),
+            new SanEntry(SanType.Dns, "host.example"),
+            new SanEntry(SanType.Email, "ops@host.example"),
+            new SanEntry(SanType.IpAddress, "10.1.2.3"),
+            new SanEntry(SanType.Dns, "   ")                             // blank — skipped
+        ]);
+
+        ext.ShouldNotBeNull();
+        ext.Critical.ShouldBeFalse();
+        using var probe = MakeCertWithExtension(ext);
+        var sans = CsrGenerationService.ExtractSubjectAltNames(probe);
+        sans.ShouldBe(
+        [
+            new SanEntry(SanType.Uri, "https://host.example"),
+            new SanEntry(SanType.Uri, "https://host.example/fhir/r4"),
+            new SanEntry(SanType.Dns, "host.example"),
+            new SanEntry(SanType.Email, "ops@host.example"),
+            new SanEntry(SanType.IpAddress, "10.1.2.3")
+        ]);
+
+        SanExtensionBuilder.Build([new SanEntry(SanType.Dns, "")]).ShouldBeNull();
+        Should.Throw<ArgumentException>(() => SanExtensionBuilder.Build([new SanEntry(SanType.Uri, "not a uri")]));
+        Should.Throw<ArgumentException>(() => SanExtensionBuilder.Build([new SanEntry(SanType.IpAddress, "999.1.1.1")]));
+    }
+
+    /// <summary>Wraps an extension in a throwaway self-signed certificate so it can be read back through X509Certificate2.</summary>
+    private static X509Certificate2 MakeCertWithExtension(X509Extension extension)
+    {
+        using var rsa = RSA.Create(2048);
+        var req = new CertificateRequest("CN=probe", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        req.CertificateExtensions.Add(new X509Extension(extension.Oid!, extension.RawData, extension.Critical));
+        return req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1));
+    }
+
+    [Fact]
     public void ExtractSubjectAltNames_ReturnsUriDnsEmailAndIp()
     {
         using var rsa = RSA.Create(2048);

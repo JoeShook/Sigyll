@@ -262,22 +262,11 @@ public class CsrGenerationService
             return;
         }
 
-        var entries = sans.Where(s => !string.IsNullOrWhiteSpace(s.Value)).ToList();
-        if (entries.Count == 0) return;
-
-        var builder = new SubjectAlternativeNameBuilder();
-        foreach (var san in entries)
-        {
-            var value = san.Value.Trim();
-            switch (san.Type)
-            {
-                case SanType.Uri: builder.AddUri(new Uri(value)); break;
-                case SanType.Dns: builder.AddDnsName(value); break;
-                case SanType.Email: builder.AddEmailAddress(value); break;
-                case SanType.IpAddress: builder.AddIpAddress(IPAddress.Parse(value)); break;
-            }
-        }
-        csr.CertificateExtensions.Add(builder.Build());
+        // Built via BouncyCastle so the URI text is preserved exactly — .NET's builder would
+        // turn "https://host" into "https://host/", which breaks UDAP base-URL matching.
+        var sanExtension = SanExtensionBuilder.Build(sans);
+        if (sanExtension != null)
+            csr.CertificateExtensions.Add(sanExtension);
     }
 
     private static AsymmetricAlgorithm CreateNewKey(string algorithm, int size)

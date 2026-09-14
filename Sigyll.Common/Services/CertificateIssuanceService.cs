@@ -1172,21 +1172,12 @@ public class CertificateIssuanceService
             extensions.Add(CertificateExtensionHelpers.BuildAiaExtension(
                 request.AiaUrls.Select(u => new Uri(u)).ToList()));
 
-        // SANs
+        // SANs — built via BouncyCastle so URI text is preserved exactly (no trailing-slash normalisation)
         if (request.SubjectAltNames.Count > 0)
         {
-            var sanBuilder = new SubjectAlternativeNameBuilder();
-            foreach (var san in request.SubjectAltNames)
-            {
-                switch (san.Type)
-                {
-                    case SanType.Uri: sanBuilder.AddUri(new Uri(san.Value)); break;
-                    case SanType.Dns: sanBuilder.AddDnsName(san.Value); break;
-                    case SanType.Email: sanBuilder.AddEmailAddress(san.Value); break;
-                    case SanType.IpAddress: sanBuilder.AddIpAddress(System.Net.IPAddress.Parse(san.Value)); break;
-                }
-            }
-            extensions.Add(sanBuilder.Build());
+            var sanExtension = SanExtensionBuilder.Build(request.SubjectAltNames);
+            if (sanExtension != null)
+                extensions.Add(sanExtension);
         }
 
         return extensions.ToArray();
@@ -1331,30 +1322,12 @@ public class CertificateIssuanceService
                     request.AiaUrls.Select(u => new Uri(u)).ToList()));
         }
 
-        // Subject Alternative Names
+        // Subject Alternative Names — built via BouncyCastle so URI text is preserved exactly
         if (request.SubjectAltNames.Count > 0)
         {
-            var sanBuilder = new SubjectAlternativeNameBuilder();
-            foreach (var san in request.SubjectAltNames)
-            {
-                switch (san.Type)
-                {
-                    case SanType.Uri:
-                        sanBuilder.AddUri(new Uri(san.Value));
-                        break;
-                    case SanType.Dns:
-                        sanBuilder.AddDnsName(san.Value);
-                        break;
-                    case SanType.Email:
-                        sanBuilder.AddEmailAddress(san.Value);
-                        break;
-                    case SanType.IpAddress:
-                        sanBuilder.AddIpAddress(IPAddress.Parse(san.Value));
-                        break;
-                }
-            }
-
-            certRequest.CertificateExtensions.Add(sanBuilder.Build());
+            var sanExtension = SanExtensionBuilder.Build(request.SubjectAltNames);
+            if (sanExtension != null)
+                certRequest.CertificateExtensions.Add(sanExtension);
         }
     }
 
