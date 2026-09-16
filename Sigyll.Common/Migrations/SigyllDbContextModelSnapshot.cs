@@ -480,6 +480,105 @@ namespace Sigyll.Common.Migrations
                     b.ToTable("DidTemplates", "sigil");
                 });
 
+            modelBuilder.Entity("Sigyll.Common.Data.Entities.ExternalCertificateRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CsrPem")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EncryptedPrivateKeyPem")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExternalCaName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("FulfilledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("FulfilledCertificateId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FulfilledEntityType")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("FulfilledThumbprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("KeyAlgorithm")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("KeyPassword")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("KeySize")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ModeledOnCertificateId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ModeledOnEntityType")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Profile")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PublicKeyThumbprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SubjectAltNamesJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SubjectDn")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("TrustDomainId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicKeyThumbprint");
+
+                    b.HasIndex("TrustDomainId");
+
+                    b.ToTable("ExternalCertificateRequests", "sigil");
+                });
+
             modelBuilder.Entity("Sigyll.Common.Data.Entities.IssuedCertificate", b =>
                 {
                     b.Property<int>("Id")
@@ -884,6 +983,17 @@ namespace Sigyll.Common.Migrations
                         .IsRequired();
 
                     b.Navigation("Template");
+
+                    b.Navigation("TrustDomain");
+                });
+
+            modelBuilder.Entity("Sigyll.Common.Data.Entities.ExternalCertificateRequest", b =>
+                {
+                    b.HasOne("Sigyll.Common.Data.Entities.TrustDomain", "TrustDomain")
+                        .WithMany()
+                        .HasForeignKey("TrustDomainId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("TrustDomain");
                 });

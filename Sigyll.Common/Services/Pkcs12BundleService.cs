@@ -219,7 +219,21 @@ public class Pkcs12BundleService
         var text = TryDecodeText(bytes);
         if (text != null && text.Contains("-----BEGIN", StringComparison.Ordinal))
         {
-            result.ImportFromPem(text);
+            // Plain CERTIFICATE blocks (possibly several — a PEM chain)
+            if (text.Contains("-----BEGIN CERTIFICATE-----", StringComparison.Ordinal))
+                result.ImportFromPem(text);
+
+            // PEM-armored PKCS#7 / CMS (what many CAs hand out as .p7b): decode each block and
+            // let BouncyCastle unwrap the SignedData certificate bag
+            foreach (var (label, der) in EnumeratePemBlocks(text))
+            {
+                if (label is not ("PKCS7" or "CMS")) continue;
+                foreach (var bc in new Org.BouncyCastle.X509.X509CertificateParser().ReadCertificates(der))
+                    result.Add(X509CertificateLoader.LoadCertificate(bc.GetEncoded()));
+            }
+
+            if (result.Count == 0)
+                throw new CryptographicException("The PEM file contains no CERTIFICATE or PKCS7 blocks.");
             return result;
         }
 
@@ -271,6 +285,22 @@ public class Pkcs12BundleService
         {
             ecdsa.Dispose();
             throw;
+        }
+    }
+
+    /// <summary>Yields every (label, DER bytes) PEM block in the text, in order.</summary>
+    private static IEnumerable<(string Label, byte[] Der)> EnumeratePemBlocks(string text)
+    {
+        var remaining = text.AsMemory();
+        while (PemEncoding.TryFind(remaining.Span, out var fields))
+        {
+            var label = remaining.Span[fields.Label].ToString();
+            var base64 = remaining.Span[fields.Base64Data];
+            var der = new byte[fields.DecodedDataLength];
+            if (Convert.TryFromBase64Chars(base64, der, out var written))
+                yield return (label, written == der.Length ? der : der[..written]);
+
+            remaining = remaining[fields.Location.End..];
         }
     }
 

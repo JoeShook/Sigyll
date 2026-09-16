@@ -1,0 +1,391 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@page "/external-requests"
+@using Sigyll.Common.Data.Entities
+
+<PageTitle>Sigyll - External CA Requests</PageTitle>
+
+<FluentLabel Typo="Typography.PageTitle">External CA Requests</FluentLabel>
+
+<FluentCard Style="margin-top: 1rem;">
+    <FluentMessageBar Intent="MessageIntent.Info">
+        CSRs you submit to an external CA. Sigyll generates the key pair, keeps the private key and the CSR, and
+        when the CA's certificate comes back matches it to that key and imports it into the trust domain — no
+        .key files or OpenSSL. Everything can still be exported to files at any time.
+    </FluentMessageBar>
+
+    <FluentStack Orientation="Orientation.Horizontal" Style="margin-top: 0.75rem; gap: 0.75rem; align-items: flex-end;" Wrap="true">
+        <FluentSelect TOption="TrustDomainChoice"
+                      Items="@trustDomains"
+                      OptionText="@(t => t.Name)"
+                      SelectedOption="@selectedTrustDomain"
+                      SelectedOptionChanged="OnTrustDomainChanged"
+                      Label="Trust domain"
+                      Style="min-width: 240px;" />
+        <FluentCheckbox Value="@showCompleted" ValueChanged="OnShowCompletedChanged" Label="Show fulfilled and cancelled" />
+        <FluentSpacer />
+        <FluentButton Appearance="Appearance.Accent"
+                      IconStart="@(new Icons.Regular.Size16.Add())"
+                      OnClick="ShowNewRequestDialog"
+                      Disabled="@(selectedTrustDomain == null)">
+            New CSR
+        </FluentButton>
+    </FluentStack>
+</FluentCard>
+
+@if (isLoading)
+{
+    <FluentProgressRing Style="margin: 2rem auto; display: block;" />
+}
+else if (requests.Count == 0)
+{
+    <FluentCard Style="margin-top: 1rem;">
+        <p style="opacity: 0.6;">No requests@(showCompleted ? "" : " pending") in this trust domain. Click <strong>New CSR</strong> to create one.</p>
+    </FluentCard>
+}
+else
+{
+    <FluentCard Style="margin-top: 1rem;">
+        <FluentDataGrid Items="@requests.AsQueryable()" Style="font-size: 0.9rem;" GridTemplateColumns="1.2fr 2fr 0.8fr 0.8fr 1fr 2.4fr">
+            <TemplateColumn Title="Name">
+                <div><strong>@context.Name</strong></div>
+                @if (!string.IsNullOrEmpty(context.ExternalCaName))
+                {
+                    <div style="opacity: 0.6; font-size: 0.8rem;">→ @context.ExternalCaName</div>
+                }
+            </TemplateColumn>
+            <TemplateColumn Title="Subject / SANs">
+                <div class="multiline-text" style="word-break: break-all;">@context.SubjectDn</div>
+                @foreach (var san in context.SubjectAltNames)
+                {
+                    <div style="opacity: 0.7; font-size: 0.8rem; word-break: break-all;">@san.Type: @san.Value</div>
+                }
+            </TemplateColumn>
+            <TemplateColumn Title="Key">
+                @context.KeyAlgorithm @context.KeySize
+            </TemplateColumn>
+            <TemplateColumn Title="Status">
+                @switch (context.Status)
+                {
+                    case ExternalRequestStatus.Pending:
+                        <FluentBadge BackgroundColor="#e65100" Color="white">Pending</FluentBadge>
+                        break;
+                    case ExternalRequestStatus.Fulfilled:
+                        <FluentBadge BackgroundColor="#2d6a4f" Color="white">Fulfilled</FluentBadge>
+                        break;
+                    default:
+                        <FluentBadge BackgroundColor="#666" Color="white">Cancelled</FluentBadge>
+                        break;
+                }
+            </TemplateColumn>
+            <TemplateColumn Title="Created">
+                <div>@TimeDisplay.FormatMedium(context.CreatedAt)</div>
+                @if (context.UpdatedAt != null)
+                {
+                    <div style="opacity: 0.6; font-size: 0.8rem;">edited @TimeDisplay.FormatMedium(context.UpdatedAt.Value)</div>
+                }
+            </TemplateColumn>
+            <TemplateColumn Title="Actions">
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.35rem;" Wrap="true">
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                                  OnClick="@(() => DownloadCsrAsync(context))" title="Download the CSR (.csr PEM)">
+                        CSR
+                    </FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.Copy())"
+                                  OnClick="@(() => CopyCsrAsync(context))" title="Copy the CSR PEM to the clipboard">
+                        Copy
+                    </FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.Key())"
+                                  OnClick="@(() => ShowExportKeyDialog(context))" title="Export the private key (PKCS#8, encrypted with a passphrase you choose)">
+                        Key
+                    </FluentButton>
+                    @if (context.Status == ExternalRequestStatus.Pending)
+                    {
+                        <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                      IconStart="@(new Icons.Regular.Size16.Edit())"
+                                      OnClick="@(() => ShowEditDialog(context))" title="Change subject, SANs or extensions and regenerate the CSR (same key unless you choose to rotate it)">
+                            Edit…
+                        </FluentButton>
+                        <FluentButton Appearance="Appearance.Accent" Size="ButtonSize.Small"
+                                      IconStart="@(new Icons.Regular.Size16.Checkmark())"
+                                      OnClick="@(() => ShowCompleteDialog(context))" title="Upload the certificate the CA returned">
+                            Complete…
+                        </FluentButton>
+                        <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                      IconStart="@(new Icons.Regular.Size16.Dismiss())"
+                                      OnClick="@(() => CancelAsync(context))" title="Cancel this request (key is kept until deleted)">
+                            Cancel
+                        </FluentButton>
+                    }
+                    @if (context.Status == ExternalRequestStatus.Fulfilled && context.FulfilledThumbprint != null)
+                    {
+                        <FluentButton Appearance="Appearance.Accent" Size="ButtonSize.Small"
+                                      IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                                      OnClick="@(() => ShowP12Dialog(context))" title="Download certificate + private key as a .p12 with a password you choose">
+                            .p12
+                        </FluentButton>
+                        <FluentAnchor Href="@($"/explorer/{context.TrustDomainId}?thumbprint={context.FulfilledThumbprint}")"
+                                      Appearance="Appearance.Outline" title="Open the imported certificate in the Explorer">
+                            <FluentIcon Value="@(new Icons.Regular.Size16.Certificate())" /> Open
+                        </FluentAnchor>
+                    }
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.Delete())"
+                                  OnClick="@(() => DeleteAsync(context))" title="Delete this request and its stored private key"
+                                  Style="color: #e94560;">
+                        Delete
+                    </FluentButton>
+                </FluentStack>
+            </TemplateColumn>
+        </FluentDataGrid>
+    </FluentCard>
+}
+
+@* ---------------- New CSR dialog ---------------- *@
+<FluentDialog @bind-Hidden="@newDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 680px; max-width: 860px;">
+    <FluentDialogHeader>@(editingId == null ? "New CSR for an external CA" : $"Edit request — {newName}")</FluentDialogHeader>
+    <FluentDialogBody>
+        @if (createResult == null)
+        {
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                @if (editingId != null)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Info">
+                        Saving regenerates the CSR. The stored key pair is reused unless you tick <em>Generate a new key pair</em>,
+                        so a resubmission looks like a corrected version of the same request to the CA.
+                    </FluentMessageBar>
+                }
+
+                <FluentTextField @bind-Value="newName" Label="Name" Placeholder="e.g. fhirlabs client 2026" Style="width: 100%;" />
+
+                @if (editingId == null)
+                {
+                    <FluentSelect TOption="ModelOption"
+                                  Items="@modelOptions"
+                                  OptionText="@(m => m.Label)"
+                                  SelectedOption="@selectedModel"
+                                  SelectedOptionChanged="OnModelSelected"
+                                  Label="Model on an existing certificate (optional — fills in subject and SANs, records renewal lineage)"
+                                  Style="width: 100%;" />
+                }
+
+                <FluentTextField @bind-Value="newSubjectDn" Label="Subject DN" Placeholder="CN=https://example.org/fhir, O=My Org, C=US" Style="width: 100%;" />
+
+                <FluentLabel Typo="Typography.Subject">Subject Alternative Names</FluentLabel>
+                @foreach (var san in newSans)
+                {
+                    <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; align-items: end;">
+                        <FluentSelect TOption="SanType" Items="@sanTypeOptions" OptionText="@(s => s.ToString())"
+                                      @bind-SelectedOption="san.Type" Style="width: 120px;" />
+                        <FluentTextField @bind-Value="san.Value" Style="flex: 1;" Placeholder="@SanPlaceholder(san.Type)" />
+                        <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                      IconStart="@(new Icons.Regular.Size16.Delete())" OnClick="@(() => newSans.Remove(san))" />
+                    </FluentStack>
+                }
+                <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                              IconStart="@(new Icons.Regular.Size16.Add())"
+                              OnClick="@(() => newSans.Add(new SanRow()))">
+                    Add SAN
+                </FluentButton>
+
+                @if (editingId != null)
+                {
+                    <FluentCheckbox @bind-Value="editRegenerateKey" Label="@($"Generate a new key pair (current: {editCurrentKey})")" />
+                }
+
+                <div style="display: flex; gap: 1rem;">
+                    <FluentSelect TOption="string" Items="@keyAlgorithmOptions"
+                                  SelectedOption="@newKeyAlgorithm" SelectedOptionChanged="OnKeyAlgorithmChanged"
+                                  Disabled="@(editingId != null && !editRegenerateKey)"
+                                  Label="Key algorithm" Style="flex: 1;" />
+                    <FluentSelect TOption="string" Items="@KeySizeOptions"
+                                  OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
+                                  @bind-SelectedOption="newKeySize"
+                                  Disabled="@(editingId != null && !editRegenerateKey)"
+                                  Label="Key size" Style="flex: 1;" />
+                    <FluentSelect TOption="CsrExtensionProfile" Items="@ProfileOptions"
+                                  OptionText="@ProfileLabel"
+                                  @bind-SelectedOption="newProfile"
+                                  Label="Requested extensions" Style="flex: 1.4;" />
+                </div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <FluentTextField @bind-Value="newExternalCaName" Label="External CA (optional)" Placeholder="e.g. EMR Direct" Style="flex: 1;" />
+                    <FluentTextField @bind-Value="newNotes" Label="Notes (optional)" Placeholder="ticket number, contact…" Style="flex: 2;" />
+                </div>
+            </div>
+        }
+        else
+        {
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <FluentMessageBar Intent="MessageIntent.Success">
+                    @(editingId == null ? "Request saved." : "Request updated and CSR regenerated.")
+                    The private key is stored in Sigyll; submit this CSR to the external CA and use
+                    <strong>Complete…</strong> when the certificate comes back (or simply drop the returned .cer into the
+                    Explorer — it is recognised automatically).
+                </FluentMessageBar>
+                <FluentTextArea Value="@createResult.CsrPem" ReadOnly="true" Rows="10"
+                                Style="width: 100%; font-family: monospace; font-size: 0.8rem;" />
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem;">
+                    <FluentButton Appearance="Appearance.Accent" IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                                  OnClick="DownloadCreatedCsrAsync">Download .csr</FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Copy())"
+                                  OnClick="CopyCreatedCsrAsync">Copy CSR</FluentButton>
+                </FluentStack>
+                <div style="font-size: 0.85rem;"><strong>Public key SHA-256</strong> <code style="word-break: break-all;">@createResult.PublicKeyThumbprint</code></div>
+            </div>
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        @if (createResult == null)
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="CreateRequestAsync" Disabled="@NewRequestInvalid">
+                @(isCreating ? "Generating…" : editingId == null ? "Generate & Save" : "Regenerate CSR & Save")
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Outline" OnClick="@(() => newDialogHidden = true)" Disabled="@isCreating">Cancel</FluentButton>
+        }
+        else
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="@(() => newDialogHidden = true)">Close</FluentButton>
+        }
+    </FluentDialogFooter>
+</FluentDialog>
+
+@* ---------------- Complete (upload signed certificate) dialog ---------------- *@
+<FluentDialog @bind-Hidden="@completeDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 620px;">
+    <FluentDialogHeader>Complete request — @completeTarget?.Name</FluentDialogHeader>
+    <FluentDialogBody>
+        @if (completeResult?.Success != true)
+        {
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <FluentMessageBar Intent="MessageIntent.Info">
+                    Upload the certificate the CA returned (.cer / .pem / .p7b). Sigyll checks it matches this request's
+                    key, bundles it with the stored private key, and imports it into
+                    <strong>@completeTarget?.TrustDomainName</strong>.
+                </FluentMessageBar>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <FluentLabel Typo="Typography.Body"><strong>Signed certificate</strong></FluentLabel>
+                        <FluentInputFile Id="ext-cert-input" Mode="InputFileMode.SaveToTemporaryFolder"
+                                         MaximumFileSize="@(5 * 1024 * 1024)" MaximumFileCount="1"
+                                         Accept=".cer,.crt,.pem,.der,.p7b" OnCompleted="OnSignedCertUploaded" DragDropZoneVisible="true"
+                                         Style="height: 70px; margin-top: 0.25rem; border: 2px dashed var(--accent-fill-rest); border-radius: 8px; cursor: pointer;">
+                            <ChildContent>
+                                <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.7; pointer-events: none; font-size: 0.85rem;">
+                                    @(completeCertName ?? "Drop or click to select")
+                                </div>
+                            </ChildContent>
+                        </FluentInputFile>
+                    </div>
+                    <div>
+                        <FluentLabel Typo="Typography.Body"><strong>Chain</strong> (optional)</FluentLabel>
+                        <FluentInputFile Id="ext-chain-input" Mode="InputFileMode.SaveToTemporaryFolder"
+                                         MaximumFileSize="@(5 * 1024 * 1024)" MaximumFileCount="10"
+                                         Accept=".cer,.crt,.pem,.der,.p7b" OnCompleted="OnChainUploaded" DragDropZoneVisible="true"
+                                         Style="height: 70px; margin-top: 0.25rem; border: 2px dashed var(--accent-fill-rest); border-radius: 8px; cursor: pointer;">
+                            <ChildContent>
+                                <div style="display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.7; pointer-events: none; font-size: 0.85rem;">
+                                    @(completeChain.Count > 0 ? $"{completeChain.Count} file(s)" : "Drop or click to select")
+                                </div>
+                            </ChildContent>
+                        </FluentInputFile>
+                    </div>
+                </div>
+
+                @if (completeResult?.NeedsCaSelection == true)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Warning">
+                        The issuer <code>@completeResult.IssuerName</code> is not in this trust domain. Add the CA's chain
+                        above, or pick the issuing CA:
+                    </FluentMessageBar>
+                    <FluentSelect TOption="CaChoice" Items="@caChoices" OptionText="@(c => c.Name)"
+                                  @bind-SelectedOption="selectedIssuingCa" Label="Issuing CA in this trust domain" Style="width: 100%;" />
+                }
+                else if (completeResult?.Error != null)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Error">@completeResult.Error</FluentMessageBar>
+                }
+            </div>
+        }
+        else
+        {
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <FluentMessageBar Intent="MessageIntent.Success">
+                    Imported <strong>@completeResult.ImportedName</strong> with its private key
+                    @(completeResult.ChainCertificatesImported > 0 ? $"(plus {completeResult.ChainCertificatesImported} chain certificate(s))" : "").
+                    <FluentAnchor Href="@($"/explorer/{completeResult.TrustDomainId}?thumbprint={completeResult.Thumbprint}")"
+                                  Appearance="Appearance.Hypertext" Style="margin-left: 0.5rem;">Open in Explorer</FluentAnchor>
+                </FluentMessageBar>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem;">
+                    <FluentButton Appearance="Appearance.Accent"
+                                  IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                                  OnClick="@(() => { if (completeTarget != null) ShowP12Dialog(completeTarget); })">
+                        Download .p12
+                    </FluentButton>
+                </FluentStack>
+            </div>
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        @if (completeResult?.Success != true)
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="CompleteRequestAsync"
+                          Disabled="@(isCompleting || completeCertBytes == null || (completeResult?.NeedsCaSelection == true && selectedIssuingCa == null && completeChain.Count == 0))">
+                @(isCompleting ? "Importing…" : "Match & Import")
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Outline" OnClick="CloseCompleteDialog" Disabled="@isCompleting">Cancel</FluentButton>
+        }
+        else
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="CloseCompleteDialog">Close</FluentButton>
+        }
+    </FluentDialogFooter>
+</FluentDialog>
+
+@* ---------------- Download .p12 dialog ---------------- *@
+<FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true" Style="min-width: 480px;">
+    <FluentDialogHeader>Download .p12 — @p12Target?.Name</FluentDialogHeader>
+    <FluentDialogBody>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <FluentMessageBar Intent="MessageIntent.Info">
+                Bundles the CA-issued certificate with its private key as PKCS#12, protected by the password below.
+                Use this file to install the certificate where it will be used.
+            </FluentMessageBar>
+            <FluentTextField @bind-Value="p12Password" Label="Password for the .p12" TextFieldType="TextFieldType.Password" Style="width: 100%;" />
+            <FluentCheckbox @bind-Value="p12IncludeChain" Label="Include the issuing CA chain (as public certificates)" />
+        </div>
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Accent" OnClick="DownloadP12Async" Disabled="@(string.IsNullOrEmpty(p12Password))">
+            Download .p12
+        </FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => p12DialogHidden = true)">Cancel</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
+@* ---------------- Export private key dialog ---------------- *@
+<FluentDialog @bind-Hidden="@exportKeyDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 480px;">
+    <FluentDialogHeader>Export private key — @exportKeyTarget?.Name</FluentDialogHeader>
+    <FluentDialogBody>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <FluentMessageBar Intent="MessageIntent.Warning">
+                The key is exported as PKCS#8 PEM encrypted with the passphrase below (AES-256). The stored copy stays in
+                Sigyll. Anyone holding the file and passphrase can act as this certificate's subject.
+            </FluentMessageBar>
+            <FluentTextField @bind-Value="exportKeyPassphrase" Label="Passphrase" TextFieldType="TextFieldType.Password" Style="width: 100%;" />
+        </div>
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Accent" OnClick="ExportKeyAsync" Disabled="@(string.IsNullOrEmpty(exportKeyPassphrase))">
+            Download .key
+        </FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => exportKeyDialogHidden = true)">Cancel</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>

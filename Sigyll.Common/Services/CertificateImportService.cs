@@ -134,6 +134,36 @@ public class CertificateImportService
             }
         }
 
+        // --- Public-only import matching an outbound CSR request: this is the CA's answer ---
+        // The request holds the private key that signed the CSR; attach it so the certificate
+        // arrives operational, then mark the request fulfilled once the row exists.
+        ExternalCertificateRequest? pendingRequest = null;
+        if (!hasPrivateKey)
+        {
+            pendingRequest = await FindPendingRequestAsync(db, trustDomainId, cert, ct);
+            if (pendingRequest != null)
+            {
+                try
+                {
+                    fileBytes = BuildPfxWithRequestKey(cert, pendingRequest);
+                    password = pendingRequest.KeyPassword;
+                    hasPrivateKey = true;
+                    keyPairedFrom = $"CSR request '{pendingRequest.Name}'";
+                    _logger.LogInformation(
+                        "Imported certificate '{Name}' fulfils external CA request '{Request}' (ID {RequestId})",
+                        certName, pendingRequest.Name, pendingRequest.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Certificate matched CSR request '{Request}' but its key could not be attached; importing as trust-only", pendingRequest.Name);
+                    pendingRequest = null;
+                }
+            }
+        }
+
+        CaCertificate? newCa = null;
+        IssuedCertificate? newIssued = null;
+
         // --- New cert: determine chain placement ---
         if (parsed.DetectedRole is DetectedCertRole.RootCa or DetectedCertRole.IntermediateCa)
         {
@@ -149,7 +179,7 @@ public class CertificateImportService
             }
 
             var caDonor = donor?.EntityType == "CaCertificate" ? donor : null;
-            db.CaCertificates.Add(new CaCertificate
+            newCa = new CaCertificate
             {
                 TrustDomainId = trustDomainId,
                 ParentId = parentId,
@@ -169,7 +199,8 @@ public class CertificateImportService
                 RenewalOfId = caDonor?.Id,
                 Version = caDonor != null ? caDonor.Version + 1 : 1,
                 Enabled = true
-            });
+            };
+            db.CaCertificates.Add(newCa);
         }
         else
         {
@@ -185,7 +216,7 @@ public class CertificateImportService
                 return SingleImportResult.NoCaFound();
 
             var issuedDonor = donor?.EntityType == "IssuedCertificate" ? donor : null;
-            db.IssuedCertificates.Add(new IssuedCertificate
+            newIssued = new IssuedCertificate
             {
                 IssuingCaCertificateId = resolvedCaId.Value,
                 Name = certName.Trim(),
@@ -203,11 +234,85 @@ public class CertificateImportService
                 RenewalOfId = issuedDonor?.Id,
                 Version = issuedDonor != null ? issuedDonor.Version + 1 : 1,
                 Enabled = true
-            });
+            };
+            db.IssuedCertificates.Add(newIssued);
         }
 
         await db.SaveChangesAsync(ct);
+
+        if (pendingRequest != null)
+        {
+            await MarkRequestFulfilledAsync(db, pendingRequest, newCa, newIssued, thumbprint, ct);
+        }
+
         return SingleImportResult.Imported(certName.Trim(), keyPairedFrom);
+    }
+
+    /// <summary>
+    /// Finds a pending outbound CSR request whose key pair matches the certificate being imported.
+    /// Requests in the target trust domain win; otherwise any pending request with that key.
+    /// </summary>
+    private static async Task<ExternalCertificateRequest?> FindPendingRequestAsync(
+        SigyllDbContext db, int trustDomainId, X509Certificate2 cert, CancellationToken ct)
+    {
+        var publicKeyThumbprint = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(cert.PublicKey.ExportSubjectPublicKeyInfo()));
+
+        var matches = await db.ExternalCertificateRequests
+            .Where(r => r.Status == ExternalRequestStatus.Pending && r.PublicKeyThumbprint == publicKeyThumbprint)
+            .OrderByDescending(r => r.TrustDomainId == trustDomainId)
+            .ThenByDescending(r => r.CreatedAt)
+            .ToListAsync(ct);
+
+        return matches.FirstOrDefault();
+    }
+
+    private static byte[] BuildPfxWithRequestKey(X509Certificate2 cert, ExternalCertificateRequest request)
+    {
+        using var key = ExternalCertificateRequestService.LoadKey(request);
+
+        using var paired = key switch
+        {
+            System.Security.Cryptography.RSA rsa => cert.CopyWithPrivateKey(rsa),
+            System.Security.Cryptography.ECDsa ecdsa => cert.CopyWithPrivateKey(ecdsa),
+            _ => throw new InvalidOperationException("Unsupported key algorithm on the stored request key.")
+        };
+
+        return paired.Export(X509ContentType.Pkcs12, request.KeyPassword);
+    }
+
+    private static async Task MarkRequestFulfilledAsync(
+        SigyllDbContext db, ExternalCertificateRequest request,
+        CaCertificate? newCa, IssuedCertificate? newIssued, string thumbprint, CancellationToken ct)
+    {
+        request.Status = ExternalRequestStatus.Fulfilled;
+        request.FulfilledAt = DateTime.UtcNow;
+        request.FulfilledThumbprint = thumbprint;
+
+        if (newCa != null)
+        {
+            request.FulfilledCertificateId = newCa.Id;
+            request.FulfilledEntityType = "CaCertificate";
+            if (request.ModeledOnEntityType == "CaCertificate" && request.ModeledOnCertificateId is int modelId
+                && await db.CaCertificates.FindAsync([modelId], ct) is { } model)
+            {
+                newCa.RenewalOfId = model.Id;
+                newCa.Version = model.Version + 1;
+            }
+        }
+        else if (newIssued != null)
+        {
+            request.FulfilledCertificateId = newIssued.Id;
+            request.FulfilledEntityType = "IssuedCertificate";
+            if (request.ModeledOnEntityType == "IssuedCertificate" && request.ModeledOnCertificateId is int modelId
+                && await db.IssuedCertificates.FindAsync([modelId], ct) is { } model)
+            {
+                newIssued.RenewalOfId = model.Id;
+                newIssued.Version = model.Version + 1;
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>A stored certificate whose private key matches a certificate being imported.</summary>

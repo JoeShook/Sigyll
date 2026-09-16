@@ -32,12 +32,37 @@ public class SigyllDbContext : DbContext
     public DbSet<VerificationMethod> VerificationMethods => Set<VerificationMethod>();
     public DbSet<CredentialSchema> CredentialSchemas => Set<CredentialSchema>();
     public DbSet<IssuedCredential> IssuedCredentials => Set<IssuedCredential>();
+    public DbSet<ExternalCertificateRequest> ExternalCertificateRequests => Set<ExternalCertificateRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.HasDefaultSchema("sigil");
+
+        // ExternalCertificateRequest — outbound CSR + private key awaiting an external CA
+        modelBuilder.Entity<ExternalCertificateRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.TrustDomainId);
+            entity.HasIndex(e => e.PublicKeyThumbprint);
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.SubjectDn).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.CsrPem).IsRequired();
+            entity.Property(e => e.KeyAlgorithm).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.PublicKeyThumbprint).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.EncryptedPrivateKeyPem).IsRequired();
+            entity.Property(e => e.KeyPassword).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ExternalCaName).HasMaxLength(200);
+            entity.Property(e => e.ModeledOnEntityType).HasMaxLength(40);
+            entity.Property(e => e.FulfilledEntityType).HasMaxLength(40);
+            entity.Property(e => e.FulfilledThumbprint).HasMaxLength(64);
+
+            entity.HasOne(e => e.TrustDomain)
+                .WithMany()
+                .HasForeignKey(e => e.TrustDomainId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
 
         // TrustDomain
         modelBuilder.Entity<TrustDomain>(entity =>

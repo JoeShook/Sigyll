@@ -160,6 +160,7 @@
             <FluentNavLink Href="/jobs" Icon="@(new Icons.Regular.Size20.Timer())">Jobs</FluentNavLink>
             <FluentNavLink Href="/import" Icon="@(new Icons.Regular.Size20.ArrowImport())">Import</FluentNavLink>
             <FluentNavLink Href="/csr" Icon="@(new Icons.Regular.Size20.DocumentEdit())" Tooltip="Generate a CSR from a .p12 without importing it">CSR from File</FluentNavLink>
+            <FluentNavLink Href="/external-requests" Icon="@(new Icons.Regular.Size20.DocumentArrowRight())" Tooltip="CSRs for external CAs — Sigyll keeps the private key until the certificate comes back">External CA Requests</FluentNavLink>
             <AuthorizeView Roles="Admin">
                 <FluentNavLink Href="/admin/operators" Icon="@(new Icons.Regular.Size20.PeopleSettings())">Operators</FluentNavLink>
             </AuthorizeView>

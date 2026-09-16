@@ -106,6 +106,35 @@ public class Pkcs12BundleServiceTests
     }
 
     [Fact]
+    public void Assemble_PemArmoredPkcs7WithFullChain_FindsLeafAndChain()
+    {
+        // What a Windows/EJBCA-style CA hands out as .p7b: "-----BEGIN PKCS7-----" wrapping a
+        // certs-only SignedData that carries root + issuing CA + leaf
+        var (keyPem, signedCert, caCert) = RunCsrRoundTrip("RSA");
+        var chainCollection = new X509Certificate2Collection { caCert, signedCert };
+        var p7Der = chainCollection.Export(X509ContentType.Pkcs7)!;
+        var p7Pem = PemEncoding.WriteString("PKCS7", p7Der);
+        p7Pem.ShouldStartWith("-----BEGIN PKCS7-----");
+
+        var result = _service.Assemble(
+            System.Text.Encoding.ASCII.GetBytes(p7Pem), "ehr-system.p7b",
+            keyPem, KeyPass, [], P12Pass);
+
+        result.Success.ShouldBeTrue(result.Error);
+        result.Thumbprint.ShouldBe(signedCert.Thumbprint);
+        result.ChainDer.Count.ShouldBe(1);
+        X509CertificateLoader.LoadCertificate(result.ChainDer[0]).Thumbprint.ShouldBe(caCert.Thumbprint);
+
+        // DER PKCS#7 still works too
+        var derResult = _service.Assemble(p7Der, "ehr-system.p7b", keyPem, KeyPass, [], P12Pass);
+        derResult.Success.ShouldBeTrue(derResult.Error);
+        derResult.Thumbprint.ShouldBe(signedCert.Thumbprint);
+
+        caCert.Dispose();
+        signedCert.Dispose();
+    }
+
+    [Fact]
     public void Assemble_WrongPassphrase_FailsClearly()
     {
         var (keyPem, signedCert, caCert) = RunCsrRoundTrip("RSA");

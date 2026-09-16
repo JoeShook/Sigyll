@@ -269,7 +269,8 @@ public class CsrGenerationService
             csr.CertificateExtensions.Add(sanExtension);
     }
 
-    private static AsymmetricAlgorithm CreateNewKey(string algorithm, int size)
+    /// <summary>Creates a fresh RSA (2048/3072/4096) or ECDSA (P-256/384/521) key pair.</summary>
+    public static AsymmetricAlgorithm CreateNewKey(string algorithm, int size)
     {
         if (algorithm.Equals("ECDSA", StringComparison.OrdinalIgnoreCase))
         {

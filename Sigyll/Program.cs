@@ -151,6 +151,7 @@ try
     builder.Services.AddScoped<CrlGenerationService>();
     builder.Services.AddScoped<CsrGenerationService>();
     builder.Services.AddScoped<Pkcs12BundleService>();
+    builder.Services.AddScoped<ExternalCertificateRequestService>();
     builder.Services.AddScoped<CrlAutoRenewalJob>();
     builder.Services.AddScoped<Sigyll.UI.Services.TimeDisplayService>();
     builder.Services.AddScoped<Sigyll.UI.Services.IssuancePasswordCache>();
