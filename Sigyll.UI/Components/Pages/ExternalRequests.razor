@@ -208,7 +208,8 @@ else
                                   OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
                                   @bind-SelectedOption="newKeySize"
                                   Disabled="@(editingId != null && !editRegenerateKey)"
-                                  Label="Key size" Style="flex: 1;" />
+                                  Style="@(SelectedIsPqc ? "flex: 1; display: none;" : "flex: 1;")"
+                                  Label="Key size" />
                     <FluentSelect TOption="CsrExtensionProfile" Items="@ProfileOptions"
                                   OptionText="@ProfileLabel"
                                   @bind-SelectedOption="newProfile"

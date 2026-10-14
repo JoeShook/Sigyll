@@ -22,6 +22,7 @@ using Org.BouncyCastle.X509;
 using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using X509Extensions = Org.BouncyCastle.Asn1.X509.X509Extensions;
 
@@ -283,6 +284,10 @@ public class CrlGenerationService
         using var x509Ca = X509CertificateLoader.LoadPkcs12(ca.EncryptedPfxBytes, ca.PfxPassword,
             X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
 
+        using var pqcKey = PqcKeyPair.FromCertificate(x509Ca);
+        if (pqcKey != null)
+            return GeneratePqcCrl(x509Ca, pqcKey, revocationEntries, crlNumber, thisUpdate, nextUpdate);
+
         var bouncyCaCert = DotNetUtilities.FromX509Certificate(x509Ca);
 
         AsymmetricKeyParameter privateKey;
@@ -329,6 +334,38 @@ public class CrlGenerationService
         return (crl.GetEncoded(), sigAlgName);
     }
 
+    private static (byte[] CrlBytes, string SignatureAlgorithm) GeneratePqcCrl(
+        X509Certificate2 x509Ca,
+        PqcKeyPair key,
+        Dictionary<string, (DateTime RevokedAt, int Reason)> revocationEntries,
+        long crlNumber,
+        DateTime thisUpdate,
+        DateTime nextUpdate)
+    {
+        if (!key.CanSign)
+            throw new InvalidOperationException($"CA key {key.AlgorithmId} cannot sign a CRL.");
+
+        var oid = x509Ca.PublicKey.Oid.Value
+            ?? throw new InvalidOperationException($"CA certificate has no public-key OID for {key.AlgorithmId}.");
+
+        var bouncyCaCert = DotNetUtilities.FromX509Certificate(x509Ca);
+        var crlGen = new X509V2CrlGenerator();
+        crlGen.SetIssuerDN(bouncyCaCert.SubjectDN);
+        crlGen.SetThisUpdate(thisUpdate);
+        crlGen.SetNextUpdate(nextUpdate);
+
+        foreach (var (serial, (revokedAt, reason)) in revocationEntries)
+        {
+            crlGen.AddCrlEntry(new BigInteger(serial, 16), revokedAt, reason);
+        }
+
+        crlGen.AddExtension(X509Extensions.CrlNumber, false, new CrlNumber(new BigInteger(crlNumber.ToString())));
+        crlGen.AddExtension(X509Extensions.AuthorityKeyIdentifier, false, BuildAuthorityKeyIdentifier(bouncyCaCert));
+
+        var crl = crlGen.Generate(new PqcSignatureFactory(oid, key.SignData));
+        return (crl.GetEncoded(), key.AlgorithmId);
+    }
+
     private async Task<(byte[] CrlBytes, string SignatureAlgorithm)> GenerateCrlRemoteAsync(
         CaCertificate ca,
         Dictionary<string, (DateTime RevokedAt, int Reason)> revocationEntries,
@@ -341,6 +378,9 @@ public class CrlGenerationService
         var parts = ca.StoreProviderHint!.Split(':', 2);
         if (parts.Length != 2)
             throw new InvalidOperationException($"Invalid StoreProviderHint format: '{ca.StoreProviderHint}'");
+
+        if (PqcAlgorithms.IsPqc(ca.KeyAlgorithm))
+            throw new InvalidOperationException(PqcAlgorithms.RemoteBlockedMessage);
 
         var keyRef = new SigningKeyReference(parts[0], parts[1], ca.KeyAlgorithm, ca.KeySize);
 

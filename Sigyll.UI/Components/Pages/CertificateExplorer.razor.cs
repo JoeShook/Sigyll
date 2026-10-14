@@ -19,6 +19,7 @@ using Microsoft.JSInterop;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
@@ -971,11 +972,7 @@ public partial class CertificateExplorer : IDisposable
     private string GetPublicKeyInfo()
     {
         if (selectedCert == null) return "Unknown";
-        var rsa = selectedCert.GetRSAPublicKey();
-        if (rsa != null) return $"RSA {rsa.KeySize}-bit";
-        var ecdsa = selectedCert.GetECDsaPublicKey();
-        if (ecdsa != null) return $"ECDSA {ecdsa.KeySize}-bit";
-        return "Unknown";
+        return PqcAlgorithms.FormatPublicKey(selectedCert);
     }
 
     // --- Drag & drop import ---
@@ -1996,11 +1993,7 @@ public partial class CertificateExplorer : IDisposable
     private string GetIssuerPublicKeyInfo()
     {
         if (issuerCert == null) return "";
-        using var rsa = issuerCert.GetRSAPublicKey();
-        if (rsa != null) return $"RSA {rsa.KeySize}-bit";
-        using var ecdsa = issuerCert.GetECDsaPublicKey();
-        if (ecdsa != null) return $"ECDSA {ecdsa.KeySize}-bit";
-        return "Unknown";
+        return PqcAlgorithms.FormatPublicKey(issuerCert);
     }
 
     // --- Issuance Methods ---

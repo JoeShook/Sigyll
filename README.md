@@ -7,7 +7,7 @@ Designed as a lightweight alternative to enterprise CA tools like EJBCA, Sigyll 
 ## Features
 
 - **Certificate Explorer** — Hierarchical tree view of Root CA > Intermediate CA > End-entity > CRL chains with detail panel, ASN.1 viewer, and chain validation
-- **Certificate Issuance** — Generate Root CAs, Intermediate CAs, and end-entity certificates from configurable templates (RSA + ECDSA)
+- **Certificate Issuance** — Generate Root CAs, Intermediate CAs, and end-entity certificates from configurable templates (RSA, ECDSA, and post-quantum ML-DSA, SLH-DSA, composite ML-DSA, and ML-KEM)
 - **Certificate Templates** — Preset and custom templates controlling key algorithm, extensions, key usage, EKU, CDP, AIA, SANs, and more
 - **Import & Auto-Detection** — Drag-and-drop import of .pfx, .cer, .pem, .crl files with automatic role detection and chain matching
 - **Chain Validation** — Offline and online validation with CRL checking, AIA issuer resolution, and CDP CRL fetching

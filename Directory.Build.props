@@ -7,6 +7,8 @@
   <PropertyGroup>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <!-- MLDsa, SlhDsa and CompositeMLDsa are still marked experimental (SYSLIB5006). Sigyll calls them on purpose. -->
+    <NoWarn>$(NoWarn);SYSLIB5006</NoWarn>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/JoeShook/Sigyll</RepositoryUrl>
   </PropertyGroup>

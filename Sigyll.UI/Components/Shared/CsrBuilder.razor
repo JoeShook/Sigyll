@@ -50,7 +50,7 @@
                               OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
                               @bind-SelectedOption="newKeySize"
                               Label="Key size"
-                              Style="flex: 1;" />
+                              Style="@(SelectedIsPqc ? "flex: 1; display: none;" : "flex: 1;")" />
             </div>
             <FluentTextField @bind-Value="newKeyPassphrase"
                              Label="Passphrase for the downloaded private key"

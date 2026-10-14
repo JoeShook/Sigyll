@@ -17,6 +17,7 @@ using Org.BouncyCastle.Asn1;
 using Org.BouncyCastle.Asn1.X509;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using X509Extension = System.Security.Cryptography.X509Certificates.X509Extension;
 
@@ -126,7 +127,7 @@ public class CsrGenerationService
     /// </summary>
     public CsrGenerationResult GenerateCsrFromCertificate(X509Certificate2 certificate, string name, CsrGenerationRequest options)
     {
-        AsymmetricAlgorithm? key = null;
+        CsrSigningKey? key = null;
         try
         {
             if (options.KeyMode == CsrKeyMode.ReuseExistingKey)
@@ -134,31 +135,31 @@ public class CsrGenerationService
                 if (!certificate.HasPrivateKey)
                     return CsrGenerationResult.Failure("No private key is available for this certificate; generate a new key instead.");
 
-                key = (AsymmetricAlgorithm?)certificate.GetRSAPrivateKey() ?? certificate.GetECDsaPrivateKey();
-                if (key == null)
-                    return CsrGenerationResult.Failure("Unsupported key algorithm in the private key.");
+                try
+                {
+                    key = CsrSigningKey.FromCertificate(certificate);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return CsrGenerationResult.Failure(ex.Message);
+                }
             }
             else
             {
                 if (string.IsNullOrWhiteSpace(options.NewKeyPassphrase))
                     return CsrGenerationResult.Failure("A passphrase is required to protect the new private key.");
 
-                key = CreateNewKey(options.NewKeyAlgorithm, options.NewKeySize);
+                key = CsrSigningKey.Generate(options.NewKeyAlgorithm, options.NewKeySize);
             }
 
-            var (keyAlgorithm, keySize) = DescribeKey(key);
+            var (keyAlgorithm, keySize) = key.Describe();
 
             var subjectName = !string.IsNullOrWhiteSpace(options.SubjectDn)
                               && !string.Equals(options.SubjectDn.Trim(), certificate.Subject, StringComparison.Ordinal)
                 ? new X500DistinguishedName(options.SubjectDn.Trim())
                 : certificate.SubjectName; // keep the original encoding byte-for-byte
 
-            var csr = key switch
-            {
-                RSA rsa => new CertificateRequest(subjectName, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
-                ECDsa ecdsa => new CertificateRequest(subjectName, ecdsa, HashAlgorithmName.SHA256),
-                _ => throw new InvalidOperationException("Unsupported key algorithm.")
-            };
+            var csr = key.CreateRequest(subjectName);
 
             AddSubjectAltNames(csr, certificate, options.SubjectAltNames);
 
@@ -189,7 +190,7 @@ public class CsrGenerationService
             if (options.KeyMode == CsrKeyMode.GenerateNewKey)
             {
                 var pbe = new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 100_000);
-                result.EncryptedPrivateKeyPem = key.ExportEncryptedPkcs8PrivateKeyPem(options.NewKeyPassphrase!, pbe);
+                result.EncryptedPrivateKeyPem = key.ExportEncryptedPkcs8Pem(options.NewKeyPassphrase!, pbe);
             }
 
             _logger.LogInformation(
