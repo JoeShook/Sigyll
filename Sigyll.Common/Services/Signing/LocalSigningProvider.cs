@@ -15,12 +15,14 @@ using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
 using Org.BouncyCastle.Security;
+using Sigyll.Common.Services.Pqc;
 
 namespace Sigyll.Common.Services.Signing;
 
 /// <summary>
 /// Local signing provider that generates and holds keys in memory.
-/// RSA / ECDSA use .NET primitives; Ed25519 uses BouncyCastle (no .NET native type).
+/// RSA / ECDSA use .NET primitives. Ed25519 uses BouncyCastle.
+/// ML-DSA, SLH-DSA, ML-KEM and composite ML-DSA use the .NET 10 PQC types.
 /// </summary>
 public sealed class LocalSigningProvider : ISigningProvider, IDisposable
 {
@@ -34,6 +36,14 @@ public sealed class LocalSigningProvider : ISigningProvider, IDisposable
         CancellationToken ct = default)
     {
         var id = Guid.NewGuid().ToString("N");
+
+        var pqcId = PqcAlgorithms.Canonicalize(keyAlgorithm, keySize);
+        if (pqcId != null)
+        {
+            var pqc = PqcKeyPair.Generate(pqcId);
+            _keys[id] = pqc;
+            return Task.FromResult(new SigningKeyReference("local", id, pqc.AlgorithmId, pqc.KeySize));
+        }
 
         if (keyAlgorithm.Equals("Ed25519", StringComparison.OrdinalIgnoreCase))
         {
@@ -78,7 +88,7 @@ public sealed class LocalSigningProvider : ISigningProvider, IDisposable
 
         throw new NotSupportedException(
             $"Key '{keyRef.KeyIdentifier}' (algorithm: {keyRef.KeyAlgorithm}) has no AsymmetricAlgorithm representation. " +
-            "Use GetRawPublicKeyAsync for Ed25519.");
+            "Use GetRawPublicKeyAsync for Ed25519 and post-quantum keys.");
     }
 
     public Task<RawPublicKey> GetRawPublicKeyAsync(
@@ -91,6 +101,8 @@ public sealed class LocalSigningProvider : ISigningProvider, IDisposable
         {
             AsymmetricCipherKeyPair pair when pair.Public is Ed25519PublicKeyParameters edPub
                 => Task.FromResult(new RawPublicKey("Ed25519", edPub.GetEncoded())),
+            PqcKeyPair pqc
+                => Task.FromResult(new RawPublicKey(pqc.AlgorithmId, pqc.ExportSubjectPublicKeyInfo())),
             RSA rsa
                 => Task.FromResult(new RawPublicKey("RSA", rsa.ExportSubjectPublicKeyInfo())),
             ECDsa ec
@@ -108,7 +120,11 @@ public sealed class LocalSigningProvider : ISigningProvider, IDisposable
             throw new InvalidOperationException($"Local key '{keyRef.KeyIdentifier}' not found.");
 
         byte[] signature;
-        if (entry is AsymmetricCipherKeyPair pair && pair.Private is Ed25519PrivateKeyParameters edPriv)
+        if (entry is PqcKeyPair pqc)
+        {
+            signature = pqc.SignData(data);
+        }
+        else if (entry is AsymmetricCipherKeyPair pair && pair.Private is Ed25519PrivateKeyParameters edPriv)
         {
             var signer = new Ed25519Signer();
             signer.Init(forSigning: true, edPriv);

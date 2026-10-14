@@ -14,6 +14,7 @@ using Google.Cloud.Kms.V1;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 
 namespace Sigyll.Gcp;
@@ -51,6 +52,9 @@ public sealed class GcpKmsSigningProvider : ISigningProvider
                 "Ed25519 via GCP KMS is not wired in Phase A. Use the local signing provider for DID/VC keys, " +
                 "or wait for Phase C. GCP KMS does support Ed25519 in principle.");
         }
+
+        if (PqcAlgorithms.IsPqc(keyAlgorithm))
+            throw new NotSupportedException(PqcAlgorithms.RemoteBlockedMessage);
 
         var client = _client.Value;
         var keyRingName = new KeyRingName(_options.ProjectId, _options.LocationId, _options.KeyRingId);

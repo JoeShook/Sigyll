@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.JSInterop;
 using Sigyll.Common.Services;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.UI.Components.Shared;
@@ -53,7 +54,7 @@ public partial class CsrBuilder
     }
 
     private static readonly string[] keyModeOptions = ["reuse", "new"];
-    private static readonly string[] keyAlgorithmOptions = ["RSA", "ECDSA"];
+    private static readonly string[] keyAlgorithmOptions = [.. PqcAlgorithms.CsrAlgorithms];
     private static readonly string[] rsaKeySizes = ["2048", "3072", "4096"];
     private static readonly string[] ecdsaKeySizes = ["256", "384", "521"];
     private static readonly SanType[] sanTypeOptions = Enum.GetValues<SanType>();
@@ -69,6 +70,8 @@ public partial class CsrBuilder
     private List<(SanType Type, string Value)> originalSans = new();
     private bool includeExtensions = true;
     private CsrGenerationResult? result;
+
+    private bool SelectedIsPqc => PqcAlgorithms.IsPqc(newKeyAlgorithm);
 
     private string[] KeySizeOptions => newKeyAlgorithm == "ECDSA" ? ecdsaKeySizes : rsaKeySizes;
 
@@ -165,7 +168,9 @@ public partial class CsrBuilder
             {
                 KeyMode = keyMode == "new" ? CsrKeyMode.GenerateNewKey : CsrKeyMode.ReuseExistingKey,
                 NewKeyAlgorithm = newKeyAlgorithm,
-                NewKeySize = int.TryParse(newKeySize, out var size) ? size : 2048,
+                NewKeySize = SelectedIsPqc
+                    ? PqcAlgorithms.Require(PqcAlgorithms.Canonicalize(newKeyAlgorithm, 0)!).KeySize
+                    : int.TryParse(newKeySize, out var size) ? size : 2048,
                 NewKeyPassphrase = keyMode == "new" ? newKeyPassphrase : null,
                 SubjectDn = subjectDn,
                 SubjectAltNames = unchanged ? null : edited.Select(s => new SanEntry(s.Type, s.Item2)).ToList(),

@@ -104,6 +104,7 @@
 - [x] Certificate archival (soft delete with retention)
 - [ ] Subordinate CA provisioning (issue sub-CA certs for external CAs)
 - [ ] Multi-algorithm support (RSA, ECDSA, Ed25519, Ed448)
+- [x] Post-quantum certificates (local keys, .NET 10): ML-DSA-44/65/87, all 12 SLH-DSA parameter sets, composite ML-DSA (draft-ietf-lamps-pq-composite-sigs), and ML-KEM-512/768/1024 subject keys. Covers issuance, CSR proof-of-possession, CRL signing, chain checks, and PFX import. Requires OpenSSL 3.5+ or Windows CNG with PQC. Vault Transit and GCP KMS cannot sign these keys.
 
 ## Phase 12: Certificate Request Portal & ACME Automation
 **Sequencing**: Build the authenticated request portal first (manual / RA-driven issuance), then layer ACME automation on top once the issuance + approval flows are proven. The portal establishes the vetted trust relationship that ACME (via EAB) automates.

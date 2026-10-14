@@ -16,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using X509Extension = System.Security.Cryptography.X509Certificates.X509Extension;
 
@@ -91,20 +92,20 @@ public class ExternalCertificateRequestService
             return ExternalCertificateRequestResult.Failure("Choose a certificate to model on, or pick a different extension profile.");
         }
 
-        AsymmetricAlgorithm? key = null;
+        CsrSigningKey? key = null;
         try
         {
             if (!TryParseSubject(request.SubjectDn, out var subject, out var subjectError))
                 return ExternalCertificateRequestResult.Failure(subjectError!);
 
-            key = CsrGenerationService.CreateNewKey(request.KeyAlgorithm, request.KeySize);
+            key = CsrSigningKey.Generate(request.KeyAlgorithm, request.KeySize);
 
             var built = BuildCsr(subject, request.SubjectAltNames, request.Profile, model, key);
 
             // Same posture as PfxPassword on certificates: a random password stored alongside
             var keyPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-            var encryptedKeyPem = key.ExportEncryptedPkcs8PrivateKeyPem(keyPassword, KeyPbe);
-            var (alg, size) = DescribeKey(key);
+            var encryptedKeyPem = key.ExportEncryptedPkcs8Pem(keyPassword, KeyPbe);
+            var (alg, size) = key.Describe();
 
             var entity = new ExternalCertificateRequest
             {
@@ -187,24 +188,24 @@ public class ExternalCertificateRequestService
         if (request.Profile == CsrExtensionProfile.FromModeledCertificate && model == null)
             return ExternalCertificateRequestResult.Failure("This request has no modeled certificate to copy extensions from; pick a different profile.");
 
-        AsymmetricAlgorithm? key = null;
+        CsrSigningKey? key = null;
         try
         {
             if (!TryParseSubject(request.SubjectDn, out var subject, out var subjectError))
                 return ExternalCertificateRequestResult.Failure(subjectError!);
 
             key = request.RegenerateKey
-                ? CsrGenerationService.CreateNewKey(request.KeyAlgorithm, request.KeySize)
-                : LoadKey(row);
+                ? CsrSigningKey.Generate(request.KeyAlgorithm, request.KeySize)
+                : CsrSigningKey.ImportEncryptedPkcs8(row.KeyAlgorithm, row.KeySize, row.EncryptedPrivateKeyPem, row.KeyPassword!);
 
             var built = BuildCsr(subject, request.SubjectAltNames, request.Profile, model, key);
 
             if (request.RegenerateKey)
             {
                 var keyPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-                row.EncryptedPrivateKeyPem = key.ExportEncryptedPkcs8PrivateKeyPem(keyPassword, KeyPbe);
+                row.EncryptedPrivateKeyPem = key.ExportEncryptedPkcs8Pem(keyPassword, KeyPbe);
                 row.KeyPassword = keyPassword;
-                (row.KeyAlgorithm, row.KeySize) = DescribeKey(key);
+                (row.KeyAlgorithm, row.KeySize) = key.Describe();
             }
 
             row.Name = request.Name.Trim();
@@ -268,14 +269,9 @@ public class ExternalCertificateRequestService
         List<SanEntry> sans,
         CsrExtensionProfile profile,
         X509Certificate2? model,
-        AsymmetricAlgorithm key)
+        CsrSigningKey key)
     {
-        var csr = key switch
-        {
-            RSA rsa => new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
-            ECDsa ecdsa => new CertificateRequest(subject, ecdsa, HashAlgorithmName.SHA256),
-            _ => throw new InvalidOperationException("Unsupported key algorithm.")
-        };
+        var csr = key.CreateRequest(subject);
 
         var sanExtension = SanExtensionBuilder.Build(sans);
         if (sanExtension != null)
@@ -417,9 +413,10 @@ public class ExternalCertificateRequestService
 
         try
         {
-            using var key = LoadKey(row);
+            using var key = CsrSigningKey.ImportEncryptedPkcs8(
+                row.KeyAlgorithm, row.KeySize, row.EncryptedPrivateKeyPem, row.KeyPassword!);
             var pbe = new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 100_000);
-            var pem = key.ExportEncryptedPkcs8PrivateKeyPem(passphrase, pbe);
+            var pem = key.ExportEncryptedPkcs8Pem(passphrase, pbe);
 
             _logger.LogWarning("Private key of external CA request '{Name}' (ID {Id}) exported", row.Name, row.Id);
 

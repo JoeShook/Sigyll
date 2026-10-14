@@ -99,13 +99,23 @@
                 <FluentSelect TOption="string" @bind-SelectedOption="editHashAlgorithm" Label="Hash Algorithm"
                               Items="@hashAlgorithms" Style="width: 100%;" />
             }
-            else
+            else if (editKeyAlgorithm == "ECDSA")
             {
                 <FluentSelect TOption="string" SelectedOption="@editEcdsaCurve"
                               SelectedOptionChanged="OnEcdsaCurveChanged" Label="ECDSA Curve"
                               Items="@ecdsaCurves" Style="width: 100%;" />
                 <div style="font-size: 0.8rem; opacity: 0.6; margin-top: -0.25rem;">
                     Signing algorithm: @GetEcdsaSigningAlgorithmLabel()
+                </div>
+            }
+            else
+            {
+                <FluentSelect TOption="string" Items="@PqcParameterIds"
+                              SelectedOption="@editPqcId" SelectedOptionChanged="OnPqcParameterChanged"
+                              OptionText="@(id => PqcAlgorithms.LabelOf(id))"
+                              Label="Parameter set" Style="width: 100%;" />
+                <div style="font-size: 0.8rem; opacity: 0.6; margin-top: -0.25rem;">
+                    @PqcAlgorithms.ParameterHelp(editKeyAlgorithm)
                 </div>
             }
 

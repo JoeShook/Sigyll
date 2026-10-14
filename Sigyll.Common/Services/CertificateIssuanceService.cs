@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
 using Sigyll.Common.ViewModels;
@@ -106,6 +107,20 @@ public class CertificateIssuanceService
             ? request.SigningProviderOverride != "local"
             : IsRemoteProvider;
 
+        if (PqcAlgorithms.IsPqc(template.KeyAlgorithm))
+        {
+            if (PqcAlgorithms.IsKem(template.KeyAlgorithm, template.KeySize)
+                && template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa)
+            {
+                return CertificateIssuanceResult.Failure(
+                    "ML-KEM encapsulates keys; it cannot sign a certificate and cannot be a CA. Use ML-DSA, SLH-DSA, or composite ML-DSA for CA keys.");
+            }
+
+            var unsupported = PqcAlgorithms.UnsupportedReason(template.KeyAlgorithm, template.KeySize);
+            if (unsupported != null)
+                return CertificateIssuanceResult.Failure(unsupported);
+        }
+
         // PFX password is only required for local signing
         if (!useRemoteSigning && string.IsNullOrWhiteSpace(request.PfxPassword))
             return CertificateIssuanceResult.Failure("PFX password is required.");
@@ -172,6 +187,13 @@ public class CertificateIssuanceService
         // 1. Full remote: new cert key AND signing both in remote provider
         // 2. Hybrid: new cert key is LOCAL (PFX), but issuer signs via remote provider (Vault Transit)
         // 3. Full local: both key and signing are local (existing code below)
+        if ((useRemoteSigning || issuerKeyRef != null)
+            && (PqcAlgorithms.IsPqc(template.KeyAlgorithm)
+                || (issuingCaEntity != null && PqcAlgorithms.IsPqc(issuingCaEntity.KeyAlgorithm))))
+        {
+            return CertificateIssuanceResult.Failure(PqcAlgorithms.RemoteBlockedMessage);
+        }
+
         if (useRemoteSigning)
         {
             return await IssueCertificateRemoteAsync(
@@ -208,24 +230,32 @@ public class CertificateIssuanceService
                 notAfter = new DateTimeOffset(issuingCert.NotAfter.ToUniversalTime(), TimeSpan.Zero);
             }
 
-            // Sign and create certificate
             X509Certificate2 cert;
-            if (isSelfSigned)
+            IDisposable? signatureKey = null;
+            try
             {
-                cert = certRequest.CreateSelfSigned(notBefore, notAfter);
-            }
-            else
-            {
-                var serialBytes = RandomNumberGenerator.GetBytes(16);
-                using var signedCert = certRequest.Create(
-                    issuingCert!.SubjectName,
-                    CreateSignatureGenerator(issuingCert!),
-                    notBefore,
-                    notAfter,
-                    serialBytes);
+                if (isSelfSigned)
+                {
+                    cert = certRequest.CreateSelfSigned(notBefore, notAfter);
+                }
+                else
+                {
+                    var serialBytes = RandomNumberGenerator.GetBytes(16);
+                    var (generator, ownedKey) = OpenSignatureGenerator(issuingCert!);
+                    signatureKey = ownedKey;
+                    using var signedCert = certRequest.Create(
+                        issuingCert!.SubjectName,
+                        generator,
+                        notBefore,
+                        notAfter,
+                        serialBytes);
 
-                // Attach private key
-                cert = AttachPrivateKey(signedCert, keyHolder);
+                    cert = AttachPrivateKey(signedCert, keyHolder);
+                }
+            }
+            finally
+            {
+                signatureKey?.Dispose();
             }
 
             using (cert)
@@ -246,8 +276,7 @@ public class CertificateIssuanceService
                     ? ExtractCnFromDn(request.SubjectDn) ?? request.SubjectDn
                     : request.CertificateName;
 
-                // Determine key size for storage
-                int keySize = GetKeySize(cert);
+                var described = PqcAlgorithms.DescribeCertificate(cert);
 
                 // Store in database
                 bool isCaType = template.CertificateType is CertificateType.RootCa
@@ -266,8 +295,8 @@ public class CertificateIssuanceService
                         PfxPassword = request.PfxPassword,
                         Thumbprint = cert.Thumbprint,
                         SerialNumber = cert.SerialNumber,
-                        KeyAlgorithm = template.KeyAlgorithm,
-                        KeySize = keySize,
+                        KeyAlgorithm = described.Algorithm,
+                        KeySize = described.KeySize,
                         NotBefore = cert.NotBefore.ToUniversalTime(),
                         NotAfter = cert.NotAfter.ToUniversalTime(),
                         CrlDistributionPoint = request.CdpUrls.Count > 0 ? string.Join(";", request.CdpUrls) : null,
@@ -308,8 +337,8 @@ public class CertificateIssuanceService
                         PfxPassword = request.PfxPassword,
                         Thumbprint = cert.Thumbprint,
                         SerialNumber = cert.SerialNumber,
-                        KeyAlgorithm = template.KeyAlgorithm,
-                        KeySize = keySize,
+                        KeyAlgorithm = described.Algorithm,
+                        KeySize = described.KeySize,
                         NotBefore = cert.NotBefore.ToUniversalTime(),
                         NotAfter = cert.NotAfter.ToUniversalTime(),
                         Version = renewalVersion,
@@ -384,12 +413,12 @@ public class CertificateIssuanceService
         if (string.IsNullOrWhiteSpace(request.CsrPem))
             return CsrIssuanceResult.Failure("CSR is required.");
 
-        // Parse the CSR. Signature validation (proof-of-possession) stays on; SHA-256 covers the
-        // common case. Broader signer-hash detection for SHA-384/512 CSRs is a follow-up.
+        // Parse the CSR. SHA-256/384/512 cover RSA and ECDSA. ML-DSA, SLH-DSA and composite
+        // ML-DSA ignore the hash and verify the pure signature (empty context).
         CertificateRequest csr;
         try
         {
-            csr = CertificateRequest.LoadSigningRequestPem(request.CsrPem, HashAlgorithmName.SHA256);
+            csr = LoadSigningRequest(request.CsrPem);
         }
         catch (Exception ex)
         {
@@ -481,11 +510,18 @@ public class CertificateIssuanceService
             X509Certificate2 cert;
             if (issuerKeyRef != null)
             {
+                if (PqcAlgorithms.IsPqc(issuingCaEntity.KeyAlgorithm))
+                    return CsrIssuanceResult.Failure(PqcAlgorithms.RemoteBlockedMessage);
+
                 // Issuer signs remotely (Vault Transit / Cloud KMS). The subject public key is the CSR's.
-                AsymmetricAlgorithm subjectPublicKey =
+                AsymmetricAlgorithm? subjectPublicKey =
                     (AsymmetricAlgorithm?)csr.PublicKey.GetRSAPublicKey()
-                    ?? csr.PublicKey.GetECDsaPublicKey()
-                    ?? throw new InvalidOperationException("Unsupported CSR public key algorithm.");
+                    ?? csr.PublicKey.GetECDsaPublicKey();
+                if (subjectPublicKey == null)
+                {
+                    return CsrIssuanceResult.Failure(
+                        "The CSR public key is post-quantum. Vault Transit and GCP KMS can only sign RSA and ECDSA requests; use a local issuing CA.");
+                }
 
                 using (subjectPublicKey)
                 {
@@ -497,7 +533,7 @@ public class CertificateIssuanceService
             }
             else
             {
-                // Local issuer signing — build a CertificateRequest bound to the CSR's public key.
+                // Local issuer signing — the CSR public key can be classical or post-quantum.
                 var certRequest = new CertificateRequest(
                     csr.SubjectName, csr.PublicKey, hashAlg,
                     isRsaSubject ? RSASignaturePadding.Pkcs1 : null);
@@ -505,10 +541,14 @@ public class CertificateIssuanceService
                 AddExtensions(certRequest, template, extReq, issuingCert);
 
                 var serialBytes = RandomNumberGenerator.GetBytes(16);
-                cert = certRequest.Create(
-                    issuingCert.SubjectName,
-                    CreateSignatureGenerator(issuingCert),
-                    notBefore, notAfter, serialBytes);
+                var (generator, ownedKey) = OpenSignatureGenerator(issuingCert);
+                using (ownedKey)
+                {
+                    cert = certRequest.Create(
+                        issuingCert.SubjectName,
+                        generator,
+                        notBefore, notAfter, serialBytes);
+                }
             }
 
             using (cert)
@@ -540,8 +580,8 @@ public class CertificateIssuanceService
                     PfxPassword = null,
                     Thumbprint = cert.Thumbprint,
                     SerialNumber = cert.SerialNumber,
-                    KeyAlgorithm = template.KeyAlgorithm,
-                    KeySize = GetKeySize(cert),
+                    KeyAlgorithm = PqcAlgorithms.DescribeCertificate(cert).Algorithm,
+                    KeySize = PqcAlgorithms.DescribeCertificate(cert).KeySize,
                     NotBefore = cert.NotBefore.ToUniversalTime(),
                     NotAfter = cert.NotAfter.ToUniversalTime(),
                     Version = renewalVersion,
@@ -659,9 +699,14 @@ public class CertificateIssuanceService
             // Build CertificateRequest using the SAME key from the existing cert
             var rsaKey = existingCert.GetRSAPrivateKey();
             var ecdsaKey = existingCert.GetECDsaPrivateKey();
+            using var pqcKey = PqcKeyPair.FromCertificate(existingCert);
 
             CertificateRequest certRequest;
-            if (ecdsaKey != null)
+            if (pqcKey != null)
+            {
+                certRequest = pqcKey.CreateCertificateRequest(existingCert.SubjectName);
+            }
+            else if (ecdsaKey != null)
             {
                 certRequest = new CertificateRequest(
                     existingCert.SubjectName,
@@ -699,28 +744,37 @@ public class CertificateIssuanceService
                 notAfter = new DateTimeOffset(parentCert.NotAfter.ToUniversalTime(), TimeSpan.Zero);
             }
 
-            // Sign with new serial
             X509Certificate2 newCert;
-            if (isSelfSigned)
+            IDisposable? signatureKey = null;
+            try
             {
-                // Self-signed root: sign with own key
-                newCert = certRequest.CreateSelfSigned(notBefore, notAfter);
-            }
-            else
-            {
-                var serialBytes = RandomNumberGenerator.GetBytes(16);
-                using var signedCert = certRequest.Create(
-                    parentCert!.SubjectName,
-                    CreateSignatureGenerator(parentCert!),
-                    notBefore,
-                    notAfter,
-                    serialBytes);
-
-                // Attach the SAME private key
-                if (ecdsaKey != null)
-                    newCert = signedCert.CopyWithPrivateKey(ecdsaKey);
+                if (isSelfSigned)
+                {
+                    newCert = certRequest.CreateSelfSigned(notBefore, notAfter);
+                }
                 else
-                    newCert = signedCert.CopyWithPrivateKey(rsaKey!);
+                {
+                    var serialBytes = RandomNumberGenerator.GetBytes(16);
+                    var (generator, ownedKey) = OpenSignatureGenerator(parentCert!);
+                    signatureKey = ownedKey;
+                    using var signedCert = certRequest.Create(
+                        parentCert!.SubjectName,
+                        generator,
+                        notBefore,
+                        notAfter,
+                        serialBytes);
+
+                    if (pqcKey != null)
+                        newCert = pqcKey.CopyWithPrivateKey(signedCert);
+                    else if (ecdsaKey != null)
+                        newCert = signedCert.CopyWithPrivateKey(ecdsaKey);
+                    else
+                        newCert = signedCert.CopyWithPrivateKey(rsaKey!);
+                }
+            }
+            finally
+            {
+                signatureKey?.Dispose();
             }
 
             using (newCert)
@@ -1189,6 +1243,11 @@ public class CertificateIssuanceService
     /// </summary>
     public static string? VerifyIssuedBy(X509Certificate2 cert, X509Certificate2 issuer)
     {
+        var pqc = PqcCertificateVerifier.TryVerify(cert.RawData, issuer.RawData);
+        if (pqc == true) return null;
+        if (pqc == false)
+            return "Certificate signature verification failed: the certificate was not signed by the specified CA.";
+
         try
         {
             var bcParser = new Org.BouncyCastle.X509.X509CertificateParser();
@@ -1221,6 +1280,10 @@ public class CertificateIssuanceService
 
     private static KeyHolder GenerateKeyPair(CertificateTemplate template)
     {
+        var pqcId = PqcAlgorithms.Canonicalize(template.KeyAlgorithm, template.KeySize);
+        if (pqcId != null)
+            return new KeyHolder(pqc: PqcKeyPair.Generate(pqcId));
+
         if (template.KeyAlgorithm.Equals("ECDSA", StringComparison.OrdinalIgnoreCase))
         {
             var curve = template.EcdsaCurve?.ToLowerInvariant() switch
@@ -1242,6 +1305,9 @@ public class CertificateIssuanceService
         string subjectDn,
         KeyHolder keyHolder)
     {
+        if (keyHolder.Pqc != null)
+            return keyHolder.Pqc.CreateCertificateRequest(subjectDn);
+
         var hashAlg = template.HashAlgorithm?.ToUpperInvariant() switch
         {
             "SHA384" => HashAlgorithmName.SHA384,
@@ -1331,19 +1397,44 @@ public class CertificateIssuanceService
         }
     }
 
-    private static X509SignatureGenerator CreateSignatureGenerator(X509Certificate2 issuerCert)
+    private static (X509SignatureGenerator Generator, IDisposable? OwnedKey) OpenSignatureGenerator(X509Certificate2 issuerCert)
     {
-        if (issuerCert.GetECDsaPrivateKey() is ECDsa ecdsa)
-            return X509SignatureGenerator.CreateForECDsa(ecdsa);
+        var pqc = PqcKeyPair.SignatureGeneratorFor(issuerCert);
+        if (pqc != null)
+            return (pqc.Value.Generator, pqc.Value.Key);
 
-        if (issuerCert.GetRSAPrivateKey() is RSA rsa)
-            return X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1);
+        if (issuerCert.GetECDsaPrivateKey() is { } ecdsa)
+            return (X509SignatureGenerator.CreateForECDsa(ecdsa), ecdsa);
 
-        throw new InvalidOperationException($"Unsupported issuer key algorithm: {issuerCert.PublicKey.Oid.FriendlyName}");
+        if (issuerCert.GetRSAPrivateKey() is { } rsa)
+            return (X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1), rsa);
+
+        throw new InvalidOperationException(
+            $"Unsupported issuer key algorithm: {issuerCert.PublicKey.Oid.FriendlyName ?? issuerCert.PublicKey.Oid.Value}");
+    }
+
+    private static CertificateRequest LoadSigningRequest(string pem)
+    {
+        Exception? last = null;
+        foreach (var hash in new[] { HashAlgorithmName.SHA256, HashAlgorithmName.SHA384, HashAlgorithmName.SHA512 })
+        {
+            try
+            {
+                return CertificateRequest.LoadSigningRequestPem(pem, hash);
+            }
+            catch (Exception ex) when (ex is CryptographicException or ArgumentException)
+            {
+                last = ex;
+            }
+        }
+
+        throw last ?? new CryptographicException("The CSR could not be read.");
     }
 
     private static X509Certificate2 AttachPrivateKey(X509Certificate2 signedCert, KeyHolder keyHolder)
     {
+        if (keyHolder.Pqc != null)
+            return keyHolder.Pqc.CopyWithPrivateKey(signedCert);
         if (keyHolder.Ecdsa != null)
             return signedCert.CopyWithPrivateKey(keyHolder.Ecdsa);
 
@@ -1414,23 +1505,26 @@ public class CertificateIssuanceService
     }
 
     /// <summary>
-    /// Holds the generated key pair (either RSA or ECDSA) and disposes it properly.
+    /// Holds the generated key pair and disposes it after the certificate has been exported.
     /// </summary>
     private sealed class KeyHolder : IDisposable
     {
         public RSA? Rsa { get; }
         public ECDsa? Ecdsa { get; }
+        public PqcKeyPair? Pqc { get; }
 
-        public KeyHolder(RSA? rsa = null, ECDsa? ecdsa = null)
+        public KeyHolder(RSA? rsa = null, ECDsa? ecdsa = null, PqcKeyPair? pqc = null)
         {
             Rsa = rsa;
             Ecdsa = ecdsa;
+            Pqc = pqc;
         }
 
         public void Dispose()
         {
             Rsa?.Dispose();
             Ecdsa?.Dispose();
+            Pqc?.Dispose();
         }
     }
 }

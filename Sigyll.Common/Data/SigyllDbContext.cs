@@ -49,7 +49,7 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.Property(e => e.SubjectDn).HasMaxLength(500).IsRequired();
             entity.Property(e => e.CsrPem).IsRequired();
-            entity.Property(e => e.KeyAlgorithm).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.KeyAlgorithm).HasMaxLength(64).IsRequired();
             entity.Property(e => e.PublicKeyThumbprint).HasMaxLength(64).IsRequired();
             entity.Property(e => e.EncryptedPrivateKeyPem).IsRequired();
             entity.Property(e => e.KeyPassword).HasMaxLength(200).IsRequired();
@@ -96,7 +96,7 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.Property(e => e.Thumbprint).HasMaxLength(64).IsRequired();
             entity.Property(e => e.SerialNumber).HasMaxLength(100).IsRequired();
-            entity.Property(e => e.KeyAlgorithm).HasMaxLength(20);
+            entity.Property(e => e.KeyAlgorithm).HasMaxLength(64);
             entity.Property(e => e.StoreProviderHint).HasMaxLength(200);
             entity.Ignore(e => e.IsRootCa);
 
@@ -126,7 +126,7 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.Property(e => e.Thumbprint).HasMaxLength(64).IsRequired();
             entity.Property(e => e.SerialNumber).HasMaxLength(100).IsRequired();
-            entity.Property(e => e.KeyAlgorithm).HasMaxLength(20);
+            entity.Property(e => e.KeyAlgorithm).HasMaxLength(64);
             entity.Property(e => e.StoreProviderHint).HasMaxLength(200);
 
             entity.HasOne(e => e.IssuingCaCertificate)
@@ -179,7 +179,7 @@ public class SigyllDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(e => e.Name).IsUnique();
-            entity.Property(e => e.KeyAlgorithm).HasMaxLength(20);
+            entity.Property(e => e.KeyAlgorithm).HasMaxLength(64);
             entity.Property(e => e.SubjectTemplate).HasMaxLength(500);
             entity.Property(e => e.EcdsaCurve).HasMaxLength(20);
             entity.Property(e => e.HashAlgorithm).HasMaxLength(10);
@@ -207,7 +207,7 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(e => e.Name).IsUnique();
             entity.Property(e => e.Method).HasMaxLength(50).IsRequired();
-            entity.Property(e => e.KeyAlgorithm).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.KeyAlgorithm).HasMaxLength(64).IsRequired();
             entity.Property(e => e.EcdsaCurve).HasMaxLength(20);
             entity.Property(e => e.DefaultPurposes).HasMaxLength(200).IsRequired();
         });
@@ -238,7 +238,7 @@ public class SigyllDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.MethodId).HasMaxLength(500).IsRequired();
             entity.HasIndex(e => e.MethodId);
-            entity.Property(e => e.KeyAlgorithm).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.KeyAlgorithm).HasMaxLength(64).IsRequired();
             entity.Property(e => e.Provider).HasMaxLength(50).IsRequired();
             entity.Property(e => e.KeyIdentifier).HasMaxLength(200).IsRequired();
             entity.Property(e => e.PublicKeyMultibase).HasMaxLength(500).IsRequired();
