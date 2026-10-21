@@ -37,31 +37,43 @@ public class DashboardService
         var data = new DashboardData
         {
             TrustDomainCount = await db.TrustDomains.CountAsync(ct),
-            CaCertCount = await db.CaCertificates.CountAsync(ct),
-            IssuedCertCount = await db.IssuedCertificates.CountAsync(ct),
+            CaCertCount = await db.CaCertificates.CountAsync(ca => !ca.IsArchived, ct),
+            IssuedCertCount = await db.IssuedCertificates.CountAsync(i => !i.IsArchived, ct),
             TemplateCount = await db.CertificateTemplates.CountAsync(ct),
-            RevokedCertCount = await db.IssuedCertificates.CountAsync(i => i.IsRevoked, ct)
+            RevokedCertCount = await db.IssuedCertificates.CountAsync(i => i.IsRevoked && !i.IsArchived, ct)
         };
+
+        // Archived certificates are out of every count, and revoked ones are out of the expired and
+        // expiring counts, so the trust domain cards agree with the lists below them. A CRL is
+        // overdue only when it is the newest CRL its CA has published: re-signing leaves every
+        // earlier CRL behind with a past NextUpdate, and counting those reported hundreds of overdue
+        // CRLs for CAs whose current CRL was fine.
 
         data.TrustDomainSummaries = await db.TrustDomains
             .Select(c => new TrustDomainSummary
             {
                 Id = c.Id,
                 Name = c.Name,
-                CaCount = c.CaCertificates.Count,
-                IssuedCount = c.CaCertificates.SelectMany(ca => ca.IssuedCertificates).Count(),
-                ExpiredCaCount = c.CaCertificates.Count(ca => ca.NotAfter <= now),
+                CaCount = c.CaCertificates.Count(ca => !ca.IsArchived),
+                IssuedCount = c.CaCertificates
+                    .SelectMany(ca => ca.IssuedCertificates)
+                    .Count(i => !i.IsArchived),
+                ExpiredCaCount = c.CaCertificates.Count(ca => ca.NotAfter <= now && !ca.IsArchived),
                 ExpiredIssuedCount = c.CaCertificates
                     .SelectMany(ca => ca.IssuedCertificates)
-                    .Count(i => i.NotAfter <= now),
+                    .Count(i => i.NotAfter <= now && !i.IsRevoked && !i.IsArchived),
                 ExpiringCaCount = c.CaCertificates
-                    .Count(ca => ca.NotAfter > now && ca.NotAfter <= expiringSoonThreshold),
+                    .Count(ca => ca.NotAfter > now && ca.NotAfter <= expiringSoonThreshold && !ca.IsArchived),
                 ExpiringIssuedCount = c.CaCertificates
                     .SelectMany(ca => ca.IssuedCertificates)
-                    .Count(i => i.NotAfter > now && i.NotAfter <= expiringSoonThreshold),
+                    .Count(i => i.NotAfter > now && i.NotAfter <= expiringSoonThreshold && !i.IsRevoked && !i.IsArchived),
                 OverdueCrlCount = c.CaCertificates
-                    .SelectMany(ca => ca.Crls)
-                    .Count(crl => crl.NextUpdate < now),
+                    .Where(ca => !ca.IsArchived)
+                    .Count(ca => ca.Crls
+                        .Where(crl => !crl.IsArchived)
+                        .OrderByDescending(crl => crl.ThisUpdate)
+                        .Select(crl => (DateTime?)crl.NextUpdate)
+                        .FirstOrDefault() < now),
             })
             .OrderBy(c => c.Name)
             .ToListAsync(ct);
@@ -136,7 +148,8 @@ public class DashboardService
             .ToList();
 
         data.OverdueCrls = await db.Crls
-            .Where(c => c.NextUpdate < now && !c.IsArchived)
+            .Where(c => c.NextUpdate < now && !c.IsArchived && !c.CaCertificate.IsArchived)
+            .Where(c => !c.CaCertificate.Crls.Any(newer => !newer.IsArchived && newer.ThisUpdate > c.ThisUpdate))
             .Select(c => new CrlRow
             {
                 CrlNumber = c.CrlNumber,

@@ -105,9 +105,82 @@ public class DashboardServiceTests
         data.RevokedCertCount.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task GetDashboard_SupersededCrls_AreNotOverdue()
+    {
+        await SeedTrustDomainWithCertsAsync();
+        await AddCrlsAsync(
+            (ThisUpdate: DateTime.UtcNow.AddDays(-30), NextUpdate: DateTime.UtcNow.AddDays(-23)),
+            (ThisUpdate: DateTime.UtcNow.AddDays(-7), NextUpdate: DateTime.UtcNow.AddDays(-1)),
+            (ThisUpdate: DateTime.UtcNow.AddDays(-1), NextUpdate: DateTime.UtcNow.AddDays(6)));
+        var service = CreateService();
+
+        var data = await service.GetDashboardAsync();
+
+        data.TrustDomainSummaries[0].OverdueCrlCount.ShouldBe(0);
+        data.OverdueCrls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetDashboard_NewestCrlPastNextUpdate_IsOverdue()
+    {
+        await SeedTrustDomainWithCertsAsync();
+        await AddCrlsAsync(
+            (ThisUpdate: DateTime.UtcNow.AddDays(-30), NextUpdate: DateTime.UtcNow.AddDays(-23)),
+            (ThisUpdate: DateTime.UtcNow.AddDays(-9), NextUpdate: DateTime.UtcNow.AddDays(-2)));
+        var service = CreateService();
+
+        var data = await service.GetDashboardAsync();
+
+        data.TrustDomainSummaries[0].OverdueCrlCount.ShouldBe(1);
+        data.OverdueCrls.ShouldHaveSingleItem().DaysOverdue.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task GetDashboard_ArchivedAndRevokedCerts_AreLeftOutOfTheCards()
+    {
+        await SeedTrustDomainWithCertsAsync(issuedNotAfter: DateTime.UtcNow.AddDays(-5), issuedRevoked: true);
+        await SeedTrustDomainWithCertsAsync(issuedNotAfter: DateTime.UtcNow.AddDays(-5), issuedArchived: true, trustDomainName: "Second");
+        var service = CreateService();
+
+        var data = await service.GetDashboardAsync();
+
+        data.IssuedCertCount.ShouldBe(1);
+        var revokedDomain = data.TrustDomainSummaries.Single(d => d.Name == "Test TrustDomain");
+        revokedDomain.IssuedCount.ShouldBe(1);
+        revokedDomain.ExpiredIssuedCount.ShouldBe(0);
+        var archivedDomain = data.TrustDomainSummaries.Single(d => d.Name == "Second");
+        archivedDomain.IssuedCount.ShouldBe(0);
+        archivedDomain.ExpiredIssuedCount.ShouldBe(0);
+        data.ExpiredCerts.ShouldBeEmpty();
+    }
+
+    private async Task AddCrlsAsync(params (DateTime ThisUpdate, DateTime NextUpdate)[] crls)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        var caId = await db.CaCertificates.Select(ca => ca.Id).SingleAsync();
+        long number = 1;
+        foreach (var (thisUpdate, nextUpdate) in crls)
+        {
+            db.Crls.Add(new Crl
+            {
+                CaCertificateId = caId,
+                CrlNumber = number++,
+                ThisUpdate = thisUpdate,
+                NextUpdate = nextUpdate,
+                SignatureAlgorithm = "sha256RSA",
+                SignatureValid = true
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+
     private async Task SeedTrustDomainWithCertsAsync(
         DateTime? caNotAfter = null,
-        bool issuedRevoked = false)
+        bool issuedRevoked = false,
+        DateTime? issuedNotAfter = null,
+        bool issuedArchived = false,
+        string trustDomainName = "Test TrustDomain")
     {
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest("CN=Test CA", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -115,7 +188,7 @@ public class DashboardServiceTests
 
         await using var db = _dbFactory.CreateDbContext();
 
-        var trustDomain = new TrustDomain { Name = "Test TrustDomain", Enabled = true };
+        var trustDomain = new TrustDomain { Name = trustDomainName, Enabled = true };
         db.TrustDomains.Add(trustDomain);
         await db.SaveChangesAsync();
 
@@ -146,8 +219,9 @@ public class DashboardServiceTests
             KeyAlgorithm = "RSA",
             KeySize = 2048,
             NotBefore = DateTime.UtcNow.AddDays(-1),
-            NotAfter = DateTime.UtcNow.AddYears(1),
+            NotAfter = issuedNotAfter ?? DateTime.UtcNow.AddYears(1),
             IsRevoked = issuedRevoked,
+            IsArchived = issuedArchived,
             RevokedAt = issuedRevoked ? DateTime.UtcNow : null
         };
         db.IssuedCertificates.Add(issued);
