@@ -20,6 +20,12 @@ public class DashboardData
     public List<TrustDomainSummary> TrustDomainSummaries { get; set; } = new();
     public List<CertRow> ExpiringCerts { get; set; } = new();
     public List<CertRow> ExpiredCerts { get; set; } = new();
+
+    /// <summary>
+    /// Expired or expiring certificates whose auto-renew is off: left to expire on purpose (a
+    /// negative-test certificate, say), so they are reported apart and raise no warning.
+    /// </summary>
+    public List<CertRow> NotRenewingCerts { get; set; } = new();
     public List<CrlRow> OverdueCrls { get; set; } = new();
 }
 
@@ -34,6 +40,9 @@ public class TrustDomainSummary
     public int ExpiringCaCount { get; set; }
     public int ExpiringIssuedCount { get; set; }
     public int OverdueCrlCount { get; set; }
+
+    /// <summary>Expired or expiring certificates with auto-renew off; informational only.</summary>
+    public int NotRenewingCount { get; set; }
     public int TotalCerts => CaCount + IssuedCount;
     public int TotalExpired => ExpiredCaCount + ExpiredIssuedCount;
     public int TotalExpiring => ExpiringCaCount + ExpiringIssuedCount;
@@ -50,6 +59,8 @@ public class CertRow
     public int TrustDomainId { get; set; }
     public string CertType { get; set; } = string.Empty;
     public int DaysRemaining { get; set; }
+    public bool IsExpired { get; set; }
+    public bool AutoRenew { get; set; } = true;
 }
 
 public class CrlRow

@@ -155,6 +155,37 @@ public class DashboardServiceTests
         data.ExpiredCerts.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task GetDashboard_ExpiredWithAutoRenewOff_IsNotRenewingNotExpired()
+    {
+        await SeedTrustDomainWithCertsAsync(issuedNotAfter: DateTime.UtcNow.AddDays(-5), issuedAutoRenew: false);
+        var service = CreateService();
+
+        var data = await service.GetDashboardAsync();
+
+        var summary = data.TrustDomainSummaries.ShouldHaveSingleItem();
+        summary.ExpiredIssuedCount.ShouldBe(0);
+        summary.NotRenewingCount.ShouldBe(1);
+        summary.IsHealthy.ShouldBeTrue();
+        data.ExpiredCerts.ShouldBeEmpty();
+        var row = data.NotRenewingCerts.ShouldHaveSingleItem();
+        row.IsExpired.ShouldBeTrue();
+        row.AutoRenew.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetDashboard_ExpiringWithAutoRenewOff_IsNotRenewingNotExpiring()
+    {
+        await SeedTrustDomainWithCertsAsync(issuedNotAfter: DateTime.UtcNow.AddDays(10), issuedAutoRenew: false);
+        var service = CreateService();
+
+        var data = await service.GetDashboardAsync();
+
+        data.TrustDomainSummaries[0].ExpiringIssuedCount.ShouldBe(0);
+        data.ExpiringCerts.ShouldBeEmpty();
+        data.NotRenewingCerts.ShouldHaveSingleItem().IsExpired.ShouldBeFalse();
+    }
+
     private async Task AddCrlsAsync(params (DateTime ThisUpdate, DateTime NextUpdate)[] crls)
     {
         await using var db = _dbFactory.CreateDbContext();
@@ -180,7 +211,8 @@ public class DashboardServiceTests
         bool issuedRevoked = false,
         DateTime? issuedNotAfter = null,
         bool issuedArchived = false,
-        string trustDomainName = "Test TrustDomain")
+        string trustDomainName = "Test TrustDomain",
+        bool issuedAutoRenew = true)
     {
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest("CN=Test CA", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -222,6 +254,7 @@ public class DashboardServiceTests
             NotAfter = issuedNotAfter ?? DateTime.UtcNow.AddYears(1),
             IsRevoked = issuedRevoked,
             IsArchived = issuedArchived,
+            AutoRenew = issuedAutoRenew,
             RevokedAt = issuedRevoked ? DateTime.UtcNow : null
         };
         db.IssuedCertificates.Add(issued);

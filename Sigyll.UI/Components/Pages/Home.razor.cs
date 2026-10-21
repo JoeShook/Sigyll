@@ -34,6 +34,7 @@ public partial class Home : IDisposable
     // Expiring / expired certs
     private List<CertRow> expiringCerts = new();
     private List<CertRow> expiredCerts = new();
+    private List<CertRow> notRenewingCerts = new();
 
     // Overdue CRLs
     private List<CrlRow> overdueCrls = new();
@@ -67,6 +68,7 @@ public partial class Home : IDisposable
         trustDomainSummaries = data.TrustDomainSummaries;
         expiringCerts = data.ExpiringCerts;
         expiredCerts = data.ExpiredCerts;
+        notRenewingCerts = data.NotRenewingCerts;
         overdueCrls = data.OverdueCrls;
 
         isLoading = false;

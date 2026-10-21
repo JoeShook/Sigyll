@@ -44,7 +44,9 @@ public class DashboardService
         };
 
         // Archived certificates are out of every count, and revoked ones are out of the expired and
-        // expiring counts, so the trust domain cards agree with the lists below them. A CRL is
+        // expiring counts, so the trust domain cards agree with the lists below them. A certificate
+        // with auto-renew off is being left to expire on purpose: it is counted and listed as "not
+        // renewing" instead of expired or expiring, and raises no warning. A CRL is
         // overdue only when it is the newest CRL its CA has published: re-signing leaves every
         // earlier CRL behind with a past NextUpdate, and counting those reported hundreds of overdue
         // CRLs for CAs whose current CRL was fine.
@@ -58,15 +60,20 @@ public class DashboardService
                 IssuedCount = c.CaCertificates
                     .SelectMany(ca => ca.IssuedCertificates)
                     .Count(i => !i.IsArchived),
-                ExpiredCaCount = c.CaCertificates.Count(ca => ca.NotAfter <= now && !ca.IsArchived),
+                ExpiredCaCount = c.CaCertificates.Count(ca => ca.NotAfter <= now && ca.AutoRenew && !ca.IsArchived),
                 ExpiredIssuedCount = c.CaCertificates
                     .SelectMany(ca => ca.IssuedCertificates)
-                    .Count(i => i.NotAfter <= now && !i.IsRevoked && !i.IsArchived),
+                    .Count(i => i.NotAfter <= now && i.AutoRenew && !i.IsRevoked && !i.IsArchived),
                 ExpiringCaCount = c.CaCertificates
-                    .Count(ca => ca.NotAfter > now && ca.NotAfter <= expiringSoonThreshold && !ca.IsArchived),
+                    .Count(ca => ca.NotAfter > now && ca.NotAfter <= expiringSoonThreshold && ca.AutoRenew && !ca.IsArchived),
                 ExpiringIssuedCount = c.CaCertificates
                     .SelectMany(ca => ca.IssuedCertificates)
-                    .Count(i => i.NotAfter > now && i.NotAfter <= expiringSoonThreshold && !i.IsRevoked && !i.IsArchived),
+                    .Count(i => i.NotAfter > now && i.NotAfter <= expiringSoonThreshold && i.AutoRenew && !i.IsRevoked && !i.IsArchived),
+                NotRenewingCount = c.CaCertificates
+                        .Count(ca => ca.NotAfter <= expiringSoonThreshold && !ca.AutoRenew && !ca.IsArchived)
+                    + c.CaCertificates
+                        .SelectMany(ca => ca.IssuedCertificates)
+                        .Count(i => i.NotAfter <= expiringSoonThreshold && !i.AutoRenew && !i.IsRevoked && !i.IsArchived),
                 OverdueCrlCount = c.CaCertificates
                     .Where(ca => !ca.IsArchived)
                     .Count(ca => ca.Crls
@@ -78,8 +85,10 @@ public class DashboardService
             .OrderBy(c => c.Name)
             .ToListAsync(ct);
 
-        var expiringCas = await db.CaCertificates
-            .Where(c => c.NotAfter > now && c.NotAfter <= expiringSoonThreshold && !c.IsArchived)
+        // Every live certificate that has expired or expires within the warning window, split in
+        // memory: auto-renew on is expiring or expired, auto-renew off is not renewing.
+        var dueCas = await db.CaCertificates
+            .Where(c => c.NotAfter <= expiringSoonThreshold && !c.IsArchived)
             .Select(c => new CertRow
             {
                 Name = c.Name,
@@ -89,12 +98,14 @@ public class DashboardService
                 TrustDomainName = c.TrustDomain.Name,
                 TrustDomainId = c.TrustDomainId,
                 CertType = "CA",
-                DaysRemaining = (int)(c.NotAfter - now).TotalDays
+                DaysRemaining = (int)(c.NotAfter - now).TotalDays,
+                IsExpired = c.NotAfter <= now,
+                AutoRenew = c.AutoRenew
             })
             .ToListAsync(ct);
 
-        var expiringIssued = await db.IssuedCertificates
-            .Where(i => i.NotAfter > now && i.NotAfter <= expiringSoonThreshold && !i.IsRevoked && !i.IsArchived)
+        var dueIssued = await db.IssuedCertificates
+            .Where(i => i.NotAfter <= expiringSoonThreshold && !i.IsRevoked && !i.IsArchived)
             .Select(i => new CertRow
             {
                 Name = i.Name,
@@ -104,47 +115,28 @@ public class DashboardService
                 TrustDomainName = i.IssuingCaCertificate.TrustDomain.Name,
                 TrustDomainId = i.IssuingCaCertificate.TrustDomainId,
                 CertType = "End Entity",
-                DaysRemaining = (int)(i.NotAfter - now).TotalDays
+                DaysRemaining = (int)(i.NotAfter - now).TotalDays,
+                IsExpired = i.NotAfter <= now,
+                AutoRenew = i.AutoRenew
             })
             .ToListAsync(ct);
 
-        data.ExpiringCerts = expiringCas.Concat(expiringIssued)
+        var due = dueCas.Concat(dueIssued).ToList();
+
+        data.ExpiringCerts = due
+            .Where(c => c.AutoRenew && !c.IsExpired)
             .OrderBy(c => c.NotAfter)
             .ToList();
 
-        var expiredCas = await db.CaCertificates
-            .Where(c => c.NotAfter <= now && !c.IsArchived)
-            .Select(c => new CertRow
-            {
-                Name = c.Name,
-                Subject = c.Subject,
-                Thumbprint = c.Thumbprint,
-                NotAfter = c.NotAfter,
-                TrustDomainName = c.TrustDomain.Name,
-                TrustDomainId = c.TrustDomainId,
-                CertType = "CA",
-                DaysRemaining = (int)(c.NotAfter - now).TotalDays
-            })
-            .ToListAsync(ct);
-
-        var expiredIssued = await db.IssuedCertificates
-            .Where(i => i.NotAfter <= now && !i.IsRevoked && !i.IsArchived)
-            .Select(i => new CertRow
-            {
-                Name = i.Name,
-                Subject = i.Subject,
-                Thumbprint = i.Thumbprint,
-                NotAfter = i.NotAfter,
-                TrustDomainName = i.IssuingCaCertificate.TrustDomain.Name,
-                TrustDomainId = i.IssuingCaCertificate.TrustDomainId,
-                CertType = "End Entity",
-                DaysRemaining = (int)(i.NotAfter - now).TotalDays
-            })
-            .ToListAsync(ct);
-
-        data.ExpiredCerts = expiredCas.Concat(expiredIssued)
+        data.ExpiredCerts = due
+            .Where(c => c.AutoRenew && c.IsExpired)
             .OrderByDescending(c => c.NotAfter)
             .Take(20)
+            .ToList();
+
+        data.NotRenewingCerts = due
+            .Where(c => !c.AutoRenew)
+            .OrderByDescending(c => c.NotAfter)
             .ToList();
 
         data.OverdueCrls = await db.Crls

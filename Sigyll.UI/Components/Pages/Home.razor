@@ -122,6 +122,11 @@ else
                             <span style="color: #e94560;">Overdue CRLs</span>
                             <strong style="color: #e94560;">@trustDomain.OverdueCrlCount</strong>
                         }
+                        @if (trustDomain.NotRenewingCount > 0)
+                        {
+                            <span style="color: #9e9e9e;" title="Expired or expiring with auto-renew off: left to expire on purpose">Not renewing</span>
+                            <strong style="color: #9e9e9e;">@trustDomain.NotRenewingCount</strong>
+                        }
                     </div>
                 </FluentCard>
             }
@@ -192,6 +197,36 @@ else
                 <TemplateColumn Title="Days Ago" Align="Align.Start">
                     <FluentBadge BackgroundColor="#e94560" Color="white" Style="font-size: 0.75rem;">
                         @(Math.Abs(context.DaysRemaining)) d ago
+                    </FluentBadge>
+                </TemplateColumn>
+                <PropertyColumn Property="@(c => c.CertType)" Title="Type" Align="Align.Start" />
+            </FluentDataGrid>
+        </FluentCard>
+    }
+
+    @* --- Not renewing: auto-renew off, left to expire on purpose --- *@
+    @if (notRenewingCerts.Count > 0)
+    {
+        <FluentCard Style="margin-top: 1.5rem;">
+            <FluentLabel Typo="Typography.Subject" Style="margin-bottom: 0.5rem;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Info())" Color="Color.Custom" CustomColor="#9e9e9e" Style="margin-right: 0.35rem;" />
+                Not Renewing (@notRenewingCerts.Count)
+            </FluentLabel>
+            <p style="margin: 0 0 0.5rem; font-size: 0.85rem; color: #9e9e9e;">Auto-renew is off, so these are left to expire on purpose and raise no warning.</p>
+            <FluentDataGrid Items="@notRenewingCerts.AsQueryable()" Class="dashboard-grid" Style="width: 100%;" GridTemplateColumns="1fr 0.6fr 0.8fr 0.5fr 0.5fr">
+                <TemplateColumn Title="Name" Align="Align.Start">
+                    <a href="/explorer/@context.TrustDomainId?thumbprint=@context.Thumbprint" style="color: #1976d2; cursor: pointer;"
+                       @onclick="() => NavigateToCert(context.TrustDomainId, context.Thumbprint)" @onclick:preventDefault>
+                        @context.Name
+                    </a>
+                </TemplateColumn>
+                <PropertyColumn Property="@(c => c.TrustDomainName)" Title="Trust Domain" Align="Align.Start" />
+                <TemplateColumn Title="Expires" Align="Align.Start">
+                    <span style="color: #9e9e9e;">@TimeDisplay.FormatShort(context.NotAfter)</span>
+                </TemplateColumn>
+                <TemplateColumn Title="Status" Align="Align.Start">
+                    <FluentBadge BackgroundColor="#9e9e9e" Color="white" Style="font-size: 0.75rem;">
+                        @(context.IsExpired ? $"Expired {Math.Abs(context.DaysRemaining)} d ago" : $"{context.DaysRemaining} d left")
                     </FluentBadge>
                 </TemplateColumn>
                 <PropertyColumn Property="@(c => c.CertType)" Title="Type" Align="Align.Start" />
