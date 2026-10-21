@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using Sigyll.UI.Services;
 
@@ -38,6 +39,7 @@ public partial class Templates
     private CertificateType editCertType = CertificateType.EndEntityClient;
     private int editValidityDays = 365;
     private string editKeyAlgorithm = "RSA";
+    private string editPqcId = "ML-DSA-87";
     private int editKeySize = 2048;
     private string editEcdsaCurve = "nistP384";
     private string editHashAlgorithm = "SHA256";
@@ -64,7 +66,7 @@ public partial class Templates
 
     // Options for selects
     private static readonly CertificateType[] certTypes = Enum.GetValues<CertificateType>();
-    private static readonly string[] keyAlgorithms = ["RSA", "ECDSA"];
+    private static readonly string[] keyAlgorithms = PqcAlgorithms.TemplateFamilies;
     private static readonly int[] rsaKeySizes = [2048, 3072, 4096];
     private static readonly string[] ecdsaCurves = ["nistP256", "nistP384", "nistP521"];
     private static readonly string[] hashAlgorithms = ["SHA256", "SHA384", "SHA512"];
@@ -131,6 +133,7 @@ public partial class Templates
         editCertType = CertificateType.EndEntityClient;
         editValidityDays = 365;
         editKeyAlgorithm = "RSA";
+        editPqcId = "ML-DSA-87";
         editKeySize = 2048;
         editEcdsaCurve = "nistP384";
         editHashAlgorithm = "SHA256";
@@ -161,8 +164,25 @@ public partial class Templates
         editDescription = t.Description ?? string.Empty;
         editCertType = t.CertificateType;
         editValidityDays = t.ValidityDays;
-        editKeyAlgorithm = t.KeyAlgorithm;
-        editKeySize = t.KeySize;
+        if (PqcAlgorithms.TryGet(t.KeyAlgorithm, out var pqc))
+        {
+            editKeyAlgorithm = pqc.Family;
+            editPqcId = pqc.Id;
+        }
+        else
+        {
+            var canonical = PqcAlgorithms.Canonicalize(t.KeyAlgorithm, t.KeySize);
+            if (canonical != null && PqcAlgorithms.TryGet(canonical, out var sized))
+            {
+                editKeyAlgorithm = sized.Family;
+                editPqcId = sized.Id;
+            }
+            else
+            {
+                editKeyAlgorithm = t.KeyAlgorithm is "RSA" or "ECDSA" ? t.KeyAlgorithm : "RSA";
+            }
+        }
+        editKeySize = t.KeySize > 0 ? t.KeySize : 2048;
         editEcdsaCurve = t.EcdsaCurve ?? "nistP384";
         editHashAlgorithm = t.HashAlgorithm;
         editKeyUsageFlags = t.KeyUsageFlags;
@@ -210,10 +230,28 @@ public partial class Templates
         entity.Description = string.IsNullOrWhiteSpace(editDescription) ? null : editDescription.Trim();
         entity.CertificateType = editCertType;
         entity.ValidityDays = editValidityDays;
-        entity.KeyAlgorithm = editKeyAlgorithm;
-        entity.KeySize = editKeyAlgorithm == "RSA" ? editKeySize : 0;
-        entity.EcdsaCurve = editKeyAlgorithm == "ECDSA" ? editEcdsaCurve : null;
-        entity.HashAlgorithm = editHashAlgorithm;
+        if (editKeyAlgorithm == "RSA")
+        {
+            entity.KeyAlgorithm = "RSA";
+            entity.KeySize = editKeySize;
+            entity.EcdsaCurve = null;
+            entity.HashAlgorithm = editHashAlgorithm;
+        }
+        else if (editKeyAlgorithm == "ECDSA")
+        {
+            entity.KeyAlgorithm = "ECDSA";
+            entity.KeySize = 0;
+            entity.EcdsaCurve = editEcdsaCurve;
+            entity.HashAlgorithm = editHashAlgorithm;
+        }
+        else
+        {
+            var pqc = PqcAlgorithms.Require(editPqcId);
+            entity.KeyAlgorithm = pqc.Id;
+            entity.KeySize = pqc.KeySize;
+            entity.EcdsaCurve = null;
+            entity.HashAlgorithm = "Pure";
+        }
         entity.KeyUsageFlags = editKeyUsageFlags;
         entity.IsKeyUsageCritical = editIsKeyUsageCritical;
         entity.ExtendedKeyUsageOids = string.IsNullOrWhiteSpace(editEkuOids) ? null : editEkuOids.Trim();
@@ -381,12 +419,29 @@ public partial class Templates
         editEkuOids = all.Count > 0 ? string.Join(";", all) : string.Empty;
     }
 
+    private IReadOnlyList<string> PqcParameterIds =>
+        PqcAlgorithms.ForFamily(editKeyAlgorithm).Select(a => a.Id).ToArray();
+
     private void OnKeyAlgorithmChanged(string algorithm)
     {
         editKeyAlgorithm = algorithm;
         if (algorithm == "ECDSA")
+        {
             OnEcdsaCurveChanged(editEcdsaCurve);
+            return;
+        }
+
+        if (!PqcAlgorithms.IsTemplateFamily(algorithm))
+            return;
+
+        if (PqcAlgorithms.ForFamily(algorithm).All(a => a.Id != editPqcId))
+            editPqcId = PqcAlgorithms.ForFamily(algorithm)[0].Id;
+        editHashAlgorithm = "Pure";
+        if (algorithm == "ML-KEM")
+            editKeyUsageFlags = (int)X509KeyUsageFlags.KeyAgreement;
     }
+
+    private void OnPqcParameterChanged(string id) => editPqcId = id;
 
     private void OnEcdsaCurveChanged(string curve)
     {

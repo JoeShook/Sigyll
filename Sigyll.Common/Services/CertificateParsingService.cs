@@ -9,6 +9,7 @@
 #endregion
 
 using System.Security.Cryptography.X509Certificates;
+using Sigyll.Common.Services.Pqc;
 
 namespace Sigyll.Common.Services;
 
@@ -168,12 +169,6 @@ public class CertificateParsingService
 
     private static (string algorithm, int keySize) GetKeyInfo(X509Certificate2 cert)
     {
-        var rsa = cert.GetRSAPublicKey();
-        if (rsa != null) return ("RSA", rsa.KeySize);
-
-        var ecdsa = cert.GetECDsaPublicKey();
-        if (ecdsa != null) return ("ECDSA", ecdsa.KeySize);
-
-        return ("Unknown", 0);
+        return PqcAlgorithms.DescribeCertificate(cert);
     }
 }

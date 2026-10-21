@@ -13,6 +13,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 
 namespace Sigyll.Vault;
@@ -49,6 +50,9 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
                 "Ed25519 via Vault Transit is not wired in Phase A. Use the local signing provider for DID/VC keys, " +
                 "or wait for Phase C. Vault Transit does support Ed25519 in principle (type=ed25519).");
         }
+
+        if (PqcAlgorithms.IsPqc(keyAlgorithm))
+            throw new NotSupportedException(PqcAlgorithms.RemoteBlockedMessage);
 
         var vaultKeyType = MapToVaultKeyType(keyAlgorithm, keySize, ecdsaCurve);
         var keyName = $"sigil-{Guid.NewGuid():N}";

@@ -16,6 +16,7 @@ using Org.BouncyCastle.X509;
 using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Services;
@@ -269,15 +270,9 @@ public class CertificateImportService
 
     private static byte[] BuildPfxWithRequestKey(X509Certificate2 cert, ExternalCertificateRequest request)
     {
-        using var key = ExternalCertificateRequestService.LoadKey(request);
-
-        using var paired = key switch
-        {
-            System.Security.Cryptography.RSA rsa => cert.CopyWithPrivateKey(rsa),
-            System.Security.Cryptography.ECDsa ecdsa => cert.CopyWithPrivateKey(ecdsa),
-            _ => throw new InvalidOperationException("Unsupported key algorithm on the stored request key.")
-        };
-
+        using var key = CsrSigningKey.ImportEncryptedPkcs8(
+            request.KeyAlgorithm, request.KeySize, request.EncryptedPrivateKeyPem, request.KeyPassword!);
+        using var paired = key.AttachPrivateKey(cert);
         return paired.Export(X509ContentType.Pkcs12, request.KeyPassword);
     }
 

@@ -78,8 +78,8 @@ namespace Sigyll.Common.Migrations
 
                     b.Property<string>("KeyAlgorithm")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<int>("KeySize")
                         .HasColumnType("integer");
@@ -249,8 +249,8 @@ namespace Sigyll.Common.Migrations
 
                     b.Property<string>("KeyAlgorithm")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<int>("KeySize")
                         .HasColumnType("integer");
@@ -459,8 +459,8 @@ namespace Sigyll.Common.Migrations
 
                     b.Property<string>("KeyAlgorithm")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("Method")
                         .IsRequired()
@@ -519,8 +519,8 @@ namespace Sigyll.Common.Migrations
 
                     b.Property<string>("KeyAlgorithm")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("KeyPassword")
                         .IsRequired()
@@ -616,8 +616,8 @@ namespace Sigyll.Common.Migrations
 
                     b.Property<string>("KeyAlgorithm")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<int>("KeySize")
                         .HasColumnType("integer");
@@ -867,8 +867,8 @@ namespace Sigyll.Common.Migrations
 
                     b.Property<string>("KeyAlgorithm")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("KeyIdentifier")
                         .IsRequired()

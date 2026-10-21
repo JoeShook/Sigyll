@@ -517,90 +517,167 @@ static async Task SeedOperatorAuthAsync(IServiceProvider services, IConfiguratio
 
 static async Task SeedTemplatesAsync(SigyllDbContext db)
 {
-    if (await db.CertificateTemplates.AnyAsync(t => t.IsPreset))
+    var existing = await db.CertificateTemplates.Select(t => t.Name).ToListAsync();
+    var missing = PresetTemplates().Where(t => !existing.Contains(t.Name)).ToArray();
+    if (missing.Length == 0)
         return;
 
-    db.CertificateTemplates.AddRange(
-        new CertificateTemplate
-        {
-            Name = "Root CA",
-            Description = "Self-signed Root Certificate Authority with 10-year validity.",
-            CertificateType = CertificateType.RootCa,
-            KeyAlgorithm = "RSA",
-            KeySize = 4096,
-            ValidityDays = 3650,
-            KeyUsageFlags = (int)(X509KeyUsageFlags.CrlSign | X509KeyUsageFlags.KeyCertSign),
-            IsKeyUsageCritical = true,
-            IsBasicConstraintsCa = true,
-            IsBasicConstraintsCritical = true,
-            PathLengthConstraint = null,
-            HashAlgorithm = "SHA256",
-            IsPreset = true,
-        },
-        new CertificateTemplate
-        {
-            Name = "Intermediate CA",
-            Description = "Intermediate Certificate Authority signed by a Root CA, 5-year validity.",
-            CertificateType = CertificateType.IntermediateCa,
-            KeyAlgorithm = "RSA",
-            KeySize = 4096,
-            ValidityDays = 1825,
-            KeyUsageFlags = (int)(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.CrlSign | X509KeyUsageFlags.KeyCertSign),
-            IsKeyUsageCritical = true,
-            IsBasicConstraintsCa = true,
-            IsBasicConstraintsCritical = true,
-            PathLengthConstraint = 0,
-            HashAlgorithm = "SHA256",
-            IncludeCdp = true,
-            IncludeAia = true,
-            SubjectAltNameTypes = "URI",
-            IsPreset = true,
-        },
-        new CertificateTemplate
-        {
-            Name = "UDAP Client",
-            Description = "End-entity client certificate for UDAP dynamic client registration.",
-            CertificateType = CertificateType.EndEntityClient,
-            KeyAlgorithm = "RSA",
-            KeySize = 2048,
-            ValidityDays = 730,
-            KeyUsageFlags = (int)X509KeyUsageFlags.DigitalSignature,
-            IsKeyUsageCritical = true,
-            ExtendedKeyUsageOids = "1.3.6.1.5.5.7.3.2",
-            IsBasicConstraintsCa = false,
-            IsBasicConstraintsCritical = true,
-            HashAlgorithm = "SHA256",
-            IncludeCdp = true,
-            IncludeAia = true,
-            SubjectAltNameTypes = "URI",
-            IsPreset = true,
-            // UDAP client certs require organizational vetting — always route to a human RA.
-            RequiresRaApproval = true,
-        },
-        new CertificateTemplate
-        {
-            Name = "SSL Server",
-            Description = "End-entity TLS server certificate for HTTPS endpoints.",
-            CertificateType = CertificateType.EndEntityServer,
-            KeyAlgorithm = "RSA",
-            KeySize = 2048,
-            ValidityDays = 365,
-            KeyUsageFlags = (int)X509KeyUsageFlags.DigitalSignature,
-            IsKeyUsageCritical = true,
-            ExtendedKeyUsageOids = "1.3.6.1.5.5.7.3.1",
-            IsBasicConstraintsCa = false,
-            IsBasicConstraintsCritical = true,
-            HashAlgorithm = "SHA256",
-            IncludeCdp = true,
-            SubjectAltNameTypes = "DNS",
-            IsPreset = true,
-            // TLS server certs can auto-issue after domain validation (Let's-Encrypt-style).
-            AllowAutoIssue = true,
-        }
-    );
-
+    db.CertificateTemplates.AddRange(missing);
     await db.SaveChangesAsync();
 }
+
+static IEnumerable<CertificateTemplate> PresetTemplates()
+{
+    yield return new CertificateTemplate
+    {
+        Name = "Root CA",
+        Description = "Self-signed Root Certificate Authority with 10-year validity.",
+        CertificateType = CertificateType.RootCa,
+        KeyAlgorithm = "RSA",
+        KeySize = 4096,
+        ValidityDays = 3650,
+        KeyUsageFlags = (int)(X509KeyUsageFlags.CrlSign | X509KeyUsageFlags.KeyCertSign),
+        IsKeyUsageCritical = true,
+        IsBasicConstraintsCa = true,
+        IsBasicConstraintsCritical = true,
+        PathLengthConstraint = null,
+        HashAlgorithm = "SHA256",
+        IsPreset = true,
+    };
+    yield return new CertificateTemplate
+    {
+        Name = "Intermediate CA",
+        Description = "Intermediate Certificate Authority signed by a Root CA, 5-year validity.",
+        CertificateType = CertificateType.IntermediateCa,
+        KeyAlgorithm = "RSA",
+        KeySize = 4096,
+        ValidityDays = 1825,
+        KeyUsageFlags = (int)(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.CrlSign | X509KeyUsageFlags.KeyCertSign),
+        IsKeyUsageCritical = true,
+        IsBasicConstraintsCa = true,
+        IsBasicConstraintsCritical = true,
+        PathLengthConstraint = 0,
+        HashAlgorithm = "SHA256",
+        IncludeCdp = true,
+        IncludeAia = true,
+        SubjectAltNameTypes = "URI",
+        IsPreset = true,
+    };
+    yield return new CertificateTemplate
+    {
+        Name = "UDAP Client",
+        Description = "End-entity client certificate for UDAP dynamic client registration.",
+        CertificateType = CertificateType.EndEntityClient,
+        KeyAlgorithm = "RSA",
+        KeySize = 2048,
+        ValidityDays = 730,
+        KeyUsageFlags = (int)X509KeyUsageFlags.DigitalSignature,
+        IsKeyUsageCritical = true,
+        ExtendedKeyUsageOids = "1.3.6.1.5.5.7.3.2",
+        IsBasicConstraintsCa = false,
+        IsBasicConstraintsCritical = true,
+        HashAlgorithm = "SHA256",
+        IncludeCdp = true,
+        IncludeAia = true,
+        SubjectAltNameTypes = "URI",
+        IsPreset = true,
+        RequiresRaApproval = true,
+    };
+    yield return new CertificateTemplate
+    {
+        Name = "SSL Server",
+        Description = "End-entity TLS server certificate for HTTPS endpoints.",
+        CertificateType = CertificateType.EndEntityServer,
+        KeyAlgorithm = "RSA",
+        KeySize = 2048,
+        ValidityDays = 365,
+        KeyUsageFlags = (int)X509KeyUsageFlags.DigitalSignature,
+        IsKeyUsageCritical = true,
+        ExtendedKeyUsageOids = "1.3.6.1.5.5.7.3.1",
+        IsBasicConstraintsCa = false,
+        IsBasicConstraintsCritical = true,
+        HashAlgorithm = "SHA256",
+        IncludeCdp = true,
+        SubjectAltNameTypes = "DNS",
+        IsPreset = true,
+        AllowAutoIssue = true,
+    };
+
+    // Post-quantum presets. Pure ML-DSA / SLH-DSA do not use the template hash.
+    // ML-DSA-87 and ML-KEM-1024 are the CNSA 2.0 parameter sets.
+    yield return PqcCa("Root CA (ML-DSA-87)",
+        "Self-signed ML-DSA-87 root (FIPS 204, NIST level 5). Local key only.",
+        CertificateType.RootCa, "ML-DSA-87", 87, 3650, pathLength: null, intermediate: false);
+    yield return PqcCa("Intermediate CA (ML-DSA-87)",
+        "ML-DSA-87 intermediate, signed by a root. Local key only.",
+        CertificateType.IntermediateCa, "ML-DSA-87", 87, 1825, pathLength: 0, intermediate: true);
+    yield return PqcEndEntity("UDAP Client (ML-DSA-87)",
+        "UDAP client certificate with an ML-DSA-87 key.",
+        CertificateType.EndEntityClient, "ML-DSA-87", 87, 730,
+        eku: "1.3.6.1.5.5.7.3.2", san: "URI", raApproval: true, autoIssue: false);
+    yield return PqcEndEntity("SSL Server (ML-DSA-87)",
+        "TLS server certificate with an ML-DSA-87 key. Browsers do not trust this yet.",
+        CertificateType.EndEntityServer, "ML-DSA-87", 87, 365,
+        eku: "1.3.6.1.5.5.7.3.1", san: "DNS", raApproval: false, autoIssue: true);
+    yield return PqcCa("Root CA (ML-DSA-87 + P-384)",
+        "Hybrid root: composite ML-DSA-87 and ECDSA P-384. Both signatures must verify.",
+        CertificateType.RootCa, "MLDSA87-ECDSA-P384-SHA512", 87, 3650, pathLength: null, intermediate: false);
+    yield return PqcCa("Root CA (SLH-DSA-SHA2-128s)",
+        "Hash-based SLH-DSA root (FIPS 205, small signature). Signatures are much larger than ML-DSA.",
+        CertificateType.RootCa, "SLH-DSA-SHA2-128s", 128, 3650, pathLength: null, intermediate: false);
+    yield return PqcEndEntity("Key Agreement (ML-KEM-1024)",
+        "ML-KEM-1024 subject key (FIPS 203). Encapsulates a shared secret; it cannot sign and cannot be a CA.",
+        CertificateType.EndEntityClient, "ML-KEM-1024", 1024, 365,
+        eku: null, san: null, raApproval: false, autoIssue: false,
+        keyUsage: (int)X509KeyUsageFlags.KeyAgreement);
+}
+
+static CertificateTemplate PqcCa(string name, string description, CertificateType type,
+    string algorithm, int keySize, int validityDays, int? pathLength, bool intermediate) => new()
+{
+    Name = name,
+    Description = description,
+    CertificateType = type,
+    KeyAlgorithm = algorithm,
+    KeySize = keySize,
+    ValidityDays = validityDays,
+    KeyUsageFlags = intermediate
+        ? (int)(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.CrlSign | X509KeyUsageFlags.KeyCertSign)
+        : (int)(X509KeyUsageFlags.CrlSign | X509KeyUsageFlags.KeyCertSign),
+    IsKeyUsageCritical = true,
+    IsBasicConstraintsCa = true,
+    IsBasicConstraintsCritical = true,
+    PathLengthConstraint = pathLength,
+    HashAlgorithm = "Pure",
+    IncludeCdp = intermediate,
+    IncludeAia = intermediate,
+    SubjectAltNameTypes = intermediate ? "URI" : null,
+    IsPreset = true,
+};
+
+static CertificateTemplate PqcEndEntity(string name, string description, CertificateType type,
+    string algorithm, int keySize, int validityDays, string? eku, string? san,
+    bool raApproval, bool autoIssue, int? keyUsage = null) => new()
+{
+    Name = name,
+    Description = description,
+    CertificateType = type,
+    KeyAlgorithm = algorithm,
+    KeySize = keySize,
+    ValidityDays = validityDays,
+    KeyUsageFlags = keyUsage ?? (int)X509KeyUsageFlags.DigitalSignature,
+    IsKeyUsageCritical = true,
+    ExtendedKeyUsageOids = eku,
+    IsBasicConstraintsCa = false,
+    IsBasicConstraintsCritical = true,
+    HashAlgorithm = "Pure",
+    IncludeCdp = true,
+    IncludeAia = eku == "1.3.6.1.5.5.7.3.2",
+    SubjectAltNameTypes = san,
+    IsPreset = true,
+    RequiresRaApproval = raApproval,
+    AllowAutoIssue = autoIssue,
+};
 
 static async Task SeedDidTemplatesAsync(SigyllDbContext db)
 {

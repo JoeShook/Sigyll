@@ -16,6 +16,7 @@ using Microsoft.JSInterop;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
+using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using Sigyll.UI.Services;
 
@@ -42,7 +43,7 @@ public partial class ExternalRequests
         public static readonly ModelOption None = new() { Label = "(none — start from scratch)" };
     }
 
-    private static readonly string[] keyAlgorithmOptions = ["RSA", "ECDSA"];
+    private static readonly string[] keyAlgorithmOptions = [.. PqcAlgorithms.CsrAlgorithms];
     private static readonly string[] rsaKeySizes = ["2048", "3072", "4096"];
     private static readonly string[] ecdsaKeySizes = ["256", "384", "521"];
     private static readonly SanType[] sanTypeOptions = Enum.GetValues<SanType>();
@@ -97,6 +98,12 @@ public partial class ExternalRequests
     private bool exportKeyDialogHidden = true;
     private ExternalCertificateRequestSummary? exportKeyTarget;
     private string exportKeyPassphrase = string.Empty;
+
+    private bool SelectedIsPqc => PqcAlgorithms.IsPqc(newKeyAlgorithm);
+
+    private int SelectedKeySize => SelectedIsPqc
+        ? PqcAlgorithms.Require(PqcAlgorithms.Canonicalize(newKeyAlgorithm, 0)!).KeySize
+        : int.TryParse(newKeySize, out var size) ? size : 2048;
 
     private string[] KeySizeOptions => newKeyAlgorithm == "ECDSA" ? ecdsaKeySizes : rsaKeySizes;
 
@@ -224,9 +231,9 @@ public partial class ExternalRequests
                 .ToList();
             if (newSans.Count == 0) newSans.Add(new SanRow());
 
-            var ecdsa = cert.GetECDsaPublicKey();
-            newKeyAlgorithm = ecdsa != null ? "ECDSA" : "RSA";
-            var size = (ecdsa?.KeySize ?? cert.GetRSAPublicKey()?.KeySize ?? 2048).ToString();
+            var (algorithm, keySize) = PqcAlgorithms.DescribeCertificate(cert);
+            newKeyAlgorithm = keyAlgorithmOptions.Contains(algorithm) ? algorithm : "RSA";
+            var size = keySize.ToString();
             newKeySize = KeySizeOptions.Contains(size) ? size : KeySizeOptions[0];
 
             newProfile = CsrExtensionProfile.FromModeledCertificate;
@@ -273,7 +280,8 @@ public partial class ExternalRequests
         newSubjectDn = row.SubjectDn;
         newSans = row.SubjectAltNames.Select(s => new SanRow { Type = s.Type, Value = s.Value }).ToList();
         if (newSans.Count == 0) newSans.Add(new SanRow());
-        newKeyAlgorithm = row.KeyAlgorithm == "ECDSA" ? "ECDSA" : "RSA";
+        newKeyAlgorithm = keyAlgorithmOptions.Contains(row.KeyAlgorithm) ? row.KeyAlgorithm
+            : row.KeyAlgorithm == "ECDSA" ? "ECDSA" : "RSA";
         var size = row.KeySize.ToString();
         newKeySize = KeySizeOptions.Contains(size) ? size : KeySizeOptions[0];
         newProfile = row.Profile;
@@ -305,7 +313,7 @@ public partial class ExternalRequests
                     Notes = newNotes,
                     RegenerateKey = editRegenerateKey,
                     KeyAlgorithm = newKeyAlgorithm,
-                    KeySize = int.TryParse(newKeySize, out var newSize) ? newSize : 2048
+                    KeySize = SelectedKeySize
                 });
 
                 if (updated.Success)
@@ -328,7 +336,7 @@ public partial class ExternalRequests
                 SubjectAltNames = newSans.Where(s => !string.IsNullOrWhiteSpace(s.Value))
                     .Select(s => new SanEntry(s.Type, s.Value.Trim())).ToList(),
                 KeyAlgorithm = newKeyAlgorithm,
-                KeySize = int.TryParse(newKeySize, out var size) ? size : 2048,
+                KeySize = SelectedKeySize,
                 Profile = newProfile,
                 ModeledOnCertificateId = selectedModel.Id,
                 ModeledOnEntityType = selectedModel.EntityType,

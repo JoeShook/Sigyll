@@ -16,6 +16,7 @@ using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.X509;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Services.Pqc;
 using BcX509Certificate = Org.BouncyCastle.X509.X509Certificate;
 
 namespace Sigyll.Common.Services;
@@ -34,6 +35,23 @@ public class ChainValidationService
         _dbFactory = dbFactory;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Classical verification first. When BouncyCastle does not know the OID, fall back to
+    /// ML-DSA, SLH-DSA, or composite ML-DSA verification.
+    /// </summary>
+    private static bool SignatureVerifies(BcX509Certificate subject, BcX509Certificate issuer)
+    {
+        try
+        {
+            subject.Verify(issuer.GetPublicKey());
+            return true;
+        }
+        catch
+        {
+            return PqcCertificateVerifier.TryVerify(subject.GetEncoded(), issuer.GetEncoded()) == true;
+        }
     }
 
     /// <summary>
@@ -247,7 +265,8 @@ public class ChainValidationService
             {
                 try
                 {
-                    current.Verify(current.GetPublicKey());
+                    if (!SignatureVerifies(current, current))
+                        throw new InvalidOperationException("Self-signature verification failed");
                     link.SignatureValid = true;
                 }
                 catch
@@ -282,7 +301,8 @@ public class ChainValidationService
                 {
                     try
                     {
-                        current.Verify(caCert.GetPublicKey());
+                        if (!SignatureVerifies(current, caCert))
+                            throw new InvalidOperationException();
                         issuerBc = caCert;
                         issuerName = caEntity.Name;
                         link.SignatureValid = true;
@@ -308,7 +328,8 @@ public class ChainValidationService
 
                     try
                     {
-                        current.Verify(issuerBc.GetPublicKey());
+                        if (!SignatureVerifies(current, issuerBc))
+                            throw new InvalidOperationException();
                         link.SignatureValid = true;
                     }
                     catch
@@ -481,7 +502,8 @@ public class ChainValidationService
             {
                 try
                 {
-                    current.Verify(current.GetPublicKey());
+                    if (!SignatureVerifies(current, current))
+                        throw new InvalidOperationException("Self-signature verification failed");
                     link.SignatureValid = true;
                 }
                 catch
@@ -516,7 +538,8 @@ public class ChainValidationService
                 {
                     try
                     {
-                        current.Verify(caCert.GetPublicKey());
+                        if (!SignatureVerifies(current, caCert))
+                            throw new InvalidOperationException();
                         issuerBc = caCert;
                         issuerEntity = caEntity;
                         link.SignatureValid = true;
@@ -535,7 +558,8 @@ public class ChainValidationService
                     {
                         try
                         {
-                            current.Verify(caCert.GetPublicKey());
+                            if (!SignatureVerifies(current, caCert))
+                                throw new InvalidOperationException();
                             issuerBc = caCert;
                             issuerEntity = caEntity;
                             link.SignatureValid = true;
