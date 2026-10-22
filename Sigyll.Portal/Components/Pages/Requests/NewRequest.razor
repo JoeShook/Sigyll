@@ -19,7 +19,7 @@
 {
     <FluentProgressRing />
 }
-else if (_catalog.Templates.Count == 0)
+else if (_catalog.Profiles.Count == 0)
 {
     <FluentCard Style="border-left: 4px solid var(--warning, #ff9800); max-width: 720px;">
         The CA catalog is empty or unreachable. Confirm the CA core is running and reachable at the
@@ -33,9 +33,9 @@ else
             <FluentSelect TOption="string" Items="@_trustDomainNames" @bind-SelectedOption="_trustDomain"
                           Label="Trust domain" Style="width: 100%;" />
 
-            <FluentSelect TOption="string" Items="@_templateNames" @bind-SelectedOption="_templateName"
-                          Label="Certificate type (template)" Style="width: 100%;" />
-            @if (SelectedTemplate is { } tpl)
+            <FluentSelect TOption="string" Items="@_profileNames" @bind-SelectedOption="_profileName"
+                          Label="Certificate type (profile)" Style="width: 100%;" />
+            @if (SelectedProfile is { } tpl)
             {
                 <FluentLabel Typo="Typography.Body" Style="opacity: 0.75; margin-top: -8px;">
                     @(tpl.RequiresRaApproval
@@ -89,30 +89,30 @@ else
 @code {
     private CatalogResponse? _catalog;
     private List<string> _trustDomainNames = new();
-    private List<string> _templateNames = new();
+    private List<string> _profileNames = new();
     private readonly List<string> _sanTypes = new() { "Dns", "Uri", "Email", "IpAddress" };
 
     private string? _trustDomain;
-    private string? _templateName;
+    private string? _profileName;
     private string _csrPem = "";
     private string _subjectDn = "";
     private readonly List<ApiSanEntry> _sans = new();
     private string? _error;
     private bool _submitting;
 
-    private CatalogTemplate? SelectedTemplate =>
-        _catalog?.Templates.FirstOrDefault(t => t.Name == _templateName);
+    private CatalogProfile? SelectedProfile =>
+        _catalog?.Profiles.FirstOrDefault(t => t.Name == _profileName);
 
     private bool CanSubmit =>
         !string.IsNullOrWhiteSpace(_trustDomain)
-        && !string.IsNullOrWhiteSpace(_templateName)
+        && !string.IsNullOrWhiteSpace(_profileName)
         && !string.IsNullOrWhiteSpace(_csrPem);
 
     protected override async Task OnInitializedAsync()
     {
         _catalog = await Catalog.GetCatalogAsync();
         _trustDomainNames = _catalog.TrustDomains.Where(t => t.Enabled).Select(t => t.Name).ToList();
-        _templateNames = _catalog.Templates.Select(t => t.Name).ToList();
+        _profileNames = _catalog.Profiles.Select(t => t.Name).ToList();
     }
 
     private void ParseCsr()
@@ -146,7 +146,7 @@ else
             }
 
             var request = await Workflow.SubmitAsync(
-                userId, organizationId: null, _trustDomain!, _templateName!, _subjectDn,
+                userId, organizationId: null, _trustDomain!, _profileName!, _subjectDn,
                 _sans.Where(s => !string.IsNullOrWhiteSpace(s.Value)).ToList(), _csrPem);
 
             Nav.NavigateTo($"/requests/{request.Id}");

@@ -3,24 +3,24 @@
                             Joseph.Shook@Surescripts.com
    See LICENSE in the project root for license information. *@
 
-@page "/templates"
+@page "/certificate-profiles"
 @using System.Security.Cryptography.X509Certificates
 
-<PageTitle>Sigyll - Templates</PageTitle>
+<PageTitle>Sigyll - Certificate Profiles</PageTitle>
 
-<FluentLabel Typo="Typography.PageTitle">Certificate Templates</FluentLabel>
+<FluentLabel Typo="Typography.PageTitle">Certificate Profiles</FluentLabel>
 
 <FluentCard Style="margin-top: 1rem;">
     <FluentStack Orientation="Orientation.Horizontal" Style="align-items: center; gap: 0.5rem;">
-        <FluentLabel Typo="Typography.Subject">Templates</FluentLabel>
+        <FluentLabel Typo="Typography.Subject">Certificate Profiles</FluentLabel>
         <FluentSpacer />
         <FluentButton Appearance="Appearance.Accent" OnClick="ShowAddDialog"
                       IconStart="@(new Icons.Regular.Size16.Add())">
-            Add Template
+            Add Profile
         </FluentButton>
     </FluentStack>
 
-    <FluentDataGrid Items="@templates.AsQueryable()" Style="margin-top: 0.5rem;">
+    <FluentDataGrid Items="@profiles.AsQueryable()" Style="margin-top: 0.5rem;">
         <PropertyColumn Property="@(t => t.Name)" Title="Name" Sortable="true" IsDefaultSortColumn="true" />
         <TemplateColumn Title="Type">
             @{
@@ -54,14 +54,14 @@
             </FluentButton>
             <FluentButton Size="ButtonSize.Small" Appearance="Appearance.Outline"
                           IconStart="@(new Icons.Regular.Size16.Copy())"
-                          OnClick="@(() => CloneTemplateAsync(context))">
+                          OnClick="@(() => CloneProfileAsync(context))">
                 Clone
             </FluentButton>
             @if (!context.IsPreset)
             {
                 <FluentButton Size="ButtonSize.Small" Appearance="Appearance.Outline"
                               IconStart="@(new Icons.Regular.Size16.Delete())"
-                              OnClick="@(() => DeleteTemplateAsync(context))">
+                              OnClick="@(() => DeleteProfileAsync(context))">
                     Delete
                 </FluentButton>
             }
@@ -73,7 +73,7 @@
 <FluentDialog @bind-Hidden="@dialogHidden" Modal="true" TrapFocus="true"
               Style="--dialog-width: 900px; min-width: 700px; max-width: 95vw; max-height: 80vh; position: relative;">
     <div class="sigil-resize-handle"></div>
-    <FluentDialogHeader>@(isEditing ? "Edit Template" : "Add Template")</FluentDialogHeader>
+    <FluentDialogHeader>@(isEditing ? "Edit Profile" : "Add Profile")</FluentDialogHeader>
     <FluentDialogBody>
         <div style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 100%; min-width: 0; overflow-x: hidden;">
 
@@ -212,7 +212,7 @@
         </div>
     </FluentDialogBody>
     <FluentDialogFooter>
-        <FluentButton Appearance="Appearance.Accent" OnClick="SaveTemplateAsync"
+        <FluentButton Appearance="Appearance.Accent" OnClick="SaveProfileAsync"
                       Disabled="@(string.IsNullOrWhiteSpace(editName))">
             @(isEditing ? "Save" : "Create")
         </FluentButton>

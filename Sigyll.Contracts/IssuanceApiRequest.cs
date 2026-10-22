@@ -22,9 +22,9 @@ public class IssuanceApiRequest
     /// from this CSR and never sees the requester's private key.</summary>
     public string CsrPem { get; set; } = string.Empty;
 
-    /// <summary>Name of the certificate template (the "classification") to apply, as published in
-    /// the catalog. The CA resolves this to a <c>CertificateTemplate</c>.</summary>
-    public string TemplateName { get; set; } = string.Empty;
+    /// <summary>Name of the certificate profile (the "classification") to apply, as published in
+    /// the catalog. The CA resolves this to a <c>CertificateProfile</c>.</summary>
+    public string ProfileName { get; set; } = string.Empty;
 
     /// <summary>Name of the trust domain the certificate is issued under, as published in the catalog.</summary>
     public string TrustDomainName { get; set; } = string.Empty;

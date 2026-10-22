@@ -20,8 +20,8 @@ public class CsrIssuanceRequest
     /// <summary>The issuing CA. Required — CSR issuance always produces a CA-signed end-entity cert.</summary>
     public int IssuingCaCertificateId { get; set; }
 
-    /// <summary>Template (classification) that defines extensions, EKU/KU, and validity.</summary>
-    public int TemplateId { get; set; }
+    /// <summary>Profile (classification) that defines extensions, EKU/KU, and validity.</summary>
+    public int ProfileId { get; set; }
 
     /// <summary>Trust domain the certificate belongs to.</summary>
     public int TrustDomainId { get; set; }
@@ -32,7 +32,7 @@ public class CsrIssuanceRequest
     /// <summary>Friendly display name; defaults to the CSR subject CN when empty.</summary>
     public string CertificateName { get; set; } = string.Empty;
 
-    /// <summary>Authoritative SAN set to place on the certificate (template/portal-driven).</summary>
+    /// <summary>Authoritative SAN set to place on the certificate (profile/portal-driven).</summary>
     public List<SanEntry> SubjectAltNames { get; set; } = [];
 
     public List<string> CdpUrls { get; set; } = [];

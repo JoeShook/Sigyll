@@ -312,7 +312,7 @@
                               Intent="@MessageIntent.Error"
                               Style="margin-bottom: 0.5rem;">
                 <p style="margin: 0.25rem 0;">
-                    The template uses <code>{BaseUrl}</code> in CDP/AIA URLs but this trustDomain has no Base URLs configured.
+                    The profile uses <code>{BaseUrl}</code> in CDP/AIA URLs but this trustDomain has no Base URLs configured.
                     Add one and reopen this dialog, or enter absolute URLs manually in the Extensions section.
                 </p>
                 <FluentButton Appearance="Appearance.Accent" Size="ButtonSize.Small"
@@ -332,16 +332,16 @@
                 </HeadingTemplate>
                 <ChildContent>
                     <div style="display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.5rem;">
-                        <FluentSelect TOption="CertificateTemplate"
-                                      Items="@availableTemplates"
+                        <FluentSelect TOption="CertificateProfile"
+                                      Items="@availableProfiles"
                                       OptionText="@(t => $"{t.Name} ({GetCertTypeLabel(t.CertificateType)})")"
-                                      SelectedOption="@selectedTemplate"
-                                      SelectedOptionChanged="OnTemplateSelected"
-                                      Label="Template"
+                                      SelectedOption="@selectedProfile"
+                                      SelectedOptionChanged="OnProfileSelected"
+                                      Label="Profile"
                                       Style="width: 100%;" />
-                        @if (selectedTemplate?.Description != null)
+                        @if (selectedProfile?.Description != null)
                         {
-                            <p style="font-size: 0.8rem; opacity: 0.6; margin: -0.25rem 0 0;">@selectedTemplate.Description</p>
+                            <p style="font-size: 0.8rem; opacity: 0.6; margin: -0.25rem 0 0;">@selectedProfile.Description</p>
                         }
                         <FluentTextField @bind-Value="issuanceSubjectDn"
                                          Label="Subject Distinguished Name (required)"
@@ -363,7 +363,7 @@
                         </div>
                         @if (urlChangeWarnings.Count > 0)
                         {
-                            <FluentMessageBar Title="Template changes CDP/AIA URLs"
+                            <FluentMessageBar Title="Profile changes CDP/AIA URLs"
                                               Intent="@MessageIntent.Warning"
                                               Style="margin: 0.5rem 0;">
                                 <ul style="margin: 0.25rem 0; padding-left: 1.25rem;">
@@ -374,26 +374,26 @@
                                 </ul>
                             </FluentMessageBar>
                         }
-                        @if (selectedTemplate != null)
+                        @if (selectedProfile != null)
                         {
                             <div style="border: 1px solid var(--neutral-stroke-rest); border-radius: 4px; padding: 0.5rem; font-size: 0.8rem; opacity: 0.7;">
-                                <strong>Template:</strong> @selectedTemplate.KeyAlgorithm
-                                @if (selectedTemplate.KeyAlgorithm == "ECDSA")
+                                <strong>Profile:</strong> @selectedProfile.KeyAlgorithm
+                                @if (selectedProfile.KeyAlgorithm == "ECDSA")
                                 {
-                                    @($" ({selectedTemplate.EcdsaCurve ?? "P-384"})")
+                                    @($" ({selectedProfile.EcdsaCurve ?? "P-384"})")
                                 }
                                 else
                                 {
-                                    @($" {selectedTemplate.KeySize}-bit")
+                                    @($" {selectedProfile.KeySize}-bit")
                                 }
-                                | @selectedTemplate.HashAlgorithm
-                                | @selectedTemplate.ValidityDays days
-                                @if (selectedTemplate.IsBasicConstraintsCa)
+                                | @selectedProfile.HashAlgorithm
+                                | @selectedProfile.ValidityDays days
+                                @if (selectedProfile.IsBasicConstraintsCa)
                                 {
                                     @(" | CA")
-                                    @if (selectedTemplate.PathLengthConstraint.HasValue)
+                                    @if (selectedProfile.PathLengthConstraint.HasValue)
                                     {
-                                        @($" (path: {selectedTemplate.PathLengthConstraint})")
+                                        @($" (path: {selectedProfile.PathLengthConstraint})")
                                     }
                                 }
                             </div>
@@ -411,7 +411,7 @@
                 </HeadingTemplate>
                 <ChildContent>
                     <div style="display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.5rem;">
-                        @if (selectedTemplate?.IncludeCdp == true)
+                        @if (selectedProfile?.IncludeCdp == true)
                         {
                             <FluentLabel Typo="Typography.Subject">CRL Distribution Point URLs</FluentLabel>
                             @foreach (var cdp in issuanceCdpUrls)
@@ -430,7 +430,7 @@
                                 Add CDP URL
                             </FluentButton>
                         }
-                        @if (selectedTemplate?.IncludeAia == true)
+                        @if (selectedProfile?.IncludeAia == true)
                         {
                             <FluentLabel Typo="Typography.Subject" Style="margin-top: 0.25rem;">Authority Information Access URLs</FluentLabel>
                             @foreach (var aia in issuanceAiaUrls)
@@ -450,10 +450,10 @@
                             </FluentButton>
                         }
                         <FluentLabel Typo="Typography.Subject" Style="margin-top: 0.25rem;">Subject Alternative Names</FluentLabel>
-                        @if (templateSanLists.Count > 0)
+                        @if (profileSanLists.Count > 0)
                         {
                             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
-                                @foreach (var sl in templateSanLists)
+                                @foreach (var sl in profileSanLists)
                                 {
                                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                                   IconStart="@(new Icons.Regular.Size16.ListBar())"
@@ -487,7 +487,7 @@
                         {
                             <div style="color: #e94560; font-size: 0.8rem;">
                                 <FluentIcon Value="@(new Icons.Regular.Size16.Warning())" Color="Color.Error" Style="vertical-align: middle;" />
-                                This template requires a SAN of type: @MissingRequiredSanTypesDisplay()
+                                This profile requires a SAN of type: @MissingRequiredSanTypesDisplay()
                             </div>
                         }
                         @if (InvalidSanError() is string invalidSan)
@@ -543,7 +543,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="IssueCertificateAsync"
-                      Disabled="@(isIssuing || string.IsNullOrWhiteSpace(issuanceSubjectDn) || (issuanceKeyStorage == "local" && string.IsNullOrWhiteSpace(issuancePfxPassword)) || selectedTemplate == null || MissingRequiredSanTypes().Count > 0 || InvalidSanError() != null)">
+                      Disabled="@(isIssuing || string.IsNullOrWhiteSpace(issuanceSubjectDn) || (issuanceKeyStorage == "local" && string.IsNullOrWhiteSpace(issuancePfxPassword)) || selectedProfile == null || MissingRequiredSanTypes().Count > 0 || InvalidSanError() != null)">
             @(isIssuing ? "Generating..." : "Generate Certificate")
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => issuanceDialogHidden = true)"
@@ -576,23 +576,23 @@
                              Placeholder="@(directPairBinding == DirectBinding.Address ? "alice@direct.example.org" : "direct.example.org")"
                              Disabled="@(directPairResult?.Success == true)" Style="width: 100%;" />
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                <FluentSelect TOption="CertificateTemplate" Id="direct-signing-template"
-                              Label="Signing template (ML-DSA)"
-                              Items="@directSigningTemplates"
+                <FluentSelect TOption="CertificateProfile" Id="direct-signing-profile"
+                              Label="Signing profile (ML-DSA)"
+                              Items="@directSigningProfiles"
                               OptionText="@(t => t.Name)" OptionValue="@(t => t.Id.ToString())"
-                              @bind-SelectedOption="directSigningTemplate"
+                              @bind-SelectedOption="directSigningProfile"
                               Disabled="@(directPairResult?.Success == true)" Style="width: 100%;" />
-                <FluentSelect TOption="CertificateTemplate" Id="direct-encryption-template"
-                              Label="Encryption template (ML-KEM)"
-                              Items="@directEncryptionTemplates"
+                <FluentSelect TOption="CertificateProfile" Id="direct-encryption-profile"
+                              Label="Encryption profile (ML-KEM)"
+                              Items="@directEncryptionProfiles"
                               OptionText="@(t => t.Name)" OptionValue="@(t => t.Id.ToString())"
-                              @bind-SelectedOption="directEncryptionTemplate"
+                              @bind-SelectedOption="directEncryptionProfile"
                               Disabled="@(directPairResult?.Success == true)" Style="width: 100%;" />
             </div>
-            @if (directSigningTemplates.Count == 0 || directEncryptionTemplates.Count == 0)
+            @if (directSigningProfiles.Count == 0 || directEncryptionProfiles.Count == 0)
             {
                 <FluentMessageBar Intent="@MessageIntent.Warning" AllowDismiss="false">
-                    Needs an ML-DSA signing template (digitalSignature only) and an ML-KEM template (keyEncipherment only).
+                    Needs an ML-DSA signing profile (digitalSignature only) and an ML-KEM profile (keyEncipherment only).
                     The presets "Direct Signing (ML-DSA-87)" and "Direct Encryption (ML-KEM-1024)" are created at startup.
                 </FluentMessageBar>
             }

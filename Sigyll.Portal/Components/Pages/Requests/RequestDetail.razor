@@ -28,7 +28,7 @@ else
     <FluentCard Style="max-width: 820px; margin-bottom: 1rem;">
         <FluentStack Orientation="Orientation.Vertical" VerticalGap="6">
             <div><strong>Subject:</strong> @_request.SubjectDn</div>
-            <div><strong>Template:</strong> @_request.TemplateName <span style="opacity:.6;">(@_request.TrustDomainName)</span></div>
+            <div><strong>Certificate Profile:</strong> @_request.ProfileName <span style="opacity:.6;">(@_request.TrustDomainName)</span></div>
             <div><strong>Policy:</strong> @_request.PolicyDecision — @_request.PolicyReason</div>
             @if (_request.FailureReason is not null)
             {

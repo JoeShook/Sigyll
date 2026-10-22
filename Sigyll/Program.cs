@@ -108,7 +108,7 @@ try
     builder.Services.AddScoped<ChainValidationService>();
     builder.Services.AddScoped<CertificateExportService>();
     builder.Services.AddScoped<DashboardService>();
-    builder.Services.AddScoped<TemplateService>();
+    builder.Services.AddScoped<CertificateProfileService>();
     builder.Services.AddScoped<TrustDomainService>();
     builder.Services.AddScoped<CertificateManagementService>();
     builder.Services.AddScoped<CertificatePublishingService>();
@@ -194,7 +194,7 @@ try
     {
         var db = scope.ServiceProvider.GetRequiredService<SigyllDbContext>();
         await db.Database.MigrateAsync();
-        await SeedTemplatesAsync(db);
+        await SeedProfilesAsync(db);
         await SeedDidTemplatesAsync(db);
         await SeedCredentialSchemasAsync(db);
 
@@ -347,7 +347,7 @@ try
 
         await using var db = await dbFactory.CreateDbContextAsync();
         var trustDomains = await db.TrustDomains.Where(t => t.Enabled).ToListAsync();
-        var templates = await db.CertificateTemplates
+        var profiles = await db.CertificateProfiles
             .Where(t => t.CertificateType == CertificateType.EndEntityClient
                      || t.CertificateType == CertificateType.EndEntityServer)
             .ToListAsync();
@@ -360,7 +360,7 @@ try
                 Description = t.Description,
                 Enabled = t.Enabled,
             }).ToList(),
-            Templates = templates.Select(t => new CatalogTemplate
+            Profiles = profiles.Select(t => new CatalogProfile
             {
                 Name = t.Name,
                 Description = t.Description,
@@ -389,11 +389,11 @@ try
             return Results.BadRequest(IssuanceApiResult.Failure(
                 $"Unknown or disabled trust domain '{apiRequest.TrustDomainName}'."));
 
-        var template = await db.CertificateTemplates
-            .FirstOrDefaultAsync(t => t.Name == apiRequest.TemplateName);
-        if (template == null)
+        var profile = await db.CertificateProfiles
+            .FirstOrDefaultAsync(t => t.Name == apiRequest.ProfileName);
+        if (profile == null)
             return Results.BadRequest(IssuanceApiResult.Failure(
-                $"Unknown template '{apiRequest.TemplateName}'."));
+                $"Unknown profile '{apiRequest.ProfileName}'."));
 
         // Defense in depth: re-check the RA's claim. Every DNS identifier must be domain-validated
         // unless a human RA approved the request.
@@ -425,7 +425,7 @@ try
         var csrRequest = new CsrIssuanceRequest
         {
             IssuingCaCertificateId = issuingCa.Id,
-            TemplateId = template.Id,
+            ProfileId = profile.Id,
             TrustDomainId = trustDomain.Id,
             CsrPem = apiRequest.CsrPem,
             SubjectAltNames = apiRequest.RequestedSans.Select(MapSan).ToList(),
@@ -516,20 +516,20 @@ static async Task SeedOperatorAuthAsync(IServiceProvider services, IConfiguratio
     }
 }
 
-static async Task SeedTemplatesAsync(SigyllDbContext db)
+static async Task SeedProfilesAsync(SigyllDbContext db)
 {
-    var existing = await db.CertificateTemplates.Select(t => t.Name).ToListAsync();
-    var missing = PresetTemplates().Where(t => !existing.Contains(t.Name)).ToArray();
+    var existing = await db.CertificateProfiles.Select(t => t.Name).ToListAsync();
+    var missing = PresetProfiles().Where(t => !existing.Contains(t.Name)).ToArray();
     if (missing.Length == 0)
         return;
 
-    db.CertificateTemplates.AddRange(missing);
+    db.CertificateProfiles.AddRange(missing);
     await db.SaveChangesAsync();
 }
 
-static IEnumerable<CertificateTemplate> PresetTemplates()
+static IEnumerable<CertificateProfile> PresetProfiles()
 {
-    yield return new CertificateTemplate
+    yield return new CertificateProfile
     {
         Name = "Root CA",
         Description = "Self-signed Root Certificate Authority with 10-year validity.",
@@ -545,7 +545,7 @@ static IEnumerable<CertificateTemplate> PresetTemplates()
         HashAlgorithm = "SHA256",
         IsPreset = true,
     };
-    yield return new CertificateTemplate
+    yield return new CertificateProfile
     {
         Name = "Intermediate CA",
         Description = "Intermediate Certificate Authority signed by a Root CA, 5-year validity.",
@@ -564,7 +564,7 @@ static IEnumerable<CertificateTemplate> PresetTemplates()
         SubjectAltNameTypes = "URI",
         IsPreset = true,
     };
-    yield return new CertificateTemplate
+    yield return new CertificateProfile
     {
         Name = "UDAP Client",
         Description = "End-entity client certificate for UDAP dynamic client registration.",
@@ -584,7 +584,7 @@ static IEnumerable<CertificateTemplate> PresetTemplates()
         IsPreset = true,
         RequiresRaApproval = true,
     };
-    yield return new CertificateTemplate
+    yield return new CertificateProfile
     {
         Name = "SSL Server",
         Description = "End-entity TLS server certificate for HTTPS endpoints.",
@@ -604,7 +604,7 @@ static IEnumerable<CertificateTemplate> PresetTemplates()
         AllowAutoIssue = true,
     };
 
-    // Post-quantum presets. Pure ML-DSA / SLH-DSA do not use the template hash.
+    // Post-quantum presets. Pure ML-DSA / SLH-DSA do not use the profile hash.
     // ML-DSA-87 and ML-KEM-1024 are the CNSA 2.0 parameter sets.
     yield return PqcCa("Root CA (ML-DSA-87)",
         "Self-signed ML-DSA-87 root (FIPS 204, NIST level 5). Local key only.",
@@ -645,7 +645,7 @@ static IEnumerable<CertificateTemplate> PresetTemplates()
         keyUsage: (int)X509KeyUsageFlags.KeyEncipherment);
 }
 
-static CertificateTemplate PqcCa(string name, string description, CertificateType type,
+static CertificateProfile PqcCa(string name, string description, CertificateType type,
     string algorithm, int keySize, int validityDays, int? pathLength, bool intermediate) => new()
 {
     Name = name,
@@ -668,7 +668,7 @@ static CertificateTemplate PqcCa(string name, string description, CertificateTyp
     IsPreset = true,
 };
 
-static CertificateTemplate PqcEndEntity(string name, string description, CertificateType type,
+static CertificateProfile PqcEndEntity(string name, string description, CertificateType type,
     string algorithm, int keySize, int validityDays, string? eku, string? san,
     bool raApproval, bool autoIssue, int? keyUsage = null) => new()
 {
@@ -700,7 +700,7 @@ static async Task SeedDidTemplatesAsync(SigyllDbContext db)
     db.DidTemplates.Add(new DidTemplate
     {
         Name = "did:key (Ed25519)",
-        Description = "Minimal did:key template using Ed25519. Mints a self-describing DID whose " +
+        Description = "Minimal did:key profile using Ed25519. Mints a self-describing DID whose " +
                       "identifier IS the public key (multicodec + multibase). No publishing required.",
         Method = "key",
         KeyAlgorithm = "Ed25519",

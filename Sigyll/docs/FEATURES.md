@@ -80,7 +80,7 @@
 - `GET /api/crl/{id}/download` — DER-encoded CRL
 
 ### Dashboard (Home Page)
-- **Quick stats**: Community count, CA count, Issued cert count, Template count
+- **Quick stats**: Community count, CA count, Issued cert count, Profile count
 - **Community health cards**: Per-community summary with CA/Issued counts, expired/expiring/overdue CRL counts, healthy indicator
 - **Expiring certificates table**: Certs within 60 days of expiry (not yet expired), sorted by NotAfter
 - **Expired certificates table**: Most recent 20 expired certs
@@ -98,10 +98,10 @@
 
 ### Pre-issuance Validation
 - **CDP/AIA URL validation**: HEAD requests to verify endpoints are reachable (5s timeout)
-- Warns about missing CDP/AIA when template has them enabled
+- Warns about missing CDP/AIA when profile has them enabled
 - Warns about unreachable endpoints with HTTP status or error details
 - User can proceed anyway or cancel to fix URLs
-- **Template URL token expansion**: `{CAName}` replaced with issuing CA name in CDP/AIA URL templates
+- **Profile URL token expansion**: `{CAName}` replaced with issuing CA name in CDP/AIA URL templates
 
 ### Issuer Verification (Backend)
 - **Signature verification guard** (`CertificateIssuanceService.VerifyIssuedBy`): BouncyCastle DN match + signature verification
@@ -119,16 +119,16 @@
 
 ---
 
-## Phase 2: Certificate Issuance & Templates (Complete)
+## Phase 2: Certificate Issuance & Profiles (Complete)
 
-### Certificate Templates
+### Certificate Profiles
 - CRUD page with FluentDataGrid + Add/Edit/Clone/Delete dialog
-- **4 preset templates** (seeded on startup, non-deletable):
+- **4 preset profiles** (seeded on startup, non-deletable):
   - Root CA (RSA-4096, 10yr, CertSign+CrlSign)
   - Intermediate CA (RSA-4096, 5yr, DigSig+CertSign+CrlSign, CDP+AIA, URI SANs)
   - UDAP Client (RSA-2048, 2yr, DigSig, TLS Client Auth EKU, CDP+AIA, URI SANs)
   - SSL Server (RSA-2048, 1yr, DigSig, TLS Server Auth EKU, CDP, DNS SANs)
-- Clone preset templates to customize
+- Clone preset profiles to customize
 - Configurable fields:
   - General: Name, Description, Certificate Type, Validity Days
   - Key Parameters: Algorithm (RSA/ECDSA), Key Size (2048/3072/4096), ECDSA Curve (P-256/P-384/P-521), Hash Algorithm (SHA256/384/512)
@@ -143,24 +143,24 @@
 - **RSA + ECDSA** key generation
 - Self-signed root CA creation
 - CA-signed intermediate and end-entity certificate creation
-- Extension building from template: BasicConstraints, KeyUsage, SKI, AKI, EKU, CDP, AIA, SANs
+- Extension building from profile: BasicConstraints, KeyUsage, SKI, AKI, EKU, CDP, AIA, SANs
 - **Extension helpers** (`CertificateExtensionHelpers`): AddAuthorityKeyIdentifier, MakeCdp, BuildAiaExtension — extracted from Udap.PKI.Generator for reuse
 - Serial numbers: `RandomNumberGenerator.GetBytes(16)`
 - **Validity clamping**: NotAfter automatically clamped to issuing CA's NotAfter
 - PFX + PEM export and database storage
 
 ### Issue Certificate Flow (Explorer UI)
-- **"New Root CA"** button in Explorer header (self-signed, Root CA templates only)
+- **"New Root CA"** button in Explorer header (self-signed, Root CA profiles only)
 - **"Issue Certificate"** button on CA detail panel (visible when CA has private key)
 - Issuance dialog with:
-  - Template selector (filtered by cert type)
+  - Profile selector (filtered by cert type)
   - Subject DN field
   - Display name field
-  - Validity date pickers (auto-calculated from template, clamped to issuer)
-  - CDP/AIA URL fields (conditional on template flags)
+  - Validity date pickers (auto-calculated from profile, clamped to issuer)
+  - CDP/AIA URL fields (conditional on profile flags)
   - Dynamic SAN entries (add/remove, type selector: URI/DNS/Email/IP)
   - PFX password
-  - Template summary showing key params
+  - Profile summary showing key params
 - Post-generation: toast with thumbprint, tree refresh
 
 ### Certificate Renewal
@@ -191,12 +191,12 @@
 - Security level enforcement: keys stored in HSM/Cloud KMS (`CertSecurityLevel != Software`) cannot be exported
 
 ### Renewal Validation
-- **CDP/AIA URL change warning**: When renewing a certificate, if the selected template would change CDP or AIA URLs compared to the original certificate, a warning banner appears in the issuance dialog listing each added/removed URL
+- **CDP/AIA URL change warning**: When renewing a certificate, if the selected profile would change CDP or AIA URLs compared to the original certificate, a warning banner appears in the issuance dialog listing each added/removed URL
 - Business logic in `IssuanceValidator` (injected into `CertificateIssuanceService`), not in UI code-behind
-- Warnings are advisory — user can proceed or adjust the template
+- Warnings are advisory — user can proceed or adjust the profile
 
 ### UI Enhancements
-- **Draggable dialog resize**: Issue Certificate and Template Add/Edit dialogs have a resize handle on the right edge. Uses center-based mouse tracking and sets `--dialog-width` CSS variable to penetrate FluentDialog's shadow DOM
+- **Draggable dialog resize**: Issue Certificate and Profile Add/Edit dialogs have a resize handle on the right edge. Uses center-based mouse tracking and sets `--dialog-width` CSS variable to penetrate FluentDialog's shadow DOM
 - Dialog min-width increased to 900px for better form layout
 
 ---
@@ -256,13 +256,13 @@
 examples/CA/
 ├── Sigyll/                 # Blazor Server host (Program.cs, App.razor, wwwroot)
 ├── Sigyll.Common/          # Class library (entities, services, ViewModels, migrations)
-│   ├── Data/Entities/     # Community, CaCertificate, IssuedCertificate, Crl, CertificateTemplate, Job
-│   ├── Services/          # Issuance, Validation, Parsing, Import, Export, CRL, Dashboard, Template, Community, Management, Publishing
+│   ├── Data/Entities/     # Community, CaCertificate, IssuedCertificate, Crl, CertificateProfile, Job
+│   ├── Services/          # Issuance, Validation, Parsing, Import, Export, CRL, Dashboard, Profile, Community, Management, Publishing
 │   ├── Services/Signing/  # ISigningProvider, LocalSigningProvider, RemoteCertificateBuilder
 │   ├── Validators/        # IssuanceValidator (pre-issuance business rules, injected into services)
 │   └── ViewModels/        # DTOs for UI and API consumers
 ├── Sigyll.UI/              # Razor Class Library (all components, pages, shared, layout)
-│   ├── Components/Pages/  # Explorer, Communities, Templates, Import, Home, Jobs
+│   ├── Components/Pages/  # Explorer, Communities, Profiles, Import, Home, Jobs
 │   ├── Components/Shared/ # Asn1TreeView, CertBadge, CrlBadge, ExtensionTable, CopyableToast
 │   └── Services/          # Toast extensions
 ├── Sigyll.Vault.Transit/   # ISigningProvider implementation for HashiCorp Vault Transit
@@ -276,12 +276,12 @@ examples/CA/
 
 ### Key Design Decisions
 - **Sigyll.Common has no UI dependencies** — reusable by CLI tools, APIs, tests
-- **Service layer enforced**: Business logic lives in `Sigyll.Common/Services/` (not in UI code-behinds). UI pages inject services, not `IDbContextFactory`. Services extracted: `DashboardService`, `TemplateService`, `CommunityService`, `CertificateManagementService`, `CertificatePublishingService`, `CertificateExportService`
+- **Service layer enforced**: Business logic lives in `Sigyll.Common/Services/` (not in UI code-behinds). UI pages inject services, not `IDbContextFactory`. Services extracted: `DashboardService`, `CertificateProfileService`, `CommunityService`, `CertificateManagementService`, `CertificatePublishingService`, `CertificateExportService`
 - **Validators as a separate concern**: `Sigyll.Common/Validators/` contains business rule validators injected into services (e.g., `IssuanceValidator` into `CertificateIssuanceService`)
 - **Provider projects are separate assemblies** — `Sigyll.Vault.Transit` and `Sigyll.Gcp.Kms` implement `ISigningProvider` from `Sigyll.Common`, keeping provider-specific dependencies (Vault HTTP, Google.Cloud.Kms) out of the core library
 - **CertificateIssuanceService** and all DTOs in Common for multi-host consumption
 - **Extension helpers** extracted from Udap.PKI.Generator test project into Sigyll.Common
 - **Tree highlighting** via JS interop into FluentTreeItem shadow DOM (avoids Blazor re-render/collapse)
 - **Re-sign updates in-place** to preserve child relationships (vs creating new entity)
-- **Preset templates** seeded idempotently on startup
+- **Preset profiles** seeded idempotently on startup
 - **`StoreProviderHint`** metadata tracks which provider holds each key (e.g., `"vault-transit:sigil-abc123"`, `"gcp-kms:sigil-def456"`)

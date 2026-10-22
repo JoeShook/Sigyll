@@ -16,36 +16,36 @@ using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Services;
 
-public class TemplateService
+public class CertificateProfileService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
-    private readonly ILogger<TemplateService> _logger;
+    private readonly ILogger<CertificateProfileService> _logger;
 
-    public TemplateService(
+    public CertificateProfileService(
         IDbContextFactory<SigyllDbContext> dbFactory,
-        ILogger<TemplateService> logger)
+        ILogger<CertificateProfileService> logger)
     {
         _dbFactory = dbFactory;
         _logger = logger;
     }
 
-    public async Task<List<CertificateTemplate>> GetAllAsync(CancellationToken ct = default)
+    public async Task<List<CertificateProfile>> GetAllAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        return await db.CertificateTemplates
+        return await db.CertificateProfiles
             .OrderByDescending(t => t.IsPreset)
             .ThenBy(t => t.CertificateType)
             .ThenBy(t => t.Name)
             .ToListAsync(ct);
     }
 
-    public async Task<CertificateTemplate> SaveAsync(CertificateTemplate entity, CancellationToken ct = default)
+    public async Task<CertificateProfile> SaveAsync(CertificateProfile entity, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         if (entity.Id > 0)
         {
-            var existing = await db.CertificateTemplates.FindAsync([entity.Id], ct);
+            var existing = await db.CertificateProfiles.FindAsync([entity.Id], ct);
             if (existing != null)
             {
                 db.Entry(existing).CurrentValues.SetValues(entity);
@@ -54,36 +54,36 @@ public class TemplateService
             }
         }
 
-        db.CertificateTemplates.Add(entity);
+        db.CertificateProfiles.Add(entity);
         await db.SaveChangesAsync(ct);
         return entity;
     }
 
-    public async Task UpdateSanListsAsync(int templateId, HashSet<int> sanListIds, CancellationToken ct = default)
+    public async Task UpdateSanListsAsync(int profileId, HashSet<int> sanListIds, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var template = await db.CertificateTemplates
+        var profile = await db.CertificateProfiles
             .Include(t => t.SanLists)
-            .FirstOrDefaultAsync(t => t.Id == templateId, ct);
-        if (template == null) return;
+            .FirstOrDefaultAsync(t => t.Id == profileId, ct);
+        if (profile == null) return;
 
-        template.SanLists.Clear();
+        profile.SanLists.Clear();
         if (sanListIds.Count > 0)
         {
             var sanLists = await db.SanLists
                 .Where(s => sanListIds.Contains(s.Id))
                 .ToListAsync(ct);
             foreach (var sl in sanLists)
-                template.SanLists.Add(sl);
+                profile.SanLists.Add(sl);
         }
 
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<List<CertificateTemplate>> GetAllWithSanListsAsync(CancellationToken ct = default)
+    public async Task<List<CertificateProfile>> GetAllWithSanListsAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        return await db.CertificateTemplates
+        return await db.CertificateProfiles
             .Include(t => t.SanLists)
             .OrderByDescending(t => t.IsPreset)
             .ThenBy(t => t.CertificateType)
@@ -94,22 +94,22 @@ public class TemplateService
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var entity = await db.CertificateTemplates.FindAsync([id], ct);
+        var entity = await db.CertificateProfiles.FindAsync([id], ct);
         if (entity != null && !entity.IsPreset)
         {
-            db.CertificateTemplates.Remove(entity);
+            db.CertificateProfiles.Remove(entity);
             await db.SaveChangesAsync(ct);
         }
     }
 
-    public async Task<List<ImpactItem>> GetDeletionImpactAsync(int templateId, CancellationToken ct = default)
+    public async Task<List<ImpactItem>> GetDeletionImpactAsync(int profileId, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var impacts = new List<ImpactItem>();
 
-        var issuedCount = await db.IssuedCertificates.CountAsync(i => i.TemplateId == templateId, ct);
+        var issuedCount = await db.IssuedCertificates.CountAsync(i => i.ProfileId == profileId, ct);
         if (issuedCount > 0)
-            impacts.Add(new ImpactItem(issuedCount, "issued certificate(s) reference this template", ImpactSeverity.Info));
+            impacts.Add(new ImpactItem(issuedCount, "issued certificate(s) reference this profile", ImpactSeverity.Info));
 
         return impacts;
     }

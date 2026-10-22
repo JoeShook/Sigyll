@@ -26,7 +26,7 @@ public partial class Home : IDisposable
     private int trustDomainCount;
     private int caCertCount;
     private int issuedCertCount;
-    private int templateCount;
+    private int profileCount;
 
     // TrustDomain summaries
     private List<TrustDomainSummary> trustDomainSummaries = new();
@@ -63,7 +63,7 @@ public partial class Home : IDisposable
         trustDomainCount = data.TrustDomainCount;
         caCertCount = data.CaCertCount;
         issuedCertCount = data.IssuedCertCount;
-        templateCount = data.TemplateCount;
+        profileCount = data.ProfileCount;
         revokedCertCount = data.RevokedCertCount;
         trustDomainSummaries = data.TrustDomainSummaries;
         expiringCerts = data.ExpiringCerts;

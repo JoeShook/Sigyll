@@ -45,9 +45,9 @@ public class IssuanceValidatorTests
     [Fact]
     public void ValidateRequiredSanTypes_MissingDeclaredType_ReturnsError()
     {
-        var template = new CertificateTemplate { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
+        var profile = new CertificateProfile { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
 
-        var error = _validator.ValidateRequiredSanTypes(template, []);
+        var error = _validator.ValidateRequiredSanTypes(profile, []);
 
         error.ShouldNotBeNull();
         error.ShouldContain("mTLS Server");
@@ -57,9 +57,9 @@ public class IssuanceValidatorTests
     [Fact]
     public void ValidateRequiredSanTypes_WhitespaceOnlyValue_StillMissing()
     {
-        var template = new CertificateTemplate { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
+        var profile = new CertificateProfile { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
 
-        var error = _validator.ValidateRequiredSanTypes(template, [new SanEntry(SanType.Dns, "  ")]);
+        var error = _validator.ValidateRequiredSanTypes(profile, [new SanEntry(SanType.Dns, "  ")]);
 
         error.ShouldNotBeNull();
     }
@@ -67,9 +67,9 @@ public class IssuanceValidatorTests
     [Fact]
     public void ValidateRequiredSanTypes_WrongTypeProvided_ReturnsError()
     {
-        var template = new CertificateTemplate { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
+        var profile = new CertificateProfile { Name = "mTLS Server", SubjectAltNameTypes = "DNS" };
 
-        var error = _validator.ValidateRequiredSanTypes(template, [new SanEntry(SanType.Uri, "https://a.example.com")]);
+        var error = _validator.ValidateRequiredSanTypes(profile, [new SanEntry(SanType.Uri, "https://a.example.com")]);
 
         error.ShouldNotBeNull();
         error.ShouldContain("DNS");
@@ -78,9 +78,9 @@ public class IssuanceValidatorTests
     [Fact]
     public void ValidateRequiredSanTypes_AllDeclaredTypesPresent_ReturnsNull()
     {
-        var template = new CertificateTemplate { Name = "UDAP Client", SubjectAltNameTypes = "URI;DNS" };
+        var profile = new CertificateProfile { Name = "UDAP Client", SubjectAltNameTypes = "URI;DNS" };
 
-        var error = _validator.ValidateRequiredSanTypes(template,
+        var error = _validator.ValidateRequiredSanTypes(profile,
             [new SanEntry(SanType.Uri, "https://fhir.example.com"), new SanEntry(SanType.Dns, "fhir.example.com")]);
 
         error.ShouldBeNull();
@@ -89,9 +89,9 @@ public class IssuanceValidatorTests
     [Fact]
     public void ValidateRequiredSanTypes_PartiallyPresent_NamesOnlyMissingTypes()
     {
-        var template = new CertificateTemplate { Name = "UDAP Client", SubjectAltNameTypes = "URI;DNS" };
+        var profile = new CertificateProfile { Name = "UDAP Client", SubjectAltNameTypes = "URI;DNS" };
 
-        var error = _validator.ValidateRequiredSanTypes(template, [new SanEntry(SanType.Uri, "https://fhir.example.com")]);
+        var error = _validator.ValidateRequiredSanTypes(profile, [new SanEntry(SanType.Uri, "https://fhir.example.com")]);
 
         error.ShouldNotBeNull();
         error.ShouldContain("DNS");
@@ -101,9 +101,9 @@ public class IssuanceValidatorTests
     [Fact]
     public void ValidateRequiredSanTypes_NoDeclaredTypes_ReturnsNull()
     {
-        var template = new CertificateTemplate { Name = "Plain", SubjectAltNameTypes = null };
+        var profile = new CertificateProfile { Name = "Plain", SubjectAltNameTypes = null };
 
-        _validator.ValidateRequiredSanTypes(template, []).ShouldBeNull();
+        _validator.ValidateRequiredSanTypes(profile, []).ShouldBeNull();
     }
 
     [Fact]
@@ -162,9 +162,9 @@ public class IssuanceValidatorTests
     public void CompareTemplateUrls_NoChanges_ReturnsEmpty()
     {
         var original = new List<string> { "https://pki.example.com/crls/CA.crl" };
-        var template = new List<string> { "https://pki.example.com/crls/CA.crl" };
+        var profile = new List<string> { "https://pki.example.com/crls/CA.crl" };
 
-        var warnings = _validator.CompareTemplateUrls(original, [], template, []);
+        var warnings = _validator.CompareTemplateUrls(original, [], profile, []);
 
         warnings.ShouldBeEmpty();
     }
@@ -230,14 +230,14 @@ public class IssuanceValidatorTests
     [Fact]
     public void ExpandCdpTemplates_WithBaseUrls_ExpandsPlaceholders()
     {
-        var template = new CertificateTemplate
+        var profile = new CertificateProfile
         {
             IncludeCdp = true,
             CdpUrlTemplate = "{BaseUrl}/crls/{CAName}.crl"
         };
 
         var result = _validator.ExpandCdpTemplates(
-            template,
+            profile,
             ["https://pki.example.com"],
             "Root-CA");
 
@@ -247,14 +247,14 @@ public class IssuanceValidatorTests
     [Fact]
     public void ExpandAiaTemplates_WithBaseUrls_ExpandsPlaceholders()
     {
-        var template = new CertificateTemplate
+        var profile = new CertificateProfile
         {
             IncludeAia = true,
             AiaUrlTemplate = "{BaseUrl}/certs/{CAName}.cer"
         };
 
         var result = _validator.ExpandAiaTemplates(
-            template,
+            profile,
             ["https://pki.example.com"],
             "Root-CA");
 
@@ -262,16 +262,16 @@ public class IssuanceValidatorTests
     }
 
     [Fact]
-    public void ExpandCdpTemplates_DefaultTemplate_WhenNoCustomTemplate()
+    public void ExpandCdpTemplates_DefaultProfile_WhenNoCustomProfile()
     {
-        var template = new CertificateTemplate
+        var profile = new CertificateProfile
         {
             IncludeCdp = true,
             CdpUrlTemplate = null
         };
 
         var result = _validator.ExpandCdpTemplates(
-            template,
+            profile,
             ["https://pki.example.com"],
             "Intermediate");
 
@@ -281,13 +281,13 @@ public class IssuanceValidatorTests
     [Fact]
     public void ExpandCdpTemplates_NotEnabled_ReturnsEmpty()
     {
-        var template = new CertificateTemplate
+        var profile = new CertificateProfile
         {
             IncludeCdp = false,
             CdpUrlTemplate = "{BaseUrl}/crls/{CAName}.crl"
         };
 
-        var result = _validator.ExpandCdpTemplates(template, ["https://pki.example.com"], "CA");
+        var result = _validator.ExpandCdpTemplates(profile, ["https://pki.example.com"], "CA");
 
         result.ShouldBeEmpty();
     }
@@ -295,14 +295,14 @@ public class IssuanceValidatorTests
     [Fact]
     public void ExpandCdpTemplates_MultipleBaseUrls_ExpandsAll()
     {
-        var template = new CertificateTemplate
+        var profile = new CertificateProfile
         {
             IncludeCdp = true,
             CdpUrlTemplate = "{BaseUrl}/crls/{CAName}.crl"
         };
 
         var result = _validator.ExpandCdpTemplates(
-            template,
+            profile,
             ["https://a.com", "https://b.com"],
             "CA");
 
@@ -314,13 +314,13 @@ public class IssuanceValidatorTests
     [Fact]
     public void ExpandCdpTemplates_NoBaseUrls_ExpandsCaNameOnly()
     {
-        var template = new CertificateTemplate
+        var profile = new CertificateProfile
         {
             IncludeCdp = true,
             CdpUrlTemplate = "{BaseUrl}/crls/{CAName}.crl"
         };
 
-        var result = _validator.ExpandCdpTemplates(template, [], "My-CA");
+        var result = _validator.ExpandCdpTemplates(profile, [], "My-CA");
 
         result.ShouldHaveSingleItem().ShouldContain("My-CA.crl");
     }

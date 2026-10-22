@@ -21,9 +21,9 @@ public class CertificateIssuanceRequest
     public int? IssuingCaCertificateId { get; set; }
 
     /// <summary>
-    /// The template that defines extensions, key parameters, and defaults.
+    /// The profile that defines extensions, key parameters, and defaults.
     /// </summary>
-    public int TemplateId { get; set; }
+    public int ProfileId { get; set; }
 
     /// <summary>
     /// The trustDomain this certificate belongs to.
@@ -47,12 +47,12 @@ public class CertificateIssuanceRequest
     public List<SanEntry> SubjectAltNames { get; set; } = [];
 
     /// <summary>
-    /// CRL Distribution Point URLs. Only used when the template has IncludeCdp enabled.
+    /// CRL Distribution Point URLs. Only used when the profile has IncludeCdp enabled.
     /// </summary>
     public List<string> CdpUrls { get; set; } = [];
 
     /// <summary>
-    /// Authority Information Access URLs. Only used when the template has IncludeAia enabled.
+    /// Authority Information Access URLs. Only used when the profile has IncludeAia enabled.
     /// </summary>
     public List<string> AiaUrls { get; set; } = [];
 
@@ -62,7 +62,7 @@ public class CertificateIssuanceRequest
     public DateTimeOffset? NotBefore { get; set; }
 
     /// <summary>
-    /// Certificate validity end. Defaults to NotBefore + template.ValidityDays if not specified.
+    /// Certificate validity end. Defaults to NotBefore + profile.ValidityDays if not specified.
     /// </summary>
     public DateTimeOffset? NotAfter { get; set; }
 
@@ -82,7 +82,7 @@ public class CertificateIssuanceRequest
 
     /// <summary>
     /// When this issuance is a renewal (re-key), the ID of the certificate being replaced
-    /// (a CaCertificate for CA templates, an IssuedCertificate for end-entity templates).
+    /// (a CaCertificate for CA profiles, an IssuedCertificate for end-entity profiles).
     /// The new certificate records the lineage link and Version = predecessor + 1.
     /// </summary>
     public int? RenewalOfCertificateId { get; set; }

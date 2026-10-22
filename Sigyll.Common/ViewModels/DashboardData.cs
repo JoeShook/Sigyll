@@ -15,7 +15,7 @@ public class DashboardData
     public int TrustDomainCount { get; set; }
     public int CaCertCount { get; set; }
     public int IssuedCertCount { get; set; }
-    public int TemplateCount { get; set; }
+    public int ProfileCount { get; set; }
     public int RevokedCertCount { get; set; }
     public List<TrustDomainSummary> TrustDomainSummaries { get; set; } = new();
     public List<CertRow> ExpiringCerts { get; set; } = new();

@@ -33,7 +33,7 @@ else
     <FluentDataGrid Items="@_pending.AsQueryable()" GridTemplateColumns="0.4fr 1.6fr 1fr 1fr 1.4fr 2fr">
         <PropertyColumn Property="@(r => r.Id)" Title="#" />
         <PropertyColumn Property="@(r => r.SubjectDn)" Title="Subject" />
-        <PropertyColumn Property="@(r => r.TemplateName)" Title="Template" />
+        <PropertyColumn Property="@(r => r.ProfileName)" Title="Certificate Profile" />
         <PropertyColumn Property="@(r => r.TrustDomainName)" Title="Trust domain" />
         <TemplateColumn Title="Policy">
             <span style="font-size: .85rem; opacity: .8;">@context.PolicyReason</span>

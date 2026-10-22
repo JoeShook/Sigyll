@@ -55,7 +55,7 @@ public class CertificateIssuanceService
     public bool IsRemoteProvider => _signingProvider.ProviderName != "local";
 
     /// <summary>
-    /// Issues a certificate based on the given request and template.
+    /// Issues a certificate based on the given request and profile.
     /// For Root CAs, IssuingCaCertificateId should be null (self-signed).
     /// For Intermediate CAs and end-entity certs, it must reference a CA with a private key.
     /// </summary>
@@ -63,10 +63,10 @@ public class CertificateIssuanceService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
 
-        // Load template
-        var template = await db.CertificateTemplates.FindAsync(request.TemplateId);
-        if (template == null)
-            return CertificateIssuanceResult.Failure("Template not found.");
+        // Load profile
+        var profile = await db.CertificateProfiles.FindAsync(request.ProfileId);
+        if (profile == null)
+            return CertificateIssuanceResult.Failure("Profile not found.");
 
         // Validate trustDomain exists
         var trustDomain = await db.TrustDomains.FindAsync(request.TrustDomainId);
@@ -90,15 +90,15 @@ public class CertificateIssuanceService
         if (badSanValue != null)
             return CertificateIssuanceResult.Failure(badSanValue);
 
-        // SAN types declared on the template are mandatory, not hints
-        var missingSanError = _validator.ValidateRequiredSanTypes(template, request.SubjectAltNames);
+        // SAN types declared on the profile are mandatory, not hints
+        var missingSanError = _validator.ValidateRequiredSanTypes(profile, request.SubjectAltNames);
         if (missingSanError != null)
             return CertificateIssuanceResult.Failure(missingSanError);
 
         // Renewal lineage: the predecessor determines the new certificate's version
         var (renewalVersion, renewalOfId, lineageError) = await ResolveRenewalLineageAsync(
             db, request.RenewalOfCertificateId,
-            isCaLineage: template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa);
+            isCaLineage: profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa);
         if (lineageError != null)
             return CertificateIssuanceResult.Failure(lineageError);
 
@@ -107,16 +107,16 @@ public class CertificateIssuanceService
             ? request.SigningProviderOverride != "local"
             : IsRemoteProvider;
 
-        if (PqcAlgorithms.IsPqc(template.KeyAlgorithm))
+        if (PqcAlgorithms.IsPqc(profile.KeyAlgorithm))
         {
-            if (PqcAlgorithms.IsKem(template.KeyAlgorithm, template.KeySize)
-                && template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa)
+            if (PqcAlgorithms.IsKem(profile.KeyAlgorithm, profile.KeySize)
+                && profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa)
             {
                 return CertificateIssuanceResult.Failure(
                     "ML-KEM encapsulates keys; it cannot sign a certificate and cannot be a CA. Use ML-DSA, SLH-DSA, or composite ML-DSA for CA keys.");
             }
 
-            var unsupported = PqcAlgorithms.UnsupportedReason(template.KeyAlgorithm, template.KeySize);
+            var unsupported = PqcAlgorithms.UnsupportedReason(profile.KeyAlgorithm, profile.KeySize);
             if (unsupported != null)
                 return CertificateIssuanceResult.Failure(unsupported);
         }
@@ -128,11 +128,11 @@ public class CertificateIssuanceService
         // Determine if self-signed (root CA)
         bool isSelfSigned = request.IssuingCaCertificateId == null;
 
-        if (isSelfSigned && template.CertificateType != CertificateType.RootCa)
-            return CertificateIssuanceResult.Failure("Only Root CA templates can be used for self-signed certificates.");
+        if (isSelfSigned && profile.CertificateType != CertificateType.RootCa)
+            return CertificateIssuanceResult.Failure("Only Root CA profiles can be used for self-signed certificates.");
 
-        if (!isSelfSigned && template.CertificateType == CertificateType.RootCa)
-            return CertificateIssuanceResult.Failure("Root CA template cannot be used with an issuing CA — root CAs are self-signed.");
+        if (!isSelfSigned && profile.CertificateType == CertificateType.RootCa)
+            return CertificateIssuanceResult.Failure("Root CA profile cannot be used with an issuing CA — root CAs are self-signed.");
 
         // Load issuing CA if not self-signed
         X509Certificate2? issuingCert = null;
@@ -188,7 +188,7 @@ public class CertificateIssuanceService
         // 2. Hybrid: new cert key is LOCAL (PFX), but issuer signs via remote provider (Vault Transit)
         // 3. Full local: both key and signing are local (existing code below)
         if ((useRemoteSigning || issuerKeyRef != null)
-            && (PqcAlgorithms.IsPqc(template.KeyAlgorithm)
+            && (PqcAlgorithms.IsPqc(profile.KeyAlgorithm)
                 || (issuingCaEntity != null && PqcAlgorithms.IsPqc(issuingCaEntity.KeyAlgorithm))))
         {
             return CertificateIssuanceResult.Failure(PqcAlgorithms.RemoteBlockedMessage);
@@ -197,7 +197,7 @@ public class CertificateIssuanceService
         if (useRemoteSigning)
         {
             return await IssueCertificateRemoteAsync(
-                db, template, request, isSelfSigned, issuingCert, issuingCaEntity, issuerKeyRef,
+                db, profile, request, isSelfSigned, issuingCert, issuingCaEntity, issuerKeyRef,
                 renewalVersion, renewalOfId);
         }
 
@@ -205,7 +205,7 @@ public class CertificateIssuanceService
         {
             // Hybrid: local key + remote signing (e.g., end-entity with PFX, signed by Vault CA)
             return await IssueCertificateHybridAsync(
-                db, template, request, issuingCert!, issuingCaEntity!, issuerKeyRef,
+                db, profile, request, issuingCert!, issuingCaEntity!, issuerKeyRef,
                 renewalVersion, renewalOfId);
         }
 
@@ -222,19 +222,19 @@ public class CertificateIssuanceService
         try
         {
             // Generate key pair
-            using var keyHolder = GenerateKeyPair(template);
+            using var keyHolder = GenerateKeyPair(profile);
 
             // Build CertificateRequest
-            var certRequest = CreateCertificateRequest(template, request.SubjectDn, keyHolder);
+            var certRequest = CreateCertificateRequest(profile, request.SubjectDn, keyHolder);
 
             // Add extensions
-            AddExtensions(certRequest, template, request, issuingCert);
+            AddExtensions(certRequest, profile, request, issuingCert);
             if (relatedCertificate != null)
                 certRequest.CertificateExtensions.Add(relatedCertificate);
 
             // Determine validity
             var notBefore = request.NotBefore ?? DateTimeOffset.UtcNow;
-            var notAfter = request.NotAfter ?? notBefore.AddDays(template.ValidityDays);
+            var notAfter = request.NotAfter ?? notBefore.AddDays(profile.ValidityDays);
 
             // Clamp notAfter to issuing CA's expiry — .NET won't issue past the issuer's NotAfter
             if (issuingCert != null && notAfter > issuingCert.NotAfter)
@@ -291,7 +291,7 @@ public class CertificateIssuanceService
                 var described = PqcAlgorithms.DescribeCertificate(cert);
 
                 // Store in database
-                bool isCaType = template.CertificateType is CertificateType.RootCa
+                bool isCaType = profile.CertificateType is CertificateType.RootCa
                     or CertificateType.IntermediateCa;
 
                 if (isCaType)
@@ -340,7 +340,7 @@ public class CertificateIssuanceService
                     var issuedEntity = new IssuedCertificate
                     {
                         IssuingCaCertificateId = request.IssuingCaCertificateId!.Value,
-                        TemplateId = request.TemplateId,
+                        ProfileId = request.ProfileId,
                         Name = certName,
                         Subject = cert.Subject,
                         SubjectAltNames = sanString,
@@ -411,12 +411,12 @@ public class CertificateIssuanceService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
 
-        var template = await db.CertificateTemplates.FindAsync(request.TemplateId);
-        if (template == null)
-            return CsrIssuanceResult.Failure("Template not found.");
+        var profile = await db.CertificateProfiles.FindAsync(request.ProfileId);
+        if (profile == null)
+            return CsrIssuanceResult.Failure("Profile not found.");
 
-        if (template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa)
-            return CsrIssuanceResult.Failure("CSR issuance is only supported for end-entity templates.");
+        if (profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa)
+            return CsrIssuanceResult.Failure("CSR issuance is only supported for end-entity profiles.");
 
         var trustDomain = await db.TrustDomains.FindAsync(request.TrustDomainId);
         if (trustDomain == null)
@@ -446,8 +446,8 @@ public class CertificateIssuanceService
         if (badSanValue != null)
             return CsrIssuanceResult.Failure(badSanValue);
 
-        // SAN types declared on the template are mandatory, not hints
-        var missingSanError = _validator.ValidateRequiredSanTypes(template, request.SubjectAltNames);
+        // SAN types declared on the profile are mandatory, not hints
+        var missingSanError = _validator.ValidateRequiredSanTypes(profile, request.SubjectAltNames);
         if (missingSanError != null)
             return CsrIssuanceResult.Failure(missingSanError);
 
@@ -489,7 +489,7 @@ public class CertificateIssuanceService
                     issuingCaEntity.EncryptedPfxBytes, issuingCaEntity.PfxPassword, X509KeyStorageFlags.Exportable);
             }
 
-            var hashAlg = template.HashAlgorithm?.ToUpperInvariant() switch
+            var hashAlg = profile.HashAlgorithm?.ToUpperInvariant() switch
             {
                 "SHA384" => HashAlgorithmName.SHA384,
                 "SHA512" => HashAlgorithmName.SHA512,
@@ -497,11 +497,11 @@ public class CertificateIssuanceService
             };
 
             // Reuse the existing extension builders via an equivalent issuance request. Subject DN
-            // comes from the CSR; SANs are the authoritative set supplied by the caller (template-driven).
+            // comes from the CSR; SANs are the authoritative set supplied by the caller (profile-driven).
             var extReq = new CertificateIssuanceRequest
             {
                 IssuingCaCertificateId = request.IssuingCaCertificateId,
-                TemplateId = request.TemplateId,
+                ProfileId = request.ProfileId,
                 TrustDomainId = request.TrustDomainId,
                 SubjectDn = csr.SubjectName.Name,
                 CertificateName = request.CertificateName,
@@ -513,7 +513,7 @@ public class CertificateIssuanceService
             };
 
             var notBefore = request.NotBefore ?? DateTimeOffset.UtcNow;
-            var notAfter = request.NotAfter ?? notBefore.AddDays(template.ValidityDays);
+            var notAfter = request.NotAfter ?? notBefore.AddDays(profile.ValidityDays);
             if (notAfter > issuingCert.NotAfter)
                 notAfter = new DateTimeOffset(issuingCert.NotAfter.ToUniversalTime(), TimeSpan.Zero);
 
@@ -537,7 +537,7 @@ public class CertificateIssuanceService
 
                 using (subjectPublicKey)
                 {
-                    var extensions = BuildExtensionsForRemote(template, extReq, subjectPublicKey, issuingCert);
+                    var extensions = BuildExtensionsForRemote(profile, extReq, subjectPublicKey, issuingCert);
                     cert = await RemoteCertificateBuilder.CreateSignedAsync(
                         _signingProvider, issuerKeyRef, issuingCert, subjectPublicKey,
                         csr.SubjectName.Name, notBefore, notAfter, extensions, hashAlg);
@@ -550,7 +550,7 @@ public class CertificateIssuanceService
                     csr.SubjectName, csr.PublicKey, hashAlg,
                     isRsaSubject ? RSASignaturePadding.Pkcs1 : null);
 
-                AddExtensions(certRequest, template, extReq, issuingCert);
+                AddExtensions(certRequest, profile, extReq, issuingCert);
 
                 var serialBytes = RandomNumberGenerator.GetBytes(16);
                 var (generator, ownedKey) = OpenSignatureGenerator(issuingCert);
@@ -583,7 +583,7 @@ public class CertificateIssuanceService
                 var issuedEntity = new IssuedCertificate
                 {
                     IssuingCaCertificateId = request.IssuingCaCertificateId,
-                    TemplateId = request.TemplateId,
+                    ProfileId = request.ProfileId,
                     Name = certName,
                     Subject = cert.Subject,
                     SubjectAltNames = sanString,
@@ -850,7 +850,7 @@ public class CertificateIssuanceService
     /// </summary>
     private async Task<CertificateIssuanceResult> IssueCertificateRemoteAsync(
         SigyllDbContext db,
-        CertificateTemplate template,
+        CertificateProfile profile,
         CertificateIssuanceRequest request,
         bool isSelfSigned,
         X509Certificate2? issuingCert,
@@ -861,7 +861,7 @@ public class CertificateIssuanceService
     {
         try
         {
-            var hashAlg = template.HashAlgorithm?.ToUpperInvariant() switch
+            var hashAlg = profile.HashAlgorithm?.ToUpperInvariant() switch
             {
                 "SHA384" => HashAlgorithmName.SHA384,
                 "SHA512" => HashAlgorithmName.SHA512,
@@ -870,17 +870,17 @@ public class CertificateIssuanceService
 
             // Generate new key in the remote provider
             var newKeyRef = await _signingProvider.GenerateKeyAsync(
-                template.KeyAlgorithm, template.KeySize, template.EcdsaCurve);
+                profile.KeyAlgorithm, profile.KeySize, profile.EcdsaCurve);
 
             // Get the public key to build extensions
             using var publicKey = await _signingProvider.GetPublicKeyAsync(newKeyRef);
 
             // Build extensions using the same logic as local path
-            var extensions = BuildExtensionsForRemote(template, request, publicKey, issuingCert);
+            var extensions = BuildExtensionsForRemote(profile, request, publicKey, issuingCert);
 
             // Determine validity
             var notBefore = request.NotBefore ?? DateTimeOffset.UtcNow;
-            var notAfter = request.NotAfter ?? notBefore.AddDays(template.ValidityDays);
+            var notAfter = request.NotAfter ?? notBefore.AddDays(profile.ValidityDays);
             if (issuingCert != null && notAfter > issuingCert.NotAfter)
                 notAfter = new DateTimeOffset(issuingCert.NotAfter.ToUniversalTime(), TimeSpan.Zero);
 
@@ -918,7 +918,7 @@ public class CertificateIssuanceService
                     : request.CertificateName;
 
                 int keySize = GetKeySize(cert);
-                bool isCaType = template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa;
+                bool isCaType = profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa;
 
                 if (isCaType)
                 {
@@ -933,7 +933,7 @@ public class CertificateIssuanceService
                         PfxPassword = null,
                         Thumbprint = cert.Thumbprint,
                         SerialNumber = cert.SerialNumber,
-                        KeyAlgorithm = template.KeyAlgorithm,
+                        KeyAlgorithm = profile.KeyAlgorithm,
                         KeySize = keySize,
                         NotBefore = cert.NotBefore.ToUniversalTime(),
                         NotAfter = cert.NotAfter.ToUniversalTime(),
@@ -968,7 +968,7 @@ public class CertificateIssuanceService
                     var issuedEntity = new IssuedCertificate
                     {
                         IssuingCaCertificateId = request.IssuingCaCertificateId!.Value,
-                        TemplateId = request.TemplateId,
+                        ProfileId = request.ProfileId,
                         Name = certName,
                         Subject = cert.Subject,
                         SubjectAltNames = sanString,
@@ -977,7 +977,7 @@ public class CertificateIssuanceService
                         PfxPassword = null,
                         Thumbprint = cert.Thumbprint,
                         SerialNumber = cert.SerialNumber,
-                        KeyAlgorithm = template.KeyAlgorithm,
+                        KeyAlgorithm = profile.KeyAlgorithm,
                         KeySize = keySize,
                         NotBefore = cert.NotBefore.ToUniversalTime(),
                         NotAfter = cert.NotAfter.ToUniversalTime(),
@@ -1025,7 +1025,7 @@ public class CertificateIssuanceService
     /// </summary>
     private async Task<CertificateIssuanceResult> IssueCertificateHybridAsync(
         SigyllDbContext db,
-        CertificateTemplate template,
+        CertificateProfile profile,
         CertificateIssuanceRequest request,
         X509Certificate2 issuingCert,
         CaCertificate issuingCaEntity,
@@ -1035,7 +1035,7 @@ public class CertificateIssuanceService
     {
         try
         {
-            var hashAlg = template.HashAlgorithm?.ToUpperInvariant() switch
+            var hashAlg = profile.HashAlgorithm?.ToUpperInvariant() switch
             {
                 "SHA384" => HashAlgorithmName.SHA384,
                 "SHA512" => HashAlgorithmName.SHA512,
@@ -1043,15 +1043,15 @@ public class CertificateIssuanceService
             };
 
             // Generate key pair LOCALLY
-            using var keyHolder = GenerateKeyPair(template);
+            using var keyHolder = GenerateKeyPair(profile);
             AsymmetricAlgorithm localKey = (AsymmetricAlgorithm?)keyHolder.Ecdsa ?? keyHolder.Rsa!;
 
             // Build extensions using local public key
-            var extensions = BuildExtensionsForRemote(template, request, localKey, issuingCert);
+            var extensions = BuildExtensionsForRemote(profile, request, localKey, issuingCert);
 
             // Determine validity
             var notBefore = request.NotBefore ?? DateTimeOffset.UtcNow;
-            var notAfter = request.NotAfter ?? notBefore.AddDays(template.ValidityDays);
+            var notAfter = request.NotAfter ?? notBefore.AddDays(profile.ValidityDays);
             if (notAfter > issuingCert.NotAfter)
                 notAfter = new DateTimeOffset(issuingCert.NotAfter.ToUniversalTime(), TimeSpan.Zero);
 
@@ -1084,7 +1084,7 @@ public class CertificateIssuanceService
                     : request.CertificateName;
 
                 int keySize = GetKeySize(certWithKey);
-                bool isCaType = template.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa;
+                bool isCaType = profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa;
 
                 if (isCaType)
                 {
@@ -1099,7 +1099,7 @@ public class CertificateIssuanceService
                         PfxPassword = request.PfxPassword,
                         Thumbprint = certWithKey.Thumbprint,
                         SerialNumber = certWithKey.SerialNumber,
-                        KeyAlgorithm = template.KeyAlgorithm,
+                        KeyAlgorithm = profile.KeyAlgorithm,
                         KeySize = keySize,
                         NotBefore = certWithKey.NotBefore.ToUniversalTime(),
                         NotAfter = certWithKey.NotAfter.ToUniversalTime(),
@@ -1133,7 +1133,7 @@ public class CertificateIssuanceService
                     var issuedEntity = new IssuedCertificate
                     {
                         IssuingCaCertificateId = request.IssuingCaCertificateId!.Value,
-                        TemplateId = request.TemplateId,
+                        ProfileId = request.ProfileId,
                         Name = certName,
                         Subject = certWithKey.Subject,
                         SubjectAltNames = sanString,
@@ -1142,7 +1142,7 @@ public class CertificateIssuanceService
                         PfxPassword = request.PfxPassword,
                         Thumbprint = certWithKey.Thumbprint,
                         SerialNumber = certWithKey.SerialNumber,
-                        KeyAlgorithm = template.KeyAlgorithm,
+                        KeyAlgorithm = profile.KeyAlgorithm,
                         KeySize = keySize,
                         NotBefore = certWithKey.NotBefore.ToUniversalTime(),
                         NotAfter = certWithKey.NotAfter.ToUniversalTime(),
@@ -1187,7 +1187,7 @@ public class CertificateIssuanceService
     /// These are later converted to BouncyCastle format by RemoteCertificateBuilder.
     /// </summary>
     private static X509Extension[] BuildExtensionsForRemote(
-        CertificateTemplate template,
+        CertificateProfile profile,
         CertificateIssuanceRequest request,
         AsymmetricAlgorithm subjectPublicKey,
         X509Certificate2? issuingCert)
@@ -1195,16 +1195,16 @@ public class CertificateIssuanceService
         var extensions = new List<X509Extension>();
 
         // BasicConstraints
-        bool hasPathLength = template.IsBasicConstraintsCa && template.PathLengthConstraint.HasValue;
+        bool hasPathLength = profile.IsBasicConstraintsCa && profile.PathLengthConstraint.HasValue;
         extensions.Add(new X509BasicConstraintsExtension(
-            template.IsBasicConstraintsCa,
+            profile.IsBasicConstraintsCa,
             hasPathLength,
-            hasPathLength ? template.PathLengthConstraint!.Value : 0,
-            template.IsBasicConstraintsCritical));
+            hasPathLength ? profile.PathLengthConstraint!.Value : 0,
+            profile.IsBasicConstraintsCritical));
 
         // Key Usage
-        var keyUsage = (X509KeyUsageFlags)template.KeyUsageFlags;
-        extensions.Add(new X509KeyUsageExtension(keyUsage, template.IsKeyUsageCritical));
+        var keyUsage = (X509KeyUsageFlags)profile.KeyUsageFlags;
+        extensions.Add(new X509KeyUsageExtension(keyUsage, profile.IsKeyUsageCritical));
 
         // Subject Key Identifier — need a temporary CertificateRequest to get the PublicKey
         var tempRequest = subjectPublicKey is ECDsa ecdsa
@@ -1219,22 +1219,22 @@ public class CertificateIssuanceService
         }
 
         // Extended Key Usage
-        if (!string.IsNullOrWhiteSpace(template.ExtendedKeyUsageOids))
+        if (!string.IsNullOrWhiteSpace(profile.ExtendedKeyUsageOids))
         {
             var oids = new OidCollection();
-            foreach (var oid in template.ExtendedKeyUsageOids.Split(';',
+            foreach (var oid in profile.ExtendedKeyUsageOids.Split(';',
                          StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 oids.Add(new Oid(oid));
             if (oids.Count > 0)
-                extensions.Add(new X509EnhancedKeyUsageExtension(oids, template.IsExtendedKeyUsageCritical));
+                extensions.Add(new X509EnhancedKeyUsageExtension(oids, profile.IsExtendedKeyUsageCritical));
         }
 
         // CDP
-        if (template.IncludeCdp && request.CdpUrls.Count > 0)
+        if (profile.IncludeCdp && request.CdpUrls.Count > 0)
             extensions.Add(CertificateExtensionHelpers.MakeCdp(request.CdpUrls));
 
         // AIA
-        if (template.IncludeAia && request.AiaUrls.Count > 0)
+        if (profile.IncludeAia && request.AiaUrls.Count > 0)
             extensions.Add(CertificateExtensionHelpers.BuildAiaExtension(
                 request.AiaUrls.Select(u => new Uri(u)).ToList()));
 
@@ -1290,15 +1290,15 @@ public class CertificateIssuanceService
         }
     }
 
-    private static KeyHolder GenerateKeyPair(CertificateTemplate template)
+    private static KeyHolder GenerateKeyPair(CertificateProfile profile)
     {
-        var pqcId = PqcAlgorithms.Canonicalize(template.KeyAlgorithm, template.KeySize);
+        var pqcId = PqcAlgorithms.Canonicalize(profile.KeyAlgorithm, profile.KeySize);
         if (pqcId != null)
             return new KeyHolder(pqc: PqcKeyPair.Generate(pqcId));
 
-        if (template.KeyAlgorithm.Equals("ECDSA", StringComparison.OrdinalIgnoreCase))
+        if (profile.KeyAlgorithm.Equals("ECDSA", StringComparison.OrdinalIgnoreCase))
         {
-            var curve = template.EcdsaCurve?.ToLowerInvariant() switch
+            var curve = profile.EcdsaCurve?.ToLowerInvariant() switch
             {
                 "nistp256" => ECCurve.NamedCurves.nistP256,
                 "nistp384" => ECCurve.NamedCurves.nistP384,
@@ -1309,18 +1309,18 @@ public class CertificateIssuanceService
             return new KeyHolder(ecdsa: ECDsa.Create(curve));
         }
 
-        return new KeyHolder(rsa: RSA.Create(template.KeySize));
+        return new KeyHolder(rsa: RSA.Create(profile.KeySize));
     }
 
     private static CertificateRequest CreateCertificateRequest(
-        CertificateTemplate template,
+        CertificateProfile profile,
         string subjectDn,
         KeyHolder keyHolder)
     {
         if (keyHolder.Pqc != null)
             return keyHolder.Pqc.CreateCertificateRequest(subjectDn);
 
-        var hashAlg = template.HashAlgorithm?.ToUpperInvariant() switch
+        var hashAlg = profile.HashAlgorithm?.ToUpperInvariant() switch
         {
             "SHA384" => HashAlgorithmName.SHA384,
             "SHA512" => HashAlgorithmName.SHA512,
@@ -1341,23 +1341,23 @@ public class CertificateIssuanceService
 
     private static void AddExtensions(
         CertificateRequest certRequest,
-        CertificateTemplate template,
+        CertificateProfile profile,
         CertificateIssuanceRequest request,
         X509Certificate2? issuingCert)
     {
         // Basic Constraints
-        bool hasPathLength = template.IsBasicConstraintsCa && template.PathLengthConstraint.HasValue;
+        bool hasPathLength = profile.IsBasicConstraintsCa && profile.PathLengthConstraint.HasValue;
         certRequest.CertificateExtensions.Add(
             new X509BasicConstraintsExtension(
-                template.IsBasicConstraintsCa,
+                profile.IsBasicConstraintsCa,
                 hasPathLength,
-                hasPathLength ? template.PathLengthConstraint!.Value : 0,
-                template.IsBasicConstraintsCritical));
+                hasPathLength ? profile.PathLengthConstraint!.Value : 0,
+                profile.IsBasicConstraintsCritical));
 
         // Key Usage
-        var keyUsage = (X509KeyUsageFlags)template.KeyUsageFlags;
+        var keyUsage = (X509KeyUsageFlags)profile.KeyUsageFlags;
         certRequest.CertificateExtensions.Add(
-            new X509KeyUsageExtension(keyUsage, template.IsKeyUsageCritical));
+            new X509KeyUsageExtension(keyUsage, profile.IsKeyUsageCritical));
 
         // Subject Key Identifier
         certRequest.CertificateExtensions.Add(
@@ -1370,10 +1370,10 @@ public class CertificateIssuanceService
         }
 
         // Extended Key Usage
-        if (!string.IsNullOrWhiteSpace(template.ExtendedKeyUsageOids))
+        if (!string.IsNullOrWhiteSpace(profile.ExtendedKeyUsageOids))
         {
             var oids = new OidCollection();
-            foreach (var oid in template.ExtendedKeyUsageOids.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (var oid in profile.ExtendedKeyUsageOids.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 oids.Add(new Oid(oid));
             }
@@ -1381,19 +1381,19 @@ public class CertificateIssuanceService
             if (oids.Count > 0)
             {
                 certRequest.CertificateExtensions.Add(
-                    new X509EnhancedKeyUsageExtension(oids, template.IsExtendedKeyUsageCritical));
+                    new X509EnhancedKeyUsageExtension(oids, profile.IsExtendedKeyUsageCritical));
             }
         }
 
         // CRL Distribution Points
-        if (template.IncludeCdp && request.CdpUrls.Count > 0)
+        if (profile.IncludeCdp && request.CdpUrls.Count > 0)
         {
             certRequest.CertificateExtensions.Add(
                 CertificateExtensionHelpers.MakeCdp(request.CdpUrls));
         }
 
         // Authority Information Access
-        if (template.IncludeAia && request.AiaUrls.Count > 0)
+        if (profile.IncludeAia && request.AiaUrls.Count > 0)
         {
             certRequest.CertificateExtensions.Add(
                 CertificateExtensionHelpers.BuildAiaExtension(

@@ -23,5 +23,5 @@ public class SanList
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public ICollection<CertificateTemplate> Templates { get; set; } = new List<CertificateTemplate>();
+    public ICollection<CertificateProfile> Profiles { get; set; } = new List<CertificateProfile>();
 }

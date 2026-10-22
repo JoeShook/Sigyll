@@ -18,7 +18,7 @@ namespace Sigyll.Portal.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("portal")
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -212,6 +212,10 @@ namespace Sigyll.Portal.Migrations
                     b.Property<string>("PolicyReason")
                         .HasColumnType("text");
 
+                    b.Property<string>("ProfileName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("RaApprovalRef")
                         .HasColumnType("text");
 
@@ -243,10 +247,6 @@ namespace Sigyll.Portal.Migrations
 
                     b.Property<DateTime?>("SubmittedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TemplateName")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<string>("Thumbprint")
                         .HasColumnType("text");

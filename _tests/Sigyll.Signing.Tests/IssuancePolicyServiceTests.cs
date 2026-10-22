@@ -26,7 +26,7 @@ public class IssuancePolicyServiceTests
     [Fact]
     public void ServerCert_WithDnsSans_AutoIssues()
     {
-        var template = new CatalogTemplate
+        var profile = new CatalogProfile
         {
             Name = "SSL Server",
             CertificateType = "EndEntityServer",
@@ -34,16 +34,16 @@ public class IssuancePolicyServiceTests
             RequiresRaApproval = false,
         };
 
-        var decision = _policy.Evaluate(template, Dns("api.example.com"), requesterAuthorizedForTrustDomain: false);
+        var decision = _policy.Evaluate(profile, Dns("api.example.com"), requesterAuthorizedForTrustDomain: false);
 
         decision.Kind.ShouldBe(PolicyDecisionKind.AutoIssue);
         decision.ValidationMethod.ShouldBe("http-01");
     }
 
     [Fact]
-    public void TemplateFlaggedForRa_AlwaysRequiresApproval()
+    public void ProfileFlaggedForRa_AlwaysRequiresApproval()
     {
-        var template = new CatalogTemplate
+        var profile = new CatalogProfile
         {
             Name = "UDAP Client",
             CertificateType = "EndEntityClient",
@@ -51,7 +51,7 @@ public class IssuancePolicyServiceTests
             RequiresRaApproval = true,
         };
 
-        var decision = _policy.Evaluate(template, Dns("client.example.com"), requesterAuthorizedForTrustDomain: true);
+        var decision = _policy.Evaluate(profile, Dns("client.example.com"), requesterAuthorizedForTrustDomain: true);
 
         decision.Kind.ShouldBe(PolicyDecisionKind.RequiresRaApproval);
     }
@@ -59,7 +59,7 @@ public class IssuancePolicyServiceTests
     [Fact]
     public void ServerCert_WithNonDnsSan_FallsBackToRaApproval()
     {
-        var template = new CatalogTemplate
+        var profile = new CatalogProfile
         {
             Name = "SSL Server",
             CertificateType = "EndEntityServer",
@@ -67,23 +67,23 @@ public class IssuancePolicyServiceTests
         };
         var sans = new List<ApiSanEntry> { new() { Type = "Uri", Value = "https://example.com/fhir" } };
 
-        var decision = _policy.Evaluate(template, sans, requesterAuthorizedForTrustDomain: false);
+        var decision = _policy.Evaluate(profile, sans, requesterAuthorizedForTrustDomain: false);
 
         decision.Kind.ShouldBe(PolicyDecisionKind.RequiresRaApproval);
     }
 
     [Fact]
-    public void UnknownTemplate_IsDenied()
+    public void UnknownProfile_IsDenied()
     {
-        var decision = _policy.Evaluate(template: null, Dns("x.example.com"), requesterAuthorizedForTrustDomain: true);
+        var decision = _policy.Evaluate(profile: null, Dns("x.example.com"), requesterAuthorizedForTrustDomain: true);
 
         decision.Kind.ShouldBe(PolicyDecisionKind.Denied);
     }
 
     [Fact]
-    public void NonAutoIssueTemplate_DefaultsToRaApproval()
+    public void NonAutoIssueProfile_DefaultsToRaApproval()
     {
-        var template = new CatalogTemplate
+        var profile = new CatalogProfile
         {
             Name = "Custom",
             CertificateType = "EndEntityClient",
@@ -91,7 +91,7 @@ public class IssuancePolicyServiceTests
             RequiresRaApproval = false,
         };
 
-        var decision = _policy.Evaluate(template, Dns("c.example.com"), requesterAuthorizedForTrustDomain: false);
+        var decision = _policy.Evaluate(profile, Dns("c.example.com"), requesterAuthorizedForTrustDomain: false);
 
         decision.Kind.ShouldBe(PolicyDecisionKind.RequiresRaApproval);
     }

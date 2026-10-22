@@ -36,7 +36,7 @@ public class DashboardServiceTests
         data.TrustDomainCount.ShouldBe(0);
         data.CaCertCount.ShouldBe(0);
         data.IssuedCertCount.ShouldBe(0);
-        data.TemplateCount.ShouldBe(0);
+        data.ProfileCount.ShouldBe(0);
         data.RevokedCertCount.ShouldBe(0);
         data.TrustDomainSummaries.ShouldBeEmpty();
         data.ExpiringCerts.ShouldBeEmpty();

@@ -147,8 +147,8 @@
             <FluentNavLink Href="/" Match="NavLinkMatch.All" Icon="@(new Icons.Regular.Size20.Home())">Dashboard</FluentNavLink>
             <FluentNavLink Href="/trust-domains" Icon="@(new Icons.Regular.Size20.Organization())" Tooltip="X509 Trust Domains">Trust Domains</FluentNavLink>
             <FluentNavLink Href="/explorer" Icon="@(new Icons.Regular.Size20.Certificate())">Certificate Explorer</FluentNavLink>
-            <FluentNavGroup Title="Templates" Icon="@(new Icons.Regular.Size20.DocumentBulletList())">
-                <FluentNavLink Href="/templates" Icon="@(new Icons.Regular.Size20.DocumentBulletList())">X509 Templates</FluentNavLink>
+            <FluentNavGroup Title="Certificate Profiles" Tooltip="X.509 certificate profiles (RFC 3647 section 7.1) and SAN lists" Icon="@(new Icons.Regular.Size20.DocumentBulletList())">
+                <FluentNavLink Href="/certificate-profiles" Icon="@(new Icons.Regular.Size20.DocumentBulletList())" Tooltip="What each issued certificate contains: key, validity, key usage, EKU, SANs, CDP/AIA">Certificate Profiles</FluentNavLink>
                 <FluentNavLink Href="/san-lists" Icon="@(new Icons.Regular.Size20.TextBulletListTree())">SAN Lists</FluentNavLink>
             </FluentNavGroup>
             <FluentNavGroup Title="DID &amp; VC" Tooltip="Decentralized Identity &amp; Verifiable Credentials" Icon="@(new Icons.Regular.Size20.Key())">

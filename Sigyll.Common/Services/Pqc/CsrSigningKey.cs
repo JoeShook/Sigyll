@@ -35,7 +35,7 @@ public sealed class CsrSigningKey : IDisposable
         {
             if (PqcAlgorithms.IsKem(canonical))
                 throw new InvalidOperationException(
-                    "ML-KEM cannot sign a CSR. Issue an ML-KEM certificate from a template instead, or choose ML-DSA, SLH-DSA, or composite ML-DSA.");
+                    "ML-KEM cannot sign a CSR. Issue an ML-KEM certificate from a profile instead, or choose ML-DSA, SLH-DSA, or composite ML-DSA.");
             return new CsrSigningKey(null, PqcKeyPair.Generate(canonical));
         }
 

@@ -24,7 +24,7 @@ public class CertificateRequest
     public int? OrganizationId { get; set; }
 
     public string TrustDomainName { get; set; } = string.Empty;
-    public string TemplateName { get; set; } = string.Empty;
+    public string ProfileName { get; set; } = string.Empty;
 
     /// <summary>Subject DN parsed from the CSR (for display/audit).</summary>
     public string SubjectDn { get; set; } = string.Empty;
@@ -95,6 +95,6 @@ public enum PolicyDecisionKind
     /// <summary>Must be reviewed and approved by a human Registration Authority.</summary>
     RequiresRaApproval = 1,
 
-    /// <summary>Not permitted (e.g. requester not authorized for the trust domain/template).</summary>
+    /// <summary>Not permitted (e.g. requester not authorized for the trust domain/profile).</summary>
     Denied = 2,
 }

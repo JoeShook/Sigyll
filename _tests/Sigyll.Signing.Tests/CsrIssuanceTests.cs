@@ -29,14 +29,14 @@ public class CsrIssuanceTests
     [Fact]
     public async Task IssueFromCsr_UsesCsrPublicKey_AndStoresNoPrivateKey()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var (caId, profileId, trustDomainId) = await SeedAsync();
         using var subjectKey = RSA.Create(2048);
         var csrPem = BuildCsrPem(subjectKey, "CN=api.example.com");
 
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = csrPem,
             SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
@@ -59,16 +59,16 @@ public class CsrIssuanceTests
     }
 
     [Fact]
-    public async Task IssueFromCsr_AppliesTemplateEku()
+    public async Task IssueFromCsr_AppliesProfileEku()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var (caId, profileId, trustDomainId) = await SeedAsync();
         using var subjectKey = RSA.Create(2048);
         var csrPem = BuildCsrPem(subjectKey, "CN=eku.example.com");
 
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = csrPem,
             SubjectAltNames = [new SanEntry(SanType.Dns, "eku.example.com")],
@@ -83,22 +83,22 @@ public class CsrIssuanceTests
     }
 
     [Fact]
-    public async Task IssueFromCsr_RejectsCaTemplate()
+    public async Task IssueFromCsr_RejectsCaProfile()
     {
         var (caId, _, trustDomainId) = await SeedAsync();
         await using var db = _dbFactory.CreateDbContext();
-        var caTemplate = new CertificateTemplate
+        var caProfile = new CertificateProfile
         {
             Name = "Root CA", CertificateType = CertificateType.RootCa, KeyAlgorithm = "RSA", KeySize = 4096,
         };
-        db.CertificateTemplates.Add(caTemplate);
+        db.CertificateProfiles.Add(caProfile);
         await db.SaveChangesAsync();
 
         using var subjectKey = RSA.Create(2048);
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = caTemplate.Id,
+            ProfileId = caProfile.Id,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(subjectKey, "CN=nope"),
         });
@@ -108,16 +108,16 @@ public class CsrIssuanceTests
     }
 
     [Fact]
-    public async Task IssueFromCsr_TemplateRequiresDnsSan_MissingSan_Fails()
+    public async Task IssueFromCsr_ProfileRequiresDnsSan_MissingSan_Fails()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
-        await SetTemplateSanTypesAsync(templateId, "DNS");
+        var (caId, profileId, trustDomainId) = await SeedAsync();
+        await SetProfileSanTypesAsync(profileId, "DNS");
 
         using var subjectKey = RSA.Create(2048);
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
             SubjectAltNames = [],
@@ -129,16 +129,16 @@ public class CsrIssuanceTests
     }
 
     [Fact]
-    public async Task IssueFromCsr_TemplateRequiresDnsSan_SanProvided_Succeeds()
+    public async Task IssueFromCsr_ProfileRequiresDnsSan_SanProvided_Succeeds()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
-        await SetTemplateSanTypesAsync(templateId, "DNS");
+        var (caId, profileId, trustDomainId) = await SeedAsync();
+        await SetProfileSanTypesAsync(profileId, "DNS");
 
         using var subjectKey = RSA.Create(2048);
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
             SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
@@ -148,15 +148,15 @@ public class CsrIssuanceTests
     }
 
     [Fact]
-    public async Task Issue_TemplateRequiresDnsSan_MissingSan_Fails()
+    public async Task Issue_ProfileRequiresDnsSan_MissingSan_Fails()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
-        await SetTemplateSanTypesAsync(templateId, "DNS");
+        var (caId, profileId, trustDomainId) = await SeedAsync();
+        await SetProfileSanTypesAsync(profileId, "DNS");
 
         var result = await CreateService().IssueCertificateAsync(new CertificateIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             SubjectDn = "CN=api.example.com",
             CertificateName = "api",
@@ -172,13 +172,13 @@ public class CsrIssuanceTests
     [Fact]
     public async Task IssueFromCsr_DnsSanWithPort_Fails()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var (caId, profileId, trustDomainId) = await SeedAsync();
 
         using var subjectKey = RSA.Create(2048);
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
             SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com:8443")],
@@ -191,13 +191,13 @@ public class CsrIssuanceTests
     [Fact]
     public async Task IssueFromCsr_FirstIssuance_IsVersion1WithNoLineage()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var (caId, profileId, trustDomainId) = await SeedAsync();
 
         using var subjectKey = RSA.Create(2048);
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
             SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
@@ -214,14 +214,14 @@ public class CsrIssuanceTests
     [Fact]
     public async Task IssueFromCsr_Renewal_IncrementsVersionAndLinksPredecessor()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var (caId, profileId, trustDomainId) = await SeedAsync();
         var service = CreateService();
 
         using var firstKey = RSA.Create(2048);
         var first = await service.IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(firstKey, "CN=api.example.com"),
             SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
@@ -232,7 +232,7 @@ public class CsrIssuanceTests
         var second = await service.IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(secondKey, "CN=api.example.com"),
             SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
@@ -249,13 +249,13 @@ public class CsrIssuanceTests
     [Fact]
     public async Task IssueFromCsr_RenewalOfNonexistentCert_Fails()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var (caId, profileId, trustDomainId) = await SeedAsync();
 
         using var subjectKey = RSA.Create(2048);
         var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
             SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
@@ -269,13 +269,13 @@ public class CsrIssuanceTests
     [Fact]
     public async Task Issue_Renewal_IncrementsVersionAndLinksPredecessor()
     {
-        var (caId, templateId, trustDomainId) = await SeedAsync();
+        var (caId, profileId, trustDomainId) = await SeedAsync();
         var service = CreateService();
 
         var first = await service.IssueCertificateAsync(new CertificateIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             SubjectDn = "CN=api.example.com",
             CertificateName = "api",
@@ -287,7 +287,7 @@ public class CsrIssuanceTests
         var second = await service.IssueCertificateAsync(new CertificateIssuanceRequest
         {
             IssuingCaCertificateId = caId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = trustDomainId,
             SubjectDn = "CN=api.example.com",
             CertificateName = "api (2)",
@@ -307,11 +307,11 @@ public class CsrIssuanceTests
         firstEntity.RenewalOfId.ShouldBeNull();
     }
 
-    private async Task SetTemplateSanTypesAsync(int templateId, string sanTypes)
+    private async Task SetProfileSanTypesAsync(int profileId, string sanTypes)
     {
         await using var db = _dbFactory.CreateDbContext();
-        var template = await db.CertificateTemplates.FindAsync(templateId);
-        template!.SubjectAltNameTypes = sanTypes;
+        var profile = await db.CertificateProfiles.FindAsync(profileId);
+        profile!.SubjectAltNameTypes = sanTypes;
         await db.SaveChangesAsync();
     }
 
@@ -321,14 +321,14 @@ public class CsrIssuanceTests
         return req.CreateSigningRequestPem();
     }
 
-    private async Task<(int caId, int templateId, int trustDomainId)> SeedAsync()
+    private async Task<(int caId, int profileId, int trustDomainId)> SeedAsync()
     {
         await using var db = _dbFactory.CreateDbContext();
 
         var trustDomain = new TrustDomain { Name = "Test TD", Enabled = true };
         db.TrustDomains.Add(trustDomain);
 
-        var template = new CertificateTemplate
+        var profile = new CertificateProfile
         {
             Name = "SSL Server",
             CertificateType = CertificateType.EndEntityServer,
@@ -341,7 +341,7 @@ public class CsrIssuanceTests
             HashAlgorithm = "SHA256",
             AllowAutoIssue = true,
         };
-        db.CertificateTemplates.Add(template);
+        db.CertificateProfiles.Add(profile);
 
         // Self-signed issuing CA with a local private key (PFX).
         using var caKey = RSA.Create(2048);
@@ -369,6 +369,6 @@ public class CsrIssuanceTests
         db.CaCertificates.Add(ca);
 
         await db.SaveChangesAsync();
-        return (ca.Id, template.Id, trustDomain.Id);
+        return (ca.Id, profile.Id, trustDomain.Id);
     }
 }

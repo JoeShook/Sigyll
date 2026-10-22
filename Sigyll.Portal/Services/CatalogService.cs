@@ -41,10 +41,10 @@ public class CatalogService(CaApiClient ca, IMemoryCache cache, ILogger<CatalogS
         }
     }
 
-    public async Task<CatalogTemplate?> FindTemplateAsync(string name, CancellationToken ct = default)
+    public async Task<CatalogProfile?> FindProfileAsync(string name, CancellationToken ct = default)
     {
         var catalog = await GetCatalogAsync(ct);
-        return catalog.Templates.FirstOrDefault(t =>
+        return catalog.Profiles.FirstOrDefault(t =>
             string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 

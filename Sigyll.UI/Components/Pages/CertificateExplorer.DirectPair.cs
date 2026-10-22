@@ -28,10 +28,10 @@ public partial class CertificateExplorer
     private DirectBinding directPairBinding = DirectBinding.Address;
     private string directPairIdentifier = string.Empty;
     private string directPairPassword = string.Empty;
-    private List<CertificateTemplate> directSigningTemplates = [];
-    private List<CertificateTemplate> directEncryptionTemplates = [];
-    private CertificateTemplate? directSigningTemplate;
-    private CertificateTemplate? directEncryptionTemplate;
+    private List<CertificateProfile> directSigningProfiles = [];
+    private List<CertificateProfile> directEncryptionProfiles = [];
+    private CertificateProfile? directSigningProfile;
+    private CertificateProfile? directEncryptionProfile;
     private bool isIssuingDirectPair;
     private bool isRunningRoundTrip;
     private DirectPairResult? directPairResult;
@@ -54,11 +54,11 @@ public partial class CertificateExplorer
         directPairPassword = PasswordCache.Get(PasswordCacheKey(caId)) ?? string.Empty;
 
         await using var db = await DbFactory.CreateDbContextAsync();
-        var templates = await db.CertificateTemplates.OrderBy(t => t.Name).ToListAsync();
-        directSigningTemplates = templates.Where(DirectPqcPairService.IsSigningTemplate).ToList();
-        directEncryptionTemplates = templates.Where(DirectPqcPairService.IsEncryptionTemplate).ToList();
-        directSigningTemplate = directSigningTemplates.FirstOrDefault(t => t.Name.StartsWith("Direct")) ?? directSigningTemplates.FirstOrDefault();
-        directEncryptionTemplate = directEncryptionTemplates.FirstOrDefault(t => t.Name.StartsWith("Direct")) ?? directEncryptionTemplates.FirstOrDefault();
+        var profiles = await db.CertificateProfiles.OrderBy(t => t.Name).ToListAsync();
+        directSigningProfiles = profiles.Where(DirectPqcPairService.IsSigningProfile).ToList();
+        directEncryptionProfiles = profiles.Where(DirectPqcPairService.IsEncryptionProfile).ToList();
+        directSigningProfile = directSigningProfiles.FirstOrDefault(t => t.Name.StartsWith("Direct")) ?? directSigningProfiles.FirstOrDefault();
+        directEncryptionProfile = directEncryptionProfiles.FirstOrDefault(t => t.Name.StartsWith("Direct")) ?? directEncryptionProfiles.FirstOrDefault();
 
         directPairDialogHidden = false;
     }
@@ -66,7 +66,7 @@ public partial class CertificateExplorer
     private bool CanIssueDirectPair =>
         !isIssuingDirectPair && directPairResult?.Success != true
         && !string.IsNullOrWhiteSpace(directPairIdentifier) && !string.IsNullOrWhiteSpace(directPairPassword)
-        && directSigningTemplate != null && directEncryptionTemplate != null;
+        && directSigningProfile != null && directEncryptionProfile != null;
 
     private async Task IssueDirectPairAsync()
     {
@@ -83,12 +83,12 @@ public partial class CertificateExplorer
                 IssuingCaCertificateId = directPairCaId,
                 Binding = directPairBinding,
                 Identifier = directPairIdentifier,
-                SigningTemplateId = directSigningTemplate!.Id,
-                EncryptionTemplateId = directEncryptionTemplate!.Id,
+                SigningProfileId = directSigningProfile!.Id,
+                EncryptionProfileId = directEncryptionProfile!.Id,
                 PfxPassword = directPairPassword,
-                CdpUrls = validator.ExpandCdpTemplates(directSigningTemplate, baseUrls, directPairCaName)
+                CdpUrls = validator.ExpandCdpTemplates(directSigningProfile, baseUrls, directPairCaName)
                     .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList(),
-                AiaUrls = validator.ExpandAiaTemplates(directSigningTemplate, baseUrls, directPairCaName)
+                AiaUrls = validator.ExpandAiaTemplates(directSigningProfile, baseUrls, directPairCaName)
                     .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList(),
             });
 

@@ -28,7 +28,7 @@ public static class PqcAlgorithms
     public const string PlatformRequirement =
         "This host cannot use that algorithm. .NET 10 post-quantum cryptography requires OpenSSL 3.5 or newer, or Windows CNG with PQC support.";
 
-    public static readonly string[] TemplateFamilies =
+    public static readonly string[] ProfileFamilies =
         ["RSA", "ECDSA", "ML-DSA", "SLH-DSA", "ML-KEM", "Composite ML-DSA"];
 
     private static readonly PqcAlgorithmInfo[] All =
@@ -95,7 +95,7 @@ public static class PqcAlgorithms
         return id != null && TryGet(id, out var info) && info.Family == "ML-KEM";
     }
 
-    public static bool IsTemplateFamily(string? family) =>
+    public static bool IsProfileFamily(string? family) =>
         family is "ML-DSA" or "SLH-DSA" or "ML-KEM" or "Composite ML-DSA";
 
     public static IReadOnlyList<PqcAlgorithmInfo> ForFamily(string family) =>
@@ -166,7 +166,7 @@ public static class PqcAlgorithms
 
     public static string ParameterHelp(string family) => family switch
     {
-        "ML-DSA" => "Pure ML-DSA (FIPS 204). The hash is inside the signature; the template hash is not used. ML-DSA-87 is the CA default.",
+        "ML-DSA" => "Pure ML-DSA (FIPS 204). The hash is inside the signature; the profile hash is not used. ML-DSA-87 is the CA default.",
         "SLH-DSA" => "Pure SLH-DSA (FIPS 205). \"s\" is the small signature, \"f\" is the fast one. Signatures are large.",
         "ML-KEM" => "ML-KEM (FIPS 203) encapsulates a shared secret. It cannot sign, so it cannot be a CA. Key usage should be Key Agreement.",
         "Composite ML-DSA" => "Hybrid signature: ML-DSA and a classical algorithm, both must verify (draft-ietf-lamps-pq-composite-sigs).",

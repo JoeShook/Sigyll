@@ -16,7 +16,7 @@ namespace Sigyll.Portal.Services;
 /// <summary>
 /// Decides how a certificate request is fulfilled: automated issuance after domain validation
 /// (Let's-Encrypt-style, for TLS server certs) versus routing to a human Registration Authority.
-/// Pure and deterministic so it is unit-testable. The CA's template flags (carried in the catalog)
+/// Pure and deterministic so it is unit-testable. The CA's profile flags (carried in the catalog)
 /// are the source of truth for policy.
 /// </summary>
 public class IssuancePolicyService
@@ -27,25 +27,25 @@ public class IssuancePolicyService
     /// lack of authorization keeps non-auto-issue requests on the human RA path.
     /// </summary>
     public PolicyDecision Evaluate(
-        CatalogTemplate? template,
+        CatalogProfile? profile,
         IReadOnlyList<ApiSanEntry> sans,
         bool requesterAuthorizedForTrustDomain)
     {
-        if (template is null)
-            return new PolicyDecision(PolicyDecisionKind.Denied, "Unknown or unavailable template.");
+        if (profile is null)
+            return new PolicyDecision(PolicyDecisionKind.Denied, "Unknown or unavailable profile.");
 
-        // Templates explicitly flagged for RA always require human review (e.g. UDAP client certs).
-        if (template.RequiresRaApproval)
+        // Profiles explicitly flagged for RA always require human review (e.g. UDAP client certs).
+        if (profile.RequiresRaApproval)
             return new PolicyDecision(PolicyDecisionKind.RequiresRaApproval,
-                $"Template '{template.Name}' requires Registration Authority approval.");
+                $"Profile '{profile.Name}' requires Registration Authority approval.");
 
         // TLS server certs with DNS SANs can auto-issue after domain validation — regardless of
         // org membership (domain control is the proof, as with ACME).
         bool allDns = sans.Count > 0 &&
             sans.All(s => string.Equals(s.Type, "Dns", StringComparison.OrdinalIgnoreCase));
-        bool isServer = string.Equals(template.CertificateType, "EndEntityServer", StringComparison.OrdinalIgnoreCase);
+        bool isServer = string.Equals(profile.CertificateType, "EndEntityServer", StringComparison.OrdinalIgnoreCase);
 
-        if (template.AllowAutoIssue && isServer && allDns)
+        if (profile.AllowAutoIssue && isServer && allDns)
             return new PolicyDecision(PolicyDecisionKind.AutoIssue,
                 "TLS server certificate with DNS SANs — eligible for domain-validated auto-issue.",
                 ValidationMethod: "http-01");

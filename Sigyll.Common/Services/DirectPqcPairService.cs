@@ -52,14 +52,14 @@ public class DirectPqcPairService
         _logger = logger;
     }
 
-    /// <summary>Templates that can be the signing half: end-entity, signature key, digitalSignature, no keyEncipherment.</summary>
-    public static bool IsSigningTemplate(CertificateTemplate t) =>
+    /// <summary>Profiles that can be the signing half: end-entity, signature key, digitalSignature, no keyEncipherment.</summary>
+    public static bool IsSigningProfile(CertificateProfile t) =>
         t.CertificateType is CertificateType.EndEntityClient or CertificateType.EndEntityServer
         && PqcAlgorithms.IsPqc(t.KeyAlgorithm) && !PqcAlgorithms.IsKem(t.KeyAlgorithm, t.KeySize)
         && HasUsage(t, X509KeyUsageFlags.DigitalSignature) && !HasUsage(t, X509KeyUsageFlags.KeyEncipherment);
 
-    /// <summary>Templates that can be the encryption half: end-entity ML-KEM with keyEncipherment and nothing else.</summary>
-    public static bool IsEncryptionTemplate(CertificateTemplate t) =>
+    /// <summary>Profiles that can be the encryption half: end-entity ML-KEM with keyEncipherment and nothing else.</summary>
+    public static bool IsEncryptionProfile(CertificateProfile t) =>
         t.CertificateType is CertificateType.EndEntityClient or CertificateType.EndEntityServer
         && PqcAlgorithms.IsKem(t.KeyAlgorithm, t.KeySize)
         && (X509KeyUsageFlags)t.KeyUsageFlags == X509KeyUsageFlags.KeyEncipherment;
@@ -73,25 +73,25 @@ public class DirectPqcPairService
 
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
-            var signing = await db.CertificateTemplates.FindAsync([request.SigningTemplateId], ct);
-            var encryption = await db.CertificateTemplates.FindAsync([request.EncryptionTemplateId], ct);
-            if (signing == null || !IsSigningTemplate(signing))
+            var signing = await db.CertificateProfiles.FindAsync([request.SigningProfileId], ct);
+            var encryption = await db.CertificateProfiles.FindAsync([request.EncryptionProfileId], ct);
+            if (signing == null || !IsSigningProfile(signing))
                 return DirectPairResult.Failure(
-                    "The signing template must be an end-entity ML-DSA, SLH-DSA or composite template with digitalSignature and without keyEncipherment.");
-            if (encryption == null || !IsEncryptionTemplate(encryption))
+                    "The signing profile must be an end-entity ML-DSA, SLH-DSA or composite profile with digitalSignature and without keyEncipherment.");
+            if (encryption == null || !IsEncryptionProfile(encryption))
                 return DirectPairResult.Failure(
-                    "The encryption template must be an end-entity ML-KEM template whose only key usage is keyEncipherment.");
+                    "The encryption profile must be an end-entity ML-KEM profile whose only key usage is keyEncipherment.");
         }
 
         var san = new SanEntry(request.Binding == DirectBinding.Address ? SanType.Email : SanType.Dns, identifier);
         var subjectDn = string.IsNullOrWhiteSpace(request.SubjectDn) ? $"CN={identifier}" : request.SubjectDn.Trim();
 
-        var signingResult = await _issuance.IssueCertificateAsync(Request(request.SigningTemplateId, $"{identifier} (signing)", null));
+        var signingResult = await _issuance.IssueCertificateAsync(Request(request.SigningProfileId, $"{identifier} (signing)", null));
         if (!signingResult.Success)
             return DirectPairResult.Failure($"Signing certificate: {signingResult.Error}");
 
         var encryptionResult = await _issuance.IssueCertificateAsync(
-            Request(request.EncryptionTemplateId, $"{identifier} (encryption)", signingResult.EntityId));
+            Request(request.EncryptionProfileId, $"{identifier} (encryption)", signingResult.EntityId));
         if (!encryptionResult.Success)
         {
             // Never leave half a pair behind.
@@ -115,10 +115,10 @@ public class DirectPqcPairService
             EncryptionCertificateId = encryptionResult.EntityId,
         };
 
-        CertificateIssuanceRequest Request(int templateId, string name, int? relatedId) => new()
+        CertificateIssuanceRequest Request(int profileId, string name, int? relatedId) => new()
         {
             IssuingCaCertificateId = request.IssuingCaCertificateId,
-            TemplateId = templateId,
+            ProfileId = profileId,
             TrustDomainId = request.TrustDomainId,
             SubjectDn = subjectDn,
             CertificateName = name,
@@ -311,7 +311,7 @@ public class DirectPqcPairService
     private static X509KeyUsageFlags KeyUsage(X509Certificate2 cert) =>
         cert.Extensions.OfType<X509KeyUsageExtension>().FirstOrDefault()?.KeyUsages ?? X509KeyUsageFlags.None;
 
-    private static bool HasUsage(CertificateTemplate t, X509KeyUsageFlags flag) =>
+    private static bool HasUsage(CertificateProfile t, X509KeyUsageFlags flag) =>
         ((X509KeyUsageFlags)t.KeyUsageFlags).HasFlag(flag);
 }
 
@@ -333,8 +333,8 @@ public class DirectPairRequest
     /// <summary>Optional; defaults to CN=&lt;identifier&gt;.</summary>
     public string? SubjectDn { get; set; }
 
-    public int SigningTemplateId { get; set; }
-    public int EncryptionTemplateId { get; set; }
+    public int SigningProfileId { get; set; }
+    public int EncryptionProfileId { get; set; }
     public string PfxPassword { get; set; } = string.Empty;
     public List<string> CdpUrls { get; set; } = [];
     public List<string> AiaUrls { get; set; } = [];

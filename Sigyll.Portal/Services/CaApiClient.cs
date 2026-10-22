@@ -23,7 +23,7 @@ public class CaApiClient(HttpClient http, IOptions<PortalOptions> options)
 {
     private readonly PortalOptions _options = options.Value;
 
-    /// <summary>Fetches the sanitized catalog of trust domains and templates from the CA.</summary>
+    /// <summary>Fetches the sanitized catalog of trust domains and profiles from the CA.</summary>
     public async Task<CatalogResponse?> GetCatalogAsync(CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, "/api/ra/catalog");

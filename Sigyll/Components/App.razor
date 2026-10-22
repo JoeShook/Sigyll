@@ -77,8 +77,8 @@
                 document.querySelectorAll('table.fluent-data-grid').forEach(function(grid) {
                     if (grid.dataset.sigilFrozen === '1') return;
                     if (grid.querySelectorAll('.actual-resize-handle').length === 0) return;
-                    var template = grid.style.gridTemplateColumns || '';
-                    if (!/minmax\(|fr\b|\bauto\b/.test(template)) {
+                    var profile = grid.style.gridTemplateColumns || '';
+                    if (!/minmax\(|fr\b|\bauto\b/.test(profile)) {
                         grid.dataset.sigilFrozen = '1';
                         return;
                     }

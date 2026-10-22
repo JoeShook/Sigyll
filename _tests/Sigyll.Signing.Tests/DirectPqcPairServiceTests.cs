@@ -45,7 +45,7 @@ public class DirectPqcPairServiceTests
         var result = await _issuance.IssueCertificateAsync(new CertificateIssuanceRequest
         {
             IssuingCaCertificateId = seed.CaId,
-            TemplateId = seed.EncryptionTemplateId,
+            ProfileId = seed.EncryptionProfileId,
             TrustDomainId = seed.TrustDomainId,
             SubjectDn = "CN=kem.example.com",
             SubjectAltNames = [new SanEntry(SanType.Email, "kem@example.com")],
@@ -121,14 +121,14 @@ public class DirectPqcPairServiceTests
     }
 
     [Fact]
-    public async Task IssuePair_RejectsWrongTemplatesAndBadAddresses()
+    public async Task IssuePair_RejectsWrongProfilesAndBadAddresses()
     {
         if (!MLKem.IsSupported || !MLDsa.IsSupported) return;
         var seed = await SeedAsync();
 
         var swapped = Request(seed, DirectBinding.Address, "alice@direct.example.org");
-        (swapped.SigningTemplateId, swapped.EncryptionTemplateId) = (swapped.EncryptionTemplateId, swapped.SigningTemplateId);
-        (await _service.IssuePairAsync(swapped)).Error!.ShouldContain("signing template");
+        (swapped.SigningProfileId, swapped.EncryptionProfileId) = (swapped.EncryptionProfileId, swapped.SigningProfileId);
+        (await _service.IssuePairAsync(swapped)).Error!.ShouldContain("signing profile");
 
         (await _service.IssuePairAsync(Request(seed, DirectBinding.Address, "not-an-address"))).Error!
             .ShouldContain("not a Direct address");
@@ -221,28 +221,28 @@ public class DirectPqcPairServiceTests
         IssuingCaCertificateId = seed.CaId,
         Binding = binding,
         Identifier = identifier,
-        SigningTemplateId = seed.SigningTemplateId,
-        EncryptionTemplateId = seed.EncryptionTemplateId,
+        SigningProfileId = seed.SigningProfileId,
+        EncryptionProfileId = seed.EncryptionProfileId,
         PfxPassword = Password,
     };
 
-    private sealed record Seed(int TrustDomainId, int CaId, int SigningTemplateId, int EncryptionTemplateId);
+    private sealed record Seed(int TrustDomainId, int CaId, int SigningProfileId, int EncryptionProfileId);
 
     private async Task<Seed> SeedAsync()
     {
         await using var db = _dbFactory.CreateDbContext();
         var domain = new TrustDomain { Name = "PQC Direct", Enabled = true };
         db.TrustDomains.Add(domain);
-        var rootTemplate = Template("Root", CertificateType.RootCa, "ML-DSA-87", 87,
+        var rootProfile = Profile("Root", CertificateType.RootCa, "ML-DSA-87", 87,
             X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, ca: true);
-        var signing = Template("Direct Signing", CertificateType.EndEntityClient, "ML-DSA-87", 87, X509KeyUsageFlags.DigitalSignature);
-        var encryption = Template("Direct Encryption", CertificateType.EndEntityClient, "ML-KEM-1024", 1024, X509KeyUsageFlags.KeyEncipherment);
-        db.CertificateTemplates.AddRange(rootTemplate, signing, encryption);
+        var signing = Profile("Direct Signing", CertificateType.EndEntityClient, "ML-DSA-87", 87, X509KeyUsageFlags.DigitalSignature);
+        var encryption = Profile("Direct Encryption", CertificateType.EndEntityClient, "ML-KEM-1024", 1024, X509KeyUsageFlags.KeyEncipherment);
+        db.CertificateProfiles.AddRange(rootProfile, signing, encryption);
         await db.SaveChangesAsync();
 
         var root = await _issuance.IssueCertificateAsync(new CertificateIssuanceRequest
         {
-            TemplateId = rootTemplate.Id,
+            ProfileId = rootProfile.Id,
             TrustDomainId = domain.Id,
             SubjectDn = "CN=PQC Direct Root",
             PfxPassword = Password,
@@ -257,7 +257,7 @@ public class DirectPqcPairServiceTests
         return new Seed(domain.Id, root.EntityId!.Value, signing.Id, encryption.Id);
     }
 
-    private static CertificateTemplate Template(string name, CertificateType type, string algorithm, int size,
+    private static CertificateProfile Profile(string name, CertificateType type, string algorithm, int size,
         X509KeyUsageFlags usage, bool ca = false) => new()
     {
         Name = name,

@@ -23,19 +23,19 @@ namespace Sigyll.Common.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("CertificateTemplateSanList", b =>
+            modelBuilder.Entity("CertificateProfileSanList", b =>
                 {
+                    b.Property<int>("ProfilesId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("SanListsId")
                         .HasColumnType("integer");
 
-                    b.Property<int>("TemplatesId")
-                        .HasColumnType("integer");
+                    b.HasKey("ProfilesId", "SanListsId");
 
-                    b.HasKey("SanListsId", "TemplatesId");
+                    b.HasIndex("SanListsId");
 
-                    b.HasIndex("TemplatesId");
-
-                    b.ToTable("CertificateTemplateSanList", "sigil");
+                    b.ToTable("CertificateProfileSanList", "sigil");
                 });
 
             modelBuilder.Entity("Sigyll.Common.Data.Entities.CaCertificate", b =>
@@ -153,40 +153,7 @@ namespace Sigyll.Common.Migrations
                     b.ToTable("CaCertificates", "sigil");
                 });
 
-            modelBuilder.Entity("Sigyll.Common.Data.Entities.CertificateRevocation", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("CrlId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("RevocationDate")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("RevocationReason")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RevokedCertSerialNumber")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("RevokedCertThumbprint")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CrlId");
-
-                    b.ToTable("CertificateRevocations", "sigil");
-                });
-
-            modelBuilder.Entity("Sigyll.Common.Data.Entities.CertificateTemplate", b =>
+            modelBuilder.Entity("Sigyll.Common.Data.Entities.CertificateProfile", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -285,7 +252,40 @@ namespace Sigyll.Common.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("CertificateTemplates", "sigil");
+                    b.ToTable("CertificateProfiles", "sigil");
+                });
+
+            modelBuilder.Entity("Sigyll.Common.Data.Entities.CertificateRevocation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CrlId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RevocationDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RevocationReason")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RevokedCertSerialNumber")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RevokedCertThumbprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CrlId");
+
+                    b.ToTable("CertificateRevocations", "sigil");
                 });
 
             modelBuilder.Entity("Sigyll.Common.Data.Entities.CredentialSchema", b =>
@@ -636,6 +636,9 @@ namespace Sigyll.Common.Migrations
                     b.Property<string>("PfxPassword")
                         .HasColumnType("text");
 
+                    b.Property<int?>("ProfileId")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("RenewalOfId")
                         .HasColumnType("integer");
 
@@ -662,9 +665,6 @@ namespace Sigyll.Common.Migrations
                     b.Property<string>("SubjectAltNames")
                         .HasColumnType("text");
 
-                    b.Property<int?>("TemplateId")
-                        .HasColumnType("integer");
-
                     b.Property<string>("Thumbprint")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -681,9 +681,9 @@ namespace Sigyll.Common.Migrations
 
                     b.HasIndex("IssuingCaCertificateId");
 
-                    b.HasIndex("RenewalOfId");
+                    b.HasIndex("ProfileId");
 
-                    b.HasIndex("TemplateId");
+                    b.HasIndex("RenewalOfId");
 
                     b.HasIndex("Thumbprint")
                         .IsUnique();
@@ -907,17 +907,17 @@ namespace Sigyll.Common.Migrations
                     b.ToTable("VerificationMethods", "sigil");
                 });
 
-            modelBuilder.Entity("CertificateTemplateSanList", b =>
+            modelBuilder.Entity("CertificateProfileSanList", b =>
                 {
-                    b.HasOne("Sigyll.Common.Data.Entities.SanList", null)
+                    b.HasOne("Sigyll.Common.Data.Entities.CertificateProfile", null)
                         .WithMany()
-                        .HasForeignKey("SanListsId")
+                        .HasForeignKey("ProfilesId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Sigyll.Common.Data.Entities.CertificateTemplate", null)
+                    b.HasOne("Sigyll.Common.Data.Entities.SanList", null)
                         .WithMany()
-                        .HasForeignKey("TemplatesId")
+                        .HasForeignKey("SanListsId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -1006,21 +1006,21 @@ namespace Sigyll.Common.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Sigyll.Common.Data.Entities.CertificateProfile", "Profile")
+                        .WithMany("IssuedCertificates")
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Sigyll.Common.Data.Entities.IssuedCertificate", "RenewalOf")
                         .WithMany()
                         .HasForeignKey("RenewalOfId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("Sigyll.Common.Data.Entities.CertificateTemplate", "Template")
-                        .WithMany("IssuedCertificates")
-                        .HasForeignKey("TemplateId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.Navigation("IssuingCaCertificate");
 
-                    b.Navigation("RenewalOf");
+                    b.Navigation("Profile");
 
-                    b.Navigation("Template");
+                    b.Navigation("RenewalOf");
                 });
 
             modelBuilder.Entity("Sigyll.Common.Data.Entities.IssuedCredential", b =>
@@ -1081,7 +1081,7 @@ namespace Sigyll.Common.Migrations
                     b.Navigation("IssuedCertificates");
                 });
 
-            modelBuilder.Entity("Sigyll.Common.Data.Entities.CertificateTemplate", b =>
+            modelBuilder.Entity("Sigyll.Common.Data.Entities.CertificateProfile", b =>
                 {
                     b.Navigation("IssuedCertificates");
                 });

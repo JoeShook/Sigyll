@@ -25,7 +25,7 @@ public class SigyllDbContext : DbContext
     public DbSet<IssuedCertificate> IssuedCertificates => Set<IssuedCertificate>();
     public DbSet<Crl> Crls => Set<Crl>();
     public DbSet<CertificateRevocation> CertificateRevocations => Set<CertificateRevocation>();
-    public DbSet<CertificateTemplate> CertificateTemplates => Set<CertificateTemplate>();
+    public DbSet<CertificateProfile> CertificateProfiles => Set<CertificateProfile>();
     public DbSet<SanList> SanLists => Set<SanList>();
     public DbSet<DidTemplate> DidTemplates => Set<DidTemplate>();
     public DbSet<DidDocument> DidDocuments => Set<DidDocument>();
@@ -134,9 +134,9 @@ public class SigyllDbContext : DbContext
                 .HasForeignKey(e => e.IssuingCaCertificateId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne(e => e.Template)
+            entity.HasOne(e => e.Profile)
                 .WithMany(t => t.IssuedCertificates)
-                .HasForeignKey(e => e.TemplateId)
+                .HasForeignKey(e => e.ProfileId)
                 .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasOne(e => e.RenewalOf)
@@ -173,8 +173,8 @@ public class SigyllDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // CertificateTemplate
-        modelBuilder.Entity<CertificateTemplate>(entity =>
+        // CertificateProfile
+        modelBuilder.Entity<CertificateProfile>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
@@ -188,8 +188,8 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.SubjectAltNameTypes).HasMaxLength(100);
 
             entity.HasMany(e => e.SanLists)
-                .WithMany(s => s.Templates)
-                .UsingEntity("CertificateTemplateSanList");
+                .WithMany(s => s.Profiles)
+                .UsingEntity("CertificateProfileSanList");
         });
 
         // SanList

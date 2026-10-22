@@ -32,7 +32,7 @@ else
     <FluentDataGrid Items="@_requests.AsQueryable()" GridTemplateColumns="0.5fr 2fr 1.2fr 1.2fr 1fr 1.2fr 0.6fr">
         <PropertyColumn Property="@(r => r.Id)" Title="#" Sortable="true" />
         <PropertyColumn Property="@(r => r.SubjectDn)" Title="Subject" />
-        <PropertyColumn Property="@(r => r.TemplateName)" Title="Template" />
+        <PropertyColumn Property="@(r => r.ProfileName)" Title="Certificate Profile" />
         <PropertyColumn Property="@(r => r.TrustDomainName)" Title="Trust domain" />
         <TemplateColumn Title="Status">
             <FluentBadge BackgroundColor="@StatusColor(context.Status)" Color="white">@context.Status</FluentBadge>

@@ -37,7 +37,7 @@ public class RequestWorkflowService(
         string requesterId,
         int? organizationId,
         string trustDomainName,
-        string templateName,
+        string profileName,
         string subjectDn,
         List<ApiSanEntry> sans,
         string csrPem,
@@ -48,7 +48,7 @@ public class RequestWorkflowService(
             RequesterId = requesterId,
             OrganizationId = organizationId,
             TrustDomainName = trustDomainName,
-            TemplateName = templateName,
+            ProfileName = profileName,
             SubjectDn = subjectDn,
             RequestedSansJson = JsonSerializer.Serialize(sans, Json),
             CsrPem = csrPem,
@@ -57,12 +57,12 @@ public class RequestWorkflowService(
         };
         db.CertificateRequests.Add(request);
         await db.SaveChangesAsync(ct);
-        AddEvent(request, requesterId, "Submitted", $"{templateName} under {trustDomainName}");
+        AddEvent(request, requesterId, "Submitted", $"{profileName} under {trustDomainName}");
 
         // Classify.
-        var template = await catalog.FindTemplateAsync(templateName, ct);
+        var profile = await catalog.FindProfileAsync(profileName, ct);
         var authorized = await IsRequesterAuthorizedAsync(requesterId, trustDomainName, ct);
-        var decision = policy.Evaluate(template, sans, authorized);
+        var decision = policy.Evaluate(profile, sans, authorized);
         request.PolicyDecision = decision.Kind;
         request.PolicyReason = decision.Reason;
         request.ValidationMethod = decision.ValidationMethod;
@@ -172,7 +172,7 @@ public class RequestWorkflowService(
         var apiRequest = new IssuanceApiRequest
         {
             CsrPem = request.CsrPem,
-            TemplateName = request.TemplateName,
+            ProfileName = request.ProfileName,
             TrustDomainName = request.TrustDomainName,
             RequesterRef = request.RequesterId,
             RaApprovalRef = raApprovalRef,

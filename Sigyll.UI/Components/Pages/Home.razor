@@ -37,8 +37,8 @@ else
             <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">Issued Certificates</FluentLabel>
         </FluentCard>
         <FluentCard Style="min-width: 160px; flex: 1; text-align: center;">
-            <div style="font-size: 2rem; font-weight: 700; color: #666; margin-bottom: 0.35rem;">@templateCount</div>
-            <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">Templates</FluentLabel>
+            <div style="font-size: 2rem; font-weight: 700; color: #666; margin-bottom: 0.35rem;">@profileCount</div>
+            <FluentLabel Typo="Typography.Body" Style="opacity: 0.7;">Certificate Profiles</FluentLabel>
         </FluentCard>
         @if (revokedCertCount > 0)
         {
@@ -70,8 +70,8 @@ else
             </FluentButton>
             <FluentButton Appearance="Appearance.Outline"
                           IconStart="@(new Icons.Regular.Size16.DocumentBulletList())"
-                          OnClick="@(() => Navigation.NavigateTo("/templates?action=new"))">
-                New Template
+                          OnClick="@(() => Navigation.NavigateTo("/certificate-profiles?action=new"))">
+                New Profile
             </FluentButton>
         </FluentStack>
     </FluentCard>

@@ -7,8 +7,8 @@ Designed as a lightweight alternative to enterprise CA tools like EJBCA, Sigyll 
 ## Features
 
 - **Certificate Explorer** — Hierarchical tree view of Root CA > Intermediate CA > End-entity > CRL chains with detail panel, ASN.1 viewer, and chain validation
-- **Certificate Issuance** — Generate Root CAs, Intermediate CAs, and end-entity certificates from configurable templates (RSA, ECDSA, and post-quantum ML-DSA, SLH-DSA, composite ML-DSA, and ML-KEM)
-- **Certificate Templates** — Preset and custom templates controlling key algorithm, extensions, key usage, EKU, CDP, AIA, SANs, and more
+- **Certificate Issuance** — Generate Root CAs, Intermediate CAs, and end-entity certificates from configurable profiles (RSA, ECDSA, and post-quantum ML-DSA, SLH-DSA, composite ML-DSA, and ML-KEM)
+- **Certificate Profiles** — Preset and custom profiles controlling key algorithm, extensions, key usage, EKU, CDP, AIA, SANs, and more (the standards' term, not "template" — see [docs/NAMING.md](Sigyll/docs/NAMING.md))
 - **Import & Auto-Detection** — Drag-and-drop import of .pfx, .cer, .pem, .crl files with automatic role detection and chain matching
 - **Chain Validation** — Offline and online validation with CRL checking, AIA issuer resolution, and CDP CRL fetching
 - **Renewal** — Re-key (new key pair) and re-sign (same key, new validity) with in-place entity update to preserve child relationships
@@ -127,8 +127,8 @@ This enables a hybrid workflow: Vault-backed CAs can issue end-entity certificat
 ## Quick Start Workflow
 
 1. **Create a Community** — Go to Communities page, add a new PKI namespace
-2. **Create a Root CA** — In Certificate Explorer, click "New Root CA", select a Root CA template
-3. **Create an Intermediate CA** — Select the Root CA, click "Issue Certificate", pick an Intermediate CA template
+2. **Create a Root CA** — In Certificate Explorer, click "New Root CA", select a Root CA profile
+3. **Create an Intermediate CA** — Select the Root CA, click "Issue Certificate", pick an Intermediate CA profile
 4. **Issue End-Entity Certs** — Select the Intermediate CA, issue client or server certificates
 5. **Download** — Use the download buttons for .cer, .pfx, or .pem files
 6. **Validate** — Click "Revalidate" or "Validate Online" to verify chain integrity

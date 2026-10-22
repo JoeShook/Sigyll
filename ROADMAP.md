@@ -4,7 +4,7 @@
 
 ## Phase 1: Foundation (Complete)
 - [x] Project scaffolding (Blazor Server, FluentUI v4, PostgreSQL, Serilog)
-- [x] Data model: Community, CaCertificate (self-ref hierarchy), IssuedCertificate, CRL, CertificateRevocation, CertificateTemplate, Job/JobExecution
+- [x] Data model: Community, CaCertificate (self-ref hierarchy), IssuedCertificate, CRL, CertificateRevocation, CertificateProfile, Job/JobExecution
 - [x] Certificate Explorer: tree view + detail panel (extensions, SANs, general info)
 - [x] Drag & drop import: .pfx, .cer, .pem, .crl with auto-detection (role, chain matching via AKI/SKI)
 - [x] CRL import with signature validation, CRL number tracking, next update
@@ -13,10 +13,10 @@
 - [x] ASN.1 structure viewer (collapsible tree with OID friendly names, parsed values)
 - [x] Dashboard page (expiry warnings, community summary, deep-linking to certs)
 
-## Phase 2: Certificate Issuance & Templates (Complete)
-- [x] Template CRUD page with preset profiles (Root CA, Intermediate CA, UDAP Client, SSL Server)
+## Phase 2: Certificate Issuance & Profiles (Complete)
+- [x] Profile CRUD page with preset profiles (Root CA, Intermediate CA, UDAP Client, SSL Server)
 - [x] Certificate generation engine using .NET CertificateRequest + BouncyCastle
-- [x] "Issue Certificate" flow from Explorer: select issuing CA → pick template → fill subject/SANs → generate
+- [x] "Issue Certificate" flow from Explorer: select issuing CA → pick profile → fill subject/SANs → generate
 - [x] Root CA self-signed generation
 - [x] Intermediate CA generation (signed by parent)
 - [x] End-entity cert generation with full extension control
@@ -56,7 +56,7 @@
 - [ ] **SCEP** — Simple Certificate Enrollment Protocol (legacy device support)
 - [ ] **CMP (RFC 4210)** — Certificate Management Protocol (cert requests, revocation, key update)
 - [ ] **ACME (RFC 8555)** — Automated Certificate Management Environment (Let's Encrypt-style) — see **Phase 12** for the full breakdown (portal-first sequencing, EAB, ARI) and UDAP applicability analysis
-- [ ] **REST API** — Full CRUD for certs, CRLs, templates, communities, jobs
+- [ ] **REST API** — Full CRUD for certs, CRLs, profiles, communities, jobs
 - [ ] API authentication (API keys, mTLS, OAuth2)
 
 ## Phase 7: OCSP Responder
@@ -69,7 +69,7 @@
 ## Phase 8: UDAP/FHIR-Specific Features
 - [ ] UDAP community trust chain validation (full chain build + CRL check)
 - [ ] UDAP metadata generation (.well-known/udap)
-- [ ] UDAP-specific certificate templates (SANs with FHIR URIs, UDAP EKUs)
+- [ ] UDAP-specific certificate profiles (SANs with FHIR URIs, UDAP EKUs)
 - [ ] TEFCA trust chain profiles
 - [ ] Certification & Endorsement JWT generation
 - [ ] Community trust anchor distribution
@@ -94,7 +94,7 @@
 - [ ] Docker / Kubernetes deployment manifests
 - [ ] Backup/restore for cert stores and DB
 - [ ] Import/export in standard formats (PKCS#7 bundles, PEM chains)
-- [ ] Bulk operations (renew all expiring, revoke by template, etc.)
+- [ ] Bulk operations (renew all expiring, revoke by profile, etc.)
 
 ## Phase 11: Advanced CA Features
 - [ ] Cross-certification (bridge CA)
@@ -120,9 +120,9 @@
   - [ ] Organizational vetting for orgs: domain control + business validation, surfaced to the RA
   - [ ] Optional phone/SMS OTP for phone-number ownership (weaker; SIM-swap risk — not a substitute for the above)
   - [ ] **The proofing gate is what mints the EAB credential consumed by ACME in 12b** — one-time human vetting enables later automation
-- [ ] Self-service "Request a Certificate" wizard: pick community/trust domain → template → subject/SANs → submit (upload CSR or generate key pair)
+- [ ] Self-service "Request a Certificate" wizard: pick community/trust domain → profile → subject/SANs → submit (upload CSR or generate key pair)
 - [ ] Request queue + RA approval workflow (request → review → approve/reject → issue) — ties into Phase 9 RA roles
-- [ ] CSR upload, parse, and validation against the selected template profile
+- [ ] CSR upload, parse, and validation against the selected certificate profile
 - [ ] Requester dashboard: track request status, download issued certs, view expiry
 - [ ] Email notifications on request state changes
 - [ ] Account scoping: a logged-in user may only request under authorized communities/trust domains
@@ -135,7 +135,7 @@
   - [ ] **DNSSEC-validated lookups** for CAA + DNS-based DCV — CA/B Forum Ballot SC-085v2, mandatory for publicly-trusted CAs since **March 2026**
 - [ ] **CAA enforcement (RFC 8659 baseline)** at issuance — check `issue`/`issuewild` before signing (applies to *all* issuance, see Phase 9)
 - [ ] **ACME CAA extensions (RFC 8657)** — honor `accounturi` (lock issuance to a named ACME account; maps to EAB-vetted accounts) and `validationmethods` (restrict accepted challenge types). CA/B Forum Ballot SC-098v2 → mandatory for publicly-trusted CAs **March 2027**; Chrome Root Program already requires it for ACME-supporting CAs (**Feb 2026**). *Scope note: Baseline Requirements bind publicly-trusted CAs, not private UDAP trust — implement for UDAP server certs that may need public trust and as an EJBCA differentiator.*
-- [ ] CSR-driven issuance applying Sigyll certificate templates/profiles
+- [ ] CSR-driven issuance applying Sigyll certificate profiles
 - [ ] Revocation (revokeCert)
 - [ ] **External Account Binding (EAB)** (RFC 8555 §7.3.4) — bind ACME accounts to portal-vetted accounts so automated issuance stays scoped to vetted identities
 - [ ] **ARI (RFC 9773)** — renewalInfo endpoint advising clients on renewal windows / load staggering

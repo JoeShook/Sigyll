@@ -42,7 +42,7 @@ public class IssuanceValidator
     }
 
     /// <summary>
-    /// Parses a template's semicolon-delimited SubjectAltNameTypes ("URI;DNS;Email;IP")
+    /// Parses a profile's semicolon-delimited SubjectAltNameTypes ("URI;DNS;Email;IP")
     /// into SanType values. Unknown tokens are ignored.
     /// </summary>
     public static List<SanType> ParseSanTypes(string? subjectAltNameTypes) =>
@@ -62,23 +62,23 @@ public class IssuanceValidator
             .ToList();
 
     /// <summary>
-    /// A SAN type declared on a template is a requirement: every declared type must have at
+    /// A SAN type declared on a profile is a requirement: every declared type must have at
     /// least one non-empty SAN entry in the request. Returns an error message naming the
-    /// missing types, or null when the request satisfies the template.
+    /// missing types, or null when the request satisfies the profile.
     /// </summary>
-    public string? ValidateRequiredSanTypes(CertificateTemplate template, IEnumerable<SanEntry> subjectAltNames)
+    public string? ValidateRequiredSanTypes(CertificateProfile profile, IEnumerable<SanEntry> subjectAltNames)
     {
-        var missing = FindMissingSanTypes(template.SubjectAltNameTypes,
+        var missing = FindMissingSanTypes(profile.SubjectAltNameTypes,
             subjectAltNames.Where(s => !string.IsNullOrWhiteSpace(s.Value)).Select(s => s.Type));
 
         if (missing.Count == 0) return null;
 
         var names = string.Join(", ", missing.Select(SanTypeDisplayName));
-        return $"Template '{template.Name}' requires a Subject Alternative Name of type: {names}.";
+        return $"Profile '{profile.Name}' requires a Subject Alternative Name of type: {names}.";
     }
 
     /// <summary>
-    /// Returns the template-declared SAN types that have no entry among the provided types.
+    /// Returns the profile-declared SAN types that have no entry among the provided types.
     /// </summary>
     public static List<SanType> FindMissingSanTypes(string? subjectAltNameTypes, IEnumerable<SanType> providedTypes)
     {
@@ -126,16 +126,16 @@ public class IssuanceValidator
     public List<IssuanceWarning> CompareTemplateUrls(
         List<string> originalCdpUrls,
         List<string> originalAiaUrls,
-        List<string> templateCdpUrls,
-        List<string> templateAiaUrls)
+        List<string> profileCdpUrls,
+        List<string> profileAiaUrls)
     {
         var warnings = new List<IssuanceWarning>();
         var comparer = StringComparer.OrdinalIgnoreCase;
 
         var oldCdp = new HashSet<string>(originalCdpUrls, comparer);
         var oldAia = new HashSet<string>(originalAiaUrls, comparer);
-        var newCdp = new HashSet<string>(templateCdpUrls, comparer);
-        var newAia = new HashSet<string>(templateAiaUrls, comparer);
+        var newCdp = new HashSet<string>(profileCdpUrls, comparer);
+        var newAia = new HashSet<string>(profileAiaUrls, comparer);
 
         foreach (var url in oldCdp.Where(u => !newCdp.Contains(u)))
             warnings.Add(new IssuanceWarning { Category = "CDP", Message = $"CDP removed: {url}" });
@@ -150,16 +150,16 @@ public class IssuanceValidator
     }
 
     public List<string> ExpandUrlTemplates(
-        CertificateTemplate template,
+        CertificateProfile profile,
         List<string> trustDomainBaseUrls,
         string? issuingCaName)
     {
-        var cdpTemplate = template.CdpUrlTemplate;
-        if (template.IncludeCdp && string.IsNullOrWhiteSpace(cdpTemplate))
+        var cdpTemplate = profile.CdpUrlTemplate;
+        if (profile.IncludeCdp && string.IsNullOrWhiteSpace(cdpTemplate))
             cdpTemplate = "{BaseUrl}/crls/{CAName}.crl";
 
-        var aiaTemplate = template.AiaUrlTemplate;
-        if (template.IncludeAia && string.IsNullOrWhiteSpace(aiaTemplate))
+        var aiaTemplate = profile.AiaUrlTemplate;
+        if (profile.IncludeAia && string.IsNullOrWhiteSpace(aiaTemplate))
             aiaTemplate = "{BaseUrl}/certs/{CAName}.cer";
 
         var result = new List<string>();
@@ -169,13 +169,13 @@ public class IssuanceValidator
     }
 
     public List<string> ExpandCdpTemplates(
-        CertificateTemplate template,
+        CertificateProfile profile,
         List<string> trustDomainBaseUrls,
         string? issuingCaName)
     {
-        if (!template.IncludeCdp) return new();
+        if (!profile.IncludeCdp) return new();
 
-        var cdpTemplate = template.CdpUrlTemplate;
+        var cdpTemplate = profile.CdpUrlTemplate;
         if (string.IsNullOrWhiteSpace(cdpTemplate))
             cdpTemplate = "{BaseUrl}/crls/{CAName}.crl";
 
@@ -183,13 +183,13 @@ public class IssuanceValidator
     }
 
     public List<string> ExpandAiaTemplates(
-        CertificateTemplate template,
+        CertificateProfile profile,
         List<string> trustDomainBaseUrls,
         string? issuingCaName)
     {
-        if (!template.IncludeAia) return new();
+        if (!profile.IncludeAia) return new();
 
-        var aiaTemplate = template.AiaUrlTemplate;
+        var aiaTemplate = profile.AiaUrlTemplate;
         if (string.IsNullOrWhiteSpace(aiaTemplate))
             aiaTemplate = "{BaseUrl}/certs/{CAName}.cer";
 
@@ -197,15 +197,15 @@ public class IssuanceValidator
     }
 
     private static List<string> ExpandTemplate(
-        string? template,
+        string? profile,
         List<string> baseUrls,
         string? caName)
     {
-        if (string.IsNullOrWhiteSpace(template)) return new();
+        if (string.IsNullOrWhiteSpace(profile)) return new();
 
         if (baseUrls.Count == 0)
         {
-            var result = template;
+            var result = profile;
             if (caName != null)
                 result = result.Replace("{CAName}", caName, StringComparison.OrdinalIgnoreCase);
             return string.IsNullOrWhiteSpace(result) ? new() : new() { result };
@@ -214,7 +214,7 @@ public class IssuanceValidator
         var expanded = new List<string>();
         foreach (var baseUrl in baseUrls)
         {
-            var result = template
+            var result = profile
                 .Replace("{BaseUrl}", baseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
                 .Replace("{CAName}", caName ?? string.Empty, StringComparison.OrdinalIgnoreCase);
             expanded.Add(result);

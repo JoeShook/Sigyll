@@ -39,7 +39,7 @@ public class DashboardService
             TrustDomainCount = await db.TrustDomains.CountAsync(ct),
             CaCertCount = await db.CaCertificates.CountAsync(ca => !ca.IsArchived, ct),
             IssuedCertCount = await db.IssuedCertificates.CountAsync(i => !i.IsArchived, ct),
-            TemplateCount = await db.CertificateTemplates.CountAsync(ct),
+            ProfileCount = await db.CertificateProfiles.CountAsync(ct),
             RevokedCertCount = await db.IssuedCertificates.CountAsync(i => i.IsRevoked && !i.IsArchived, ct)
         };
 

@@ -156,8 +156,8 @@ public partial class CertificateExplorer : IDisposable
     private int? issuingCaIdForIssuance;
     private string? issuingCaNameForIssuance;
     private DateTime? issuingCaNotAfter;
-    private List<CertificateTemplate> availableTemplates = new();
-    private CertificateTemplate? selectedTemplate;
+    private List<CertificateProfile> availableProfiles = new();
+    private CertificateProfile? selectedProfile;
     private string issuanceSubjectDn = string.Empty;
     private string issuanceCertName = string.Empty;
     private DateTime? issuanceNotBeforeNullable = DateTime.UtcNow;
@@ -165,7 +165,7 @@ public partial class CertificateExplorer : IDisposable
     private List<IssuanceUrlEntry> issuanceCdpUrls = new();
     private List<IssuanceUrlEntry> issuanceAiaUrls = new();
     private List<IssuanceSanEntry> issuanceSans = new();
-    private List<SanList> templateSanLists = new();
+    private List<SanList> profileSanLists = new();
     private bool sanPickerDialogHidden = true;
     private SanList? sanListForPicker;
     private List<SanListPickerItem> sanPickerItems = new();
@@ -392,29 +392,29 @@ public partial class CertificateExplorer : IDisposable
         await ShowIssuanceDialog(targetCaId, targetCaName);
         isRenewMode = true;
 
-        // Match template from original cert
+        // Match profile from original cert
         await using var db = await DbFactory.CreateDbContextAsync();
         var issued = await db.IssuedCertificates.FindAsync(certId);
-        if (issued?.TemplateId != null)
+        if (issued?.ProfileId != null)
         {
-            var match = availableTemplates.FirstOrDefault(t => t.Id == issued.TemplateId);
+            var match = availableProfiles.FirstOrDefault(t => t.Id == issued.ProfileId);
             if (match != null)
             {
-                selectedTemplate = match;
-                OnTemplateSelected(match);
+                selectedProfile = match;
+                OnProfileSelected(match);
             }
         }
 
-        if (selectedTemplate == null || selectedTemplate.CertificateType != CertificateType.EndEntityClient)
+        if (selectedProfile == null || selectedProfile.CertificateType != CertificateType.EndEntityClient)
         {
-            var match = availableTemplates.FirstOrDefault(t => t.CertificateType == CertificateType.EndEntityClient)
-                        ?? availableTemplates.FirstOrDefault();
-            if (match != null) selectedTemplate = match;
+            var match = availableProfiles.FirstOrDefault(t => t.CertificateType == CertificateType.EndEntityClient)
+                        ?? availableProfiles.FirstOrDefault();
+            if (match != null) selectedProfile = match;
         }
 
-        OnTemplateSelected(selectedTemplate);
-        if (selectedTemplate != null)
-            await EnsureTemplateSanListsLoadedAsync(selectedTemplate);
+        OnProfileSelected(selectedProfile);
+        if (selectedProfile != null)
+            await EnsureProfileSanListsLoadedAsync(selectedProfile);
         issuanceCertName = node.Name + " (renewed)";
         StateHasChanged();
     }
@@ -2016,7 +2016,7 @@ public partial class CertificateExplorer : IDisposable
             issuingCaNotAfter = ca?.NotAfter;
         }
 
-        var allTemplates = await db.CertificateTemplates
+        var allProfiles = await db.CertificateProfiles
             .Include(t => t.SanLists)
             .OrderBy(t => t.CertificateType)
             .ThenBy(t => t.Name)
@@ -2025,20 +2025,20 @@ public partial class CertificateExplorer : IDisposable
         if (issuingCaId == null)
         {
             // Self-signed root only
-            availableTemplates = allTemplates
+            availableProfiles = allProfiles
                 .Where(t => t.CertificateType == CertificateType.RootCa)
                 .ToList();
         }
         else
         {
-            // Intermediate + end-entity templates
-            availableTemplates = allTemplates
+            // Intermediate + end-entity profiles
+            availableProfiles = allProfiles
                 .Where(t => t.CertificateType != CertificateType.RootCa)
                 .ToList();
         }
 
-        selectedTemplate = availableTemplates.FirstOrDefault();
-        OnTemplateSelected(selectedTemplate);
+        selectedProfile = availableProfiles.FirstOrDefault();
+        OnProfileSelected(selectedProfile);
 
         issuanceSans.Clear();
         issuanceKeyStorage = "local";
@@ -2107,13 +2107,13 @@ public partial class CertificateExplorer : IDisposable
         }
     }
 
-    private void OnTemplateSelected(CertificateTemplate? template)
+    private void OnProfileSelected(CertificateProfile? profile)
     {
-        selectedTemplate = template;
-        if (template == null) return;
+        selectedProfile = profile;
+        if (profile == null) return;
 
         issuanceNotBeforeNullable = DateTime.UtcNow;
-        var desiredNotAfter = DateTime.UtcNow.AddDays(template.ValidityDays);
+        var desiredNotAfter = DateTime.UtcNow.AddDays(profile.ValidityDays);
         if (issuingCaNotAfter.HasValue && desiredNotAfter > issuingCaNotAfter.Value)
             desiredNotAfter = issuingCaNotAfter.Value;
         issuanceNotAfterNullable = desiredNotAfter;
@@ -2121,8 +2121,8 @@ public partial class CertificateExplorer : IDisposable
         var baseUrls = (selectedTrustDomain?.BaseUrls ?? new())
             .Select(bu => bu.Url).ToList();
         var validator = IssuanceService.Validator;
-        var newCdpUrls = validator.ExpandCdpTemplates(template, baseUrls, issuingCaNameForIssuance);
-        var newAiaUrls = validator.ExpandAiaTemplates(template, baseUrls, issuingCaNameForIssuance);
+        var newCdpUrls = validator.ExpandCdpTemplates(profile, baseUrls, issuingCaNameForIssuance);
+        var newAiaUrls = validator.ExpandAiaTemplates(profile, baseUrls, issuingCaNameForIssuance);
 
         urlChangeWarnings.Clear();
 
@@ -2150,15 +2150,15 @@ public partial class CertificateExplorer : IDisposable
         else
         {
             if (string.IsNullOrWhiteSpace(issuanceSubjectDn))
-                issuanceSubjectDn = template.SubjectTemplate ?? string.Empty;
+                issuanceSubjectDn = profile.SubjectTemplate ?? string.Empty;
 
             var hasUserSans = issuanceSans.Any(s => !string.IsNullOrWhiteSpace(s.Value));
             if (!hasUserSans)
             {
                 issuanceSans.Clear();
-                if (!string.IsNullOrWhiteSpace(template.SubjectAltNameTypes))
+                if (!string.IsNullOrWhiteSpace(profile.SubjectAltNameTypes))
                 {
-                    foreach (var sanType in template.SubjectAltNameTypes.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                    foreach (var sanType in profile.SubjectAltNameTypes.Split(';', StringSplitOptions.RemoveEmptyEntries))
                     {
                         var type = sanType.Trim().ToUpperInvariant() switch
                         {
@@ -2174,22 +2174,22 @@ public partial class CertificateExplorer : IDisposable
             }
         }
 
-        templateSanLists = template.SanLists?.Where(s => s != null).ToList() ?? new();
+        profileSanLists = profile.SanLists?.Where(s => s != null).ToList() ?? new();
     }
 
-    private async Task EnsureTemplateSanListsLoadedAsync(CertificateTemplate template)
+    private async Task EnsureProfileSanListsLoadedAsync(CertificateProfile profile)
     {
-        if (template.SanLists != null && template.SanLists.Count > 0) return;
+        if (profile.SanLists != null && profile.SanLists.Count > 0) return;
 
         await using var db = await DbFactory.CreateDbContextAsync();
-        var loaded = await db.CertificateTemplates
+        var loaded = await db.CertificateProfiles
             .Include(t => t.SanLists)
-            .FirstOrDefaultAsync(t => t.Id == template.Id);
+            .FirstOrDefaultAsync(t => t.Id == profile.Id);
 
         if (loaded?.SanLists != null)
         {
-            template.SanLists = loaded.SanLists;
-            templateSanLists = loaded.SanLists.ToList();
+            profile.SanLists = loaded.SanLists;
+            profileSanLists = loaded.SanLists.ToList();
         }
     }
 
@@ -2252,14 +2252,14 @@ public partial class CertificateExplorer : IDisposable
     }
 
     /// <summary>
-    /// SAN types the selected template declares that have no non-empty entry yet.
+    /// SAN types the selected profile declares that have no non-empty entry yet.
     /// Each declared type is required at issuance.
     /// </summary>
     private List<SanType> MissingRequiredSanTypes()
     {
-        if (selectedTemplate == null) return [];
+        if (selectedProfile == null) return [];
         return IssuanceValidator.FindMissingSanTypes(
-            selectedTemplate.SubjectAltNameTypes,
+            selectedProfile.SubjectAltNameTypes,
             issuanceSans.Where(s => !string.IsNullOrWhiteSpace(s.Value)).Select(s => s.Type));
     }
 
@@ -2283,17 +2283,17 @@ public partial class CertificateExplorer : IDisposable
     private async Task IssueCertificateAsync()
     {
         if (isIssuing) return;
-        if (selectedTemplate == null || string.IsNullOrWhiteSpace(issuanceSubjectDn)) return;
+        if (selectedProfile == null || string.IsNullOrWhiteSpace(issuanceSubjectDn)) return;
 
         isIssuing = true;
         StateHasChanged();
 
         try
         {
-            var cdpUrls = selectedTemplate.IncludeCdp
+            var cdpUrls = selectedProfile.IncludeCdp
                 ? issuanceCdpUrls.Where(u => !string.IsNullOrWhiteSpace(u.Value)).Select(u => u.Value).ToList()
                 : new List<string>();
-            var aiaUrls = selectedTemplate.IncludeAia
+            var aiaUrls = selectedProfile.IncludeAia
                 ? issuanceAiaUrls.Where(u => !string.IsNullOrWhiteSpace(u.Value)).Select(u => u.Value).ToList()
                 : new List<string>();
 
@@ -2303,12 +2303,12 @@ public partial class CertificateExplorer : IDisposable
                 await EnsureIssuerPublishedAsync(issuingCaIdForIssuance.Value);
             }
 
-            // Warn about missing CDP/AIA when the template expects them
+            // Warn about missing CDP/AIA when the profile expects them
             var warnings = new List<string>();
-            if (selectedTemplate.IncludeCdp && cdpUrls.Count == 0)
-                warnings.Add("CRL Distribution Point (CDP) URLs are empty but the template has CDP enabled.");
-            if (selectedTemplate.IncludeAia && aiaUrls.Count == 0)
-                warnings.Add("Authority Information Access (AIA) URLs are empty but the template has AIA enabled.");
+            if (selectedProfile.IncludeCdp && cdpUrls.Count == 0)
+                warnings.Add("CRL Distribution Point (CDP) URLs are empty but the profile has CDP enabled.");
+            if (selectedProfile.IncludeAia && aiaUrls.Count == 0)
+                warnings.Add("Authority Information Access (AIA) URLs are empty but the profile has AIA enabled.");
 
             // Validate that provided CDP and AIA URLs resolve
             var unreachableUrls = await ValidateEndpointUrlsAsync(cdpUrls, aiaUrls);
@@ -2331,7 +2331,7 @@ public partial class CertificateExplorer : IDisposable
             var request = new CertificateIssuanceRequest
             {
                 IssuingCaCertificateId = issuingCaIdForIssuance,
-                TemplateId = selectedTemplate.Id,
+                ProfileId = selectedProfile.Id,
                 TrustDomainId = TrustDomainId,
                 SubjectDn = issuanceSubjectDn,
                 CertificateName = issuanceCertName,
@@ -2474,11 +2474,11 @@ public partial class CertificateExplorer : IDisposable
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
         isRenewMode = true;
 
-        await PreselectRenewalTemplateAsync(db);
+        await PreselectRenewalProfileAsync(db);
 
-        OnTemplateSelected(selectedTemplate);
-        if (selectedTemplate != null)
-            await EnsureTemplateSanListsLoadedAsync(selectedTemplate);
+        OnProfileSelected(selectedProfile);
+        if (selectedProfile != null)
+            await EnsureProfileSanListsLoadedAsync(selectedProfile);
 
         issuanceCertName = selectedNode.Name;
 
@@ -2494,25 +2494,25 @@ public partial class CertificateExplorer : IDisposable
     }
 
     /// <summary>
-    /// Pre-selects the template for a renew/similar flow. The certificate's stored TemplateId
+    /// Pre-selects the profile for a renew/similar flow. The certificate's stored ProfileId
     /// is authoritative when it still exists — this is what distinguishes a client from a
-    /// server end-entity template. Without one (older or imported certs), fall back to a
-    /// template compatible with the cert's role, using the serverAuth EKU to prefer server
+    /// server end-entity profile. Without one (older or imported certs), fall back to a
+    /// profile compatible with the cert's role, using the serverAuth EKU to prefer server
     /// over client for end-entities.
     /// </summary>
-    private async Task PreselectRenewalTemplateAsync(SigyllDbContext db)
+    private async Task PreselectRenewalProfileAsync(SigyllDbContext db)
     {
         if (selectedNode == null) return;
 
         if (selectedNode.CertificateRole == "EndEntity")
         {
             var issued = await db.IssuedCertificates.FindAsync(selectedNode.Id);
-            if (issued?.TemplateId != null)
+            if (issued?.ProfileId != null)
             {
-                var stored = availableTemplates.FirstOrDefault(t => t.Id == issued.TemplateId);
+                var stored = availableProfiles.FirstOrDefault(t => t.Id == issued.ProfileId);
                 if (stored != null)
                 {
-                    selectedTemplate = stored;
+                    selectedProfile = stored;
                     return;
                 }
             }
@@ -2525,14 +2525,14 @@ public partial class CertificateExplorer : IDisposable
             _ => t is CertificateType.EndEntityClient or CertificateType.EndEntityServer
         };
 
-        // A re-key keeps the key algorithm: an ML-DSA root must not fall back to the first (RSA) root template.
+        // A re-key keeps the key algorithm: an ML-DSA root must not fall back to the first (RSA) root profile.
         var keyAlgorithm = selectedNode.EntityType == "CaCertificate"
             ? (await db.CaCertificates.FindAsync(selectedNode.Id))?.KeyAlgorithm
             : (await db.IssuedCertificates.FindAsync(selectedNode.Id))?.KeyAlgorithm;
-        bool SameAlgorithm(CertificateTemplate t) =>
+        bool SameAlgorithm(CertificateProfile t) =>
             keyAlgorithm == null || string.Equals(t.KeyAlgorithm, keyAlgorithm, StringComparison.OrdinalIgnoreCase);
 
-        if (selectedTemplate != null && Compatible(selectedTemplate.CertificateType) && SameAlgorithm(selectedTemplate))
+        if (selectedProfile != null && Compatible(selectedProfile.CertificateType) && SameAlgorithm(selectedProfile))
             return;
 
         var hasServerAuthEku = selectedCert?.Extensions
@@ -2543,12 +2543,12 @@ public partial class CertificateExplorer : IDisposable
             ? CertificateType.EndEntityServer
             : CertificateType.EndEntityClient;
 
-        selectedTemplate =
-            availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType) && SameAlgorithm(t)
+        selectedProfile =
+            availableProfiles.FirstOrDefault(t => Compatible(t.CertificateType) && SameAlgorithm(t)
                 && (selectedNode.CertificateRole != "EndEntity" || t.CertificateType == preferredEndEntityType))
-            ?? availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType) && SameAlgorithm(t))
-            ?? availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType))
-            ?? availableTemplates.FirstOrDefault();
+            ?? availableProfiles.FirstOrDefault(t => Compatible(t.CertificateType) && SameAlgorithm(t))
+            ?? availableProfiles.FirstOrDefault(t => Compatible(t.CertificateType))
+            ?? availableProfiles.FirstOrDefault();
     }
 
     private static List<string> ExtractExtensionUrls(X509Certificate2? cert, string oid)
@@ -2640,18 +2640,18 @@ public partial class CertificateExplorer : IDisposable
             issuingCaName = null;
         }
 
-        // Set renewal mode BEFORE opening the dialog so OnTemplateSelected preserves SANs
+        // Set renewal mode BEFORE opening the dialog so OnProfileSelected preserves SANs
         isRenewMode = true;
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
         isRenewMode = true; // ShowIssuanceDialog resets it — restore
         renewalOfCertificateId = selectedNode.Id; // record lineage: new cert renews this one
 
-        await PreselectRenewalTemplateAsync(db);
+        await PreselectRenewalProfileAsync(db);
 
-        // Always call OnTemplateSelected with isRenewMode=true to restore subject/SANs
-        OnTemplateSelected(selectedTemplate);
-        if (selectedTemplate != null)
-            await EnsureTemplateSanListsLoadedAsync(selectedTemplate);
+        // Always call OnProfileSelected with isRenewMode=true to restore subject/SANs
+        OnProfileSelected(selectedProfile);
+        if (selectedProfile != null)
+            await EnsureProfileSanListsLoadedAsync(selectedProfile);
 
         issuanceCertName = await NextRenewalNameAsync(db, selectedNode.Name);
     }
@@ -2947,9 +2947,9 @@ public partial class CertificateExplorer : IDisposable
     private string ExtensionsSummary()
     {
         var parts = new List<string>();
-        if (selectedTemplate?.IncludeCdp == true)
+        if (selectedProfile?.IncludeCdp == true)
             parts.Add($"{issuanceCdpUrls.Count(c => !string.IsNullOrWhiteSpace(c.Value))} CDP");
-        if (selectedTemplate?.IncludeAia == true)
+        if (selectedProfile?.IncludeAia == true)
             parts.Add($"{issuanceAiaUrls.Count(a => !string.IsNullOrWhiteSpace(a.Value))} AIA");
         parts.Add($"{issuanceSans.Count(s => !string.IsNullOrWhiteSpace(s.Value))} SAN");
         return string.Join(" · ", parts);

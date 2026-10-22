@@ -32,7 +32,7 @@ public class SanListService
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.SanLists
-            .Include(s => s.Templates)
+            .Include(s => s.Profiles)
             .OrderBy(s => s.Name)
             .ToListAsync(ct);
     }

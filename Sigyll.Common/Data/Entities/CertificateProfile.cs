@@ -20,7 +20,7 @@ public enum CertificateType : byte
     EndEntityServer = 3
 }
 
-public class CertificateTemplate
+public class CertificateProfile
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -71,19 +71,19 @@ public class CertificateTemplate
     public string? SubjectAltNameTypes { get; set; }
 
     /// <summary>
-    /// When true, this is a system-seeded template that cannot be deleted (only cloned).
+    /// When true, this is a system-seeded profile that cannot be deleted (only cloned).
     /// </summary>
     public bool IsPreset { get; set; }
 
     /// <summary>
-    /// RA-portal policy flag: when true, requests for this template (classification) may be
+    /// RA-portal policy flag: when true, requests for this profile (classification) may be
     /// auto-issued after successful domain validation (Let's-Encrypt-style), without human review.
     /// Surfaced to the portal via the catalog API; the CA remains the source of truth.
     /// </summary>
     public bool AllowAutoIssue { get; set; }
 
     /// <summary>
-    /// RA-portal policy flag: when true, requests for this template always require human RA
+    /// RA-portal policy flag: when true, requests for this profile always require human RA
     /// approval before issuance (e.g. UDAP client certs that need organizational vetting).
     /// </summary>
     public bool RequiresRaApproval { get; set; }

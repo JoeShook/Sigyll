@@ -17,8 +17,8 @@ public class IssuedCertificate
     public int IssuingCaCertificateId { get; set; }
     public CaCertificate IssuingCaCertificate { get; set; } = null!;
 
-    public int? TemplateId { get; set; }
-    public CertificateTemplate? Template { get; set; }
+    public int? ProfileId { get; set; }
+    public CertificateProfile? Profile { get; set; }
 
     public string Name { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;

@@ -19,16 +19,16 @@ using Sigyll.UI.Services;
 
 namespace Sigyll.UI.Components.Pages;
 
-public partial class Templates
+public partial class CertificateProfiles
 {
-    [Inject] private TemplateService TemplateService { get; set; } = null!;
+    [Inject] private CertificateProfileService CertificateProfileService { get; set; } = null!;
     [Inject] private SanListService SanListService { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
 
     [SupplyParameterFromQuery] public string? Action { get; set; }
 
-    private List<CertificateTemplate> templates = new();
+    private List<CertificateProfile> profiles = new();
     private bool dialogHidden = true;
     private bool isEditing;
     private int? editingId;
@@ -66,7 +66,7 @@ public partial class Templates
 
     // Options for selects
     private static readonly CertificateType[] certTypes = Enum.GetValues<CertificateType>();
-    private static readonly string[] keyAlgorithms = PqcAlgorithms.TemplateFamilies;
+    private static readonly string[] keyAlgorithms = PqcAlgorithms.ProfileFamilies;
     private static readonly int[] rsaKeySizes = [2048, 3072, 4096];
     private static readonly string[] ecdsaCurves = ["nistP256", "nistP384", "nistP521"];
     private static readonly string[] hashAlgorithms = ["SHA256", "SHA384", "SHA512"];
@@ -98,14 +98,14 @@ public partial class Templates
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadTemplatesAsync();
+        await LoadProfilesAsync();
         if (Action == "new")
             await ShowAddDialog();
     }
 
-    private async Task LoadTemplatesAsync()
+    private async Task LoadProfilesAsync()
     {
-        templates = await TemplateService.GetAllWithSanListsAsync();
+        profiles = await CertificateProfileService.GetAllWithSanListsAsync();
     }
 
     private async Task ShowAddDialog()
@@ -117,7 +117,7 @@ public partial class Templates
         dialogHidden = false;
     }
 
-    private async Task ShowEditDialog(CertificateTemplate t)
+    private async Task ShowEditDialog(CertificateProfile t)
     {
         isEditing = true;
         editingId = t.Id;
@@ -158,7 +158,7 @@ public partial class Templates
         editSelectedSanListIds.Clear();
     }
 
-    private void PopulateForm(CertificateTemplate t)
+    private void PopulateForm(CertificateProfile t)
     {
         editName = t.Name;
         editDescription = t.Description ?? string.Empty;
@@ -223,9 +223,9 @@ public partial class Templates
         editSelectedSanListIds = new HashSet<int>(t.SanLists.Select(s => s.Id));
     }
 
-    private CertificateTemplate BuildEntityFromForm(CertificateTemplate? existing = null)
+    private CertificateProfile BuildEntityFromForm(CertificateProfile? existing = null)
     {
-        var entity = existing ?? new CertificateTemplate();
+        var entity = existing ?? new CertificateProfile();
         entity.Name = editName.Trim();
         entity.Description = string.IsNullOrWhiteSpace(editDescription) ? null : editDescription.Trim();
         entity.CertificateType = editCertType;
@@ -275,35 +275,35 @@ public partial class Templates
         return entity;
     }
 
-    private async Task SaveTemplateAsync()
+    private async Task SaveProfileAsync()
     {
         if (string.IsNullOrWhiteSpace(editName)) return;
 
-        CertificateTemplate entity;
+        CertificateProfile entity;
 
         if (isEditing && editingId.HasValue)
         {
             entity = BuildEntityFromForm();
             entity.Id = editingId.Value;
-            await TemplateService.SaveAsync(entity);
-            await TemplateService.UpdateSanListsAsync(entity.Id, editSelectedSanListIds);
-            ToastService.ShowCopyableSuccess($"Template '{entity.Name}' updated.");
+            await CertificateProfileService.SaveAsync(entity);
+            await CertificateProfileService.UpdateSanListsAsync(entity.Id, editSelectedSanListIds);
+            ToastService.ShowCopyableSuccess($"Certificate profile '{entity.Name}' updated.");
         }
         else
         {
             entity = BuildEntityFromForm();
-            entity = await TemplateService.SaveAsync(entity);
-            await TemplateService.UpdateSanListsAsync(entity.Id, editSelectedSanListIds);
-            ToastService.ShowCopyableSuccess($"Template '{entity.Name}' created.");
+            entity = await CertificateProfileService.SaveAsync(entity);
+            await CertificateProfileService.UpdateSanListsAsync(entity.Id, editSelectedSanListIds);
+            ToastService.ShowCopyableSuccess($"Certificate profile '{entity.Name}' created.");
         }
 
         dialogHidden = true;
-        await LoadTemplatesAsync();
+        await LoadProfilesAsync();
     }
 
-    private void CloneTemplateAsync(CertificateTemplate source)
+    private void CloneProfileAsync(CertificateProfile source)
     {
-        var clone = new CertificateTemplate
+        var clone = new CertificateProfile
         {
             Name = $"Copy of {source.Name}",
             Description = source.Description,
@@ -344,25 +344,25 @@ public partial class Templates
     private Func<Task>? impactDialogOnConfirm;
     private bool impactDialogBusy;
 
-    private async Task DeleteTemplateAsync(CertificateTemplate template)
+    private async Task DeleteProfileAsync(CertificateProfile profile)
     {
-        if (template.IsPreset) return;
+        if (profile.IsPreset) return;
 
-        var impacts = await TemplateService.GetDeletionImpactAsync(template.Id);
-        impactDialogTitle = $"Delete template '{template.Name}'?";
-        impactDialogMessage = "Issued certificates that reference this template will not be deleted, but the reference will be cleared.";
-        impactDialogConfirmLabel = "Delete Template";
+        var impacts = await CertificateProfileService.GetDeletionImpactAsync(profile.Id);
+        impactDialogTitle = $"Delete profile '{profile.Name}'?";
+        impactDialogMessage = "Issued certificates that reference this profile will not be deleted, but the reference will be cleared.";
+        impactDialogConfirmLabel = "Delete Profile";
         impactDialogImpacts = impacts;
-        impactDialogOnConfirm = () => ConfirmDeleteTemplateAsync(template);
+        impactDialogOnConfirm = () => ConfirmDeleteProfileAsync(profile);
         impactDialogBusy = false;
         impactDialogHidden = false;
     }
 
-    private async Task ConfirmDeleteTemplateAsync(CertificateTemplate template)
+    private async Task ConfirmDeleteProfileAsync(CertificateProfile profile)
     {
-        await TemplateService.DeleteAsync(template.Id);
-        ToastService.ShowCopyableSuccess($"Template '{template.Name}' deleted.");
-        await LoadTemplatesAsync();
+        await CertificateProfileService.DeleteAsync(profile.Id);
+        ToastService.ShowCopyableSuccess($"Certificate profile '{profile.Name}' deleted.");
+        await LoadProfilesAsync();
     }
 
     private async Task OnImpactDialogConfirmAsync()
@@ -431,7 +431,7 @@ public partial class Templates
             return;
         }
 
-        if (!PqcAlgorithms.IsTemplateFamily(algorithm))
+        if (!PqcAlgorithms.IsProfileFamily(algorithm))
             return;
 
         if (PqcAlgorithms.ForFamily(algorithm).All(a => a.Id != editPqcId))
