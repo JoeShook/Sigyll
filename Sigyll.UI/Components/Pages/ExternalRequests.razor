@@ -102,7 +102,7 @@ else
                     </FluentButton>
                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                   IconStart="@(new Icons.Regular.Size16.Key())"
-                                  OnClick="@(() => ShowExportKeyDialog(context))" Disabled="@(!Access.CanExportKeys)" title="Export the private key (PKCS#8, encrypted with a passphrase you choose)">
+                                  OnClick="@(() => ShowExportKeyDialog(context))" Disabled="@(!Access.CanExportKeys)" title="@(Access.CanExportKeys ? "Export the private key (PKCS#8, encrypted with a passphrase you choose)" : OperatorAccess.ExportKeysHint)">
                         Key
                     </FluentButton>
                     @if (context.Status == ExternalRequestStatus.Pending)
@@ -127,7 +127,7 @@ else
                     {
                         <FluentButton Appearance="Appearance.Accent" Size="ButtonSize.Small"
                                       IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
-                                      OnClick="@(() => ShowP12Dialog(context))" Disabled="@(!Access.CanExportKeys)" title="Download certificate + private key as a .p12 with a password you choose">
+                                      OnClick="@(() => ShowP12Dialog(context))" Disabled="@(!Access.CanExportKeys)" title="@(Access.CanExportKeys ? "Download certificate + private key as a .p12 with a password you choose" : OperatorAccess.ExportKeysHint)">
                             .p12
                         </FluentButton>
                         <FluentAnchor Href="@($"/explorer/{context.TrustDomainId}?thumbprint={context.FulfilledThumbprint}")"
@@ -328,7 +328,8 @@ else
                     <FluentButton Appearance="Appearance.Accent"
                                   IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
                                   OnClick="@(() => { if (completeTarget != null) ShowP12Dialog(completeTarget); })"
-                                  Disabled="@(!Access.CanExportKeys)">
+                                  Disabled="@(!Access.CanExportKeys)"
+                                  title="@(Access.CanExportKeys ? null : OperatorAccess.ExportKeysHint)">
                         Download .p12
                     </FluentButton>
                 </FluentStack>

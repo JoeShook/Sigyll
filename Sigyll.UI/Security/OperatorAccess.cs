@@ -30,6 +30,10 @@ public class OperatorAccess
     public bool CanAdminister { get; private set; }
     public bool CanExportKeys { get; private set; }
 
+    /// <summary>Tooltip for a key-export control the operator cannot use.</summary>
+    public const string ExportKeysHint =
+        "Exporting private keys requires the KeyCustodian role. Another Admin can grant it on the Operators page.";
+
     /// <summary>Reads the operator's permissions; call from OnInitializedAsync.</summary>
     public async Task LoadAsync()
     {

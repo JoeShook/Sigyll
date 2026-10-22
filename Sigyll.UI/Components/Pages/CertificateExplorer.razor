@@ -1101,7 +1101,7 @@ else if (treeNodes.Count > 0)
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
                                           OnClick="ShowP12DownloadDialog" Disabled="@(!Access.CanExportKeys)"
-                                          title="Download certificate + private key (.p12)">
+                                          title="@(Access.CanExportKeys ? "Download certificate + private key (.p12)" : OperatorAccess.ExportKeysHint)">
                                 .p12
                             </FluentButton>
                             @if (selectedNode?.EntityType != "CaCertificate")
@@ -1109,7 +1109,7 @@ else if (treeNodes.Count > 0)
                                 <FluentButton Appearance="Appearance.Outline"
                                               IconStart="@(new Icons.Regular.Size16.Key())"
                                               OnClick="CopyPrivateKeyAsync" Disabled="@(!Access.CanExportKeys)"
-                                              title="Copy private key as PKCS#8 PEM to clipboard">
+                                              title="@(Access.CanExportKeys ? "Copy private key as PKCS#8 PEM to clipboard" : OperatorAccess.ExportKeysHint)">
                                     Copy Key
                                 </FluentButton>
                             }
