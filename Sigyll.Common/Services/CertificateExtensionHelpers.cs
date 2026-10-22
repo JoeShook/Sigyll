@@ -156,6 +156,23 @@ public static class CertificateExtensionHelpers
         return new X509Extension(RelatedCertificateOid, writer.Encode(), critical: false);
     }
 
+    /// <summary>Display text for an RFC 9763 RelatedCertificate extension: the hash algorithm and value.</summary>
+    public static string DescribeRelatedCertificate(X509Extension extension)
+    {
+        try
+        {
+            var sequence = new AsnReader(extension.RawData, AsnEncodingRules.DER).ReadSequence();
+            var algorithm = sequence.ReadSequence().ReadObjectIdentifier();
+            var hash = sequence.ReadOctetString();
+            var name = algorithm == Sha256Oid ? "SHA-256" : algorithm;
+            return $"Hash of the related certificate ({name}):\n{Convert.ToHexString(hash)}";
+        }
+        catch (AsnContentException)
+        {
+            return Convert.ToHexString(extension.RawData);
+        }
+    }
+
     /// <summary>
     /// True when <paramref name="certificate"/> carries an RFC 9763 RelatedCertificate
     /// extension whose SHA-256 hash matches <paramref name="relatedCertificateDer"/>.

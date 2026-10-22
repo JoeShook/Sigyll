@@ -79,6 +79,18 @@
 
         foreach (var ext in Certificate.Extensions)
         {
+            if (ext.Oid?.Value == Sigyll.Common.Services.CertificateExtensionHelpers.RelatedCertificateOid)
+            {
+                extensions.Add(new ExtensionRow
+                {
+                    Oid = ext.Oid.Value,
+                    FriendlyName = "Related Certificate (RFC 9763)",
+                    Critical = ext.Critical,
+                    Value = Sigyll.Common.Services.CertificateExtensionHelpers.DescribeRelatedCertificate(ext)
+                });
+                continue;
+            }
+
             extensions.Add(new ExtensionRow
             {
                 Oid = ext.Oid?.Value ?? "Unknown",
