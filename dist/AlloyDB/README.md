@@ -65,7 +65,13 @@ dotnet user-secrets set Postgres:DataVolume "<its data volume>"
 dotnet user-secrets set Postgres:ImageTag "<its postgres image tag>"
 # Only if those AppHosts stamp the container with their Aspire version in an environment variable:
 dotnet user-secrets set Postgres:AspireVersionVariable "<that variable's name>"
+# The host port the container publishes is part of its spec. Aspire saves the port it picks for a
+# persistent container in each AppHost's user secrets (Resources:<resource>:tcp:port); use theirs:
+dotnet user-secrets set Resources:postgres:tcp:port "<the port the other AppHosts saved>"
 ```
+
+The port matters as much as the rest: if this AppHost picks its own port, the AppHosts take turns
+recreating the container, each on its own port.
 
 Every value must match what the other AppHosts declare, and Sigyll.AppHost must be on the same Aspire
 version: any difference makes Aspire recreate the shared container (the data survives on the volume, but
