@@ -11,6 +11,7 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.FluentUI.AspNetCore.Components;
+using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
 using Sigyll.UI.Services;
@@ -41,6 +42,41 @@ public partial class CertificateExplorer
     private DirectPairInfo? directPairRekey;
     private string? directPairSigningName;
     private string? directPairEncryptionName;
+    private (List<string> Cdp, List<string> Aia) directPairOldSigningUrls = ([], []);
+    private (List<string> Cdp, List<string> Aia) directPairOldEncryptionUrls = ([], []);
+
+    /// <summary>CDP and AIA URLs both new certificates get: the signing profile's templates over the trust domain's base URLs.</summary>
+    private (List<string> Cdp, List<string> Aia) DirectPairUrls()
+    {
+        if (directSigningProfile == null) return ([], []);
+        var baseUrls = (selectedTrustDomain?.BaseUrls ?? new()).Select(bu => bu.Url).ToList();
+        var validator = IssuanceService.Validator;
+        return (validator.ExpandCdpTemplates(directSigningProfile, baseUrls, directPairCaName)
+                    .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList(),
+                validator.ExpandAiaTemplates(directSigningProfile, baseUrls, directPairCaName)
+                    .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList());
+    }
+
+    /// <summary>
+    /// Re-key mode: how the new pair's CDP/AIA URLs differ from the pair being replaced, as in the
+    /// single-certificate re-key. Halves with the same differences are reported once.
+    /// </summary>
+    private List<string> DirectPairUrlWarnings
+    {
+        get
+        {
+            if (directPairRekey == null) return [];
+            var (cdp, aia) = DirectPairUrls();
+            var validator = IssuanceService.Validator;
+            var signing = validator.CompareTemplateUrls(directPairOldSigningUrls.Cdp, directPairOldSigningUrls.Aia, cdp, aia)
+                .Select(w => w.Message).ToList();
+            var encryption = validator.CompareTemplateUrls(directPairOldEncryptionUrls.Cdp, directPairOldEncryptionUrls.Aia, cdp, aia)
+                .Select(w => w.Message).ToList();
+            return signing.SequenceEqual(encryption)
+                ? signing
+                : [.. signing.Select(m => $"Signing: {m}"), .. encryption.Select(m => $"Encryption: {m}")];
+        }
+    }
 
     private string DirectPairBindingValue
     {
@@ -86,6 +122,16 @@ public partial class CertificateExplorer
         await using var db = await DbFactory.CreateDbContextAsync();
         directPairSigningName = await NextRenewalNameAsync(db, pair.SigningName, pair.SigningVersion);
         directPairEncryptionName = await NextRenewalNameAsync(db, pair.EncryptionName, pair.EncryptionVersion);
+        directPairOldSigningUrls = await IssuedCertificateUrlsAsync(db, pair.SigningCertificateId);
+        directPairOldEncryptionUrls = await IssuedCertificateUrlsAsync(db, pair.EncryptionCertificateId);
+    }
+
+    private static async Task<(List<string> Cdp, List<string> Aia)> IssuedCertificateUrlsAsync(SigyllDbContext db, int id)
+    {
+        var pem = await db.IssuedCertificates.Where(i => i.Id == id).Select(i => i.X509CertificatePem).FirstOrDefaultAsync();
+        if (pem == null) return ([], []);
+        using var cert = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(pem);
+        return (ExtractExtensionUrls(cert, "2.5.29.31"), ExtractExtensionUrls(cert, "1.3.6.1.5.5.7.1.1"));
     }
 
     private bool CanIssueDirectPair =>
@@ -100,8 +146,7 @@ public partial class CertificateExplorer
         StateHasChanged();
         try
         {
-            var baseUrls = (selectedTrustDomain?.BaseUrls ?? new()).Select(bu => bu.Url).ToList();
-            var validator = IssuanceService.Validator;
+            var (cdpUrls, aiaUrls) = DirectPairUrls();
             directPairResult = await DirectPairService.IssuePairAsync(new DirectPairRequest
             {
                 TrustDomainId = TrustDomainId,
@@ -111,10 +156,8 @@ public partial class CertificateExplorer
                 SigningProfileId = directSigningProfile!.Id,
                 EncryptionProfileId = directEncryptionProfile!.Id,
                 PfxPassword = directPairPassword,
-                CdpUrls = validator.ExpandCdpTemplates(directSigningProfile, baseUrls, directPairCaName)
-                    .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList(),
-                AiaUrls = validator.ExpandAiaTemplates(directSigningProfile, baseUrls, directPairCaName)
-                    .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList(),
+                CdpUrls = cdpUrls,
+                AiaUrls = aiaUrls,
                 RenewalOfSigningId = directPairRekey?.SigningCertificateId,
                 RenewalOfEncryptionId = directPairRekey?.EncryptionCertificateId,
                 SigningName = directPairRekey != null ? directPairSigningName : null,

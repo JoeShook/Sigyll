@@ -574,6 +574,18 @@
                     "@directPairRekey.EncryptionName" → "@directPairEncryptionName", with new keys and a new RFC 9763 link.
                     The old pair stays valid until you revoke it.@(directPairRekey.Linked ? "" : " (The old pair carried no link.)")
                 </FluentMessageBar>
+                var urlWarnings = DirectPairUrlWarnings;
+                @if (urlWarnings.Count > 0 && directPairResult?.Success != true)
+                {
+                    <FluentMessageBar Id="direct-url-changes" Title="Profile changes CDP/AIA URLs" Intent="@MessageIntent.Warning">
+                        <ul style="margin: 0.25rem 0; padding-left: 1.25rem;">
+                            @foreach (var w in urlWarnings)
+                            {
+                                <li>@w</li>
+                            }
+                        </ul>
+                    </FluentMessageBar>
+                }
             }
             <FluentRadioGroup Name="direct-binding" @bind-Value="DirectPairBindingValue" Label="Binding"
                               Disabled="@(directPairResult?.Success == true || directPairRekey != null)">
