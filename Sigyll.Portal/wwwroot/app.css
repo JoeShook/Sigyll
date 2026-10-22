@@ -5,7 +5,7 @@ html, body {
 
 /* Follow the Fluent theme (set by FluentDesignTheme) so static Identity pages also adapt. */
 body {
-    background-color: var(--neutral-layer-1, #1a1a2e);
+    background-color: var(--neutral-layer-1, #272727);
     color: var(--neutral-foreground-rest, #e8e8e8);
 }
 
