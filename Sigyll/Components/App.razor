@@ -4,15 +4,34 @@
    See LICENSE in the project root for license information. *@
 
 <!DOCTYPE html>
-<html lang="en" style="background-color: #1a1a2e; color-scheme: dark;">
+<html lang="en" style="background-color: #272727; color-scheme: dark;">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sigyll - PKI Management</title>
     <base href="/" />
+    @* Pre-paint colours match FluentUI's dark neutral layer, so nothing flashes a different colour before the
+       theme loads. Static account pages override them in account.css. *@
     <style>
-        html, body { height: 100%; margin: 0; background-color: #1a1a2e; color: #e0e0e0; }
+        html, body { height: 100%; margin: 0; background-color: #272727; color: #e0e0e0; }
     </style>
+    @if (PageRenderMode is not null)
+    {
+        @* FluentUI's anti-flash helper: <loading-theme> below hides the page, on a background in the saved
+           theme's colour, until the Fluent web components are defined, then shows it fully styled. *@
+        <script src="/_content/Microsoft.FluentUI.AspNetCore.Components/js/loading-theme.js" type="text/javascript"></script>
+        @* Paint the first frame in the theme the page will open in (same rule as loading-theme.js: the saved
+           mode, else the system preference), so a light-theme user doesn't see one dark frame. *@
+        <script>
+            try {
+                var saved = JSON.parse(localStorage.getItem('sigil-theme') || 'null');
+                var mode = saved && saved.mode;
+                var dark = mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.style.backgroundColor = dark ? '#272727' : '#fbfbfb';
+                document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+            } catch (e) { }
+        </script>
+    }
     <link rel="stylesheet" href="/css/site.css" />
     <link href="/_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css" rel="stylesheet" />
     <link href="/Sigyll.styles.css" rel="stylesheet" />
@@ -20,6 +39,10 @@
     <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 <body>
+    @if (PageRenderMode is not null)
+    {
+        <loading-theme storage-name="sigil-theme"></loading-theme>
+    }
     <Routes @rendermode="PageRenderMode" />
     <script src="/_framework/blazor.web.js"></script>
     <script src="Components/Account/Shared/PasskeySubmit.razor.js" type="module"></script>
