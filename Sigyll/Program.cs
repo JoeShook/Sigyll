@@ -491,7 +491,10 @@ static async Task SeedOperatorAuthAsync(IServiceProvider services, IConfiguratio
 
     var userManager = services.GetRequiredService<UserManager<SigyllUser>>();
     if (await userManager.Users.AnyAsync())
+    {
+        await EnsureBootstrapKeyCustodianAsync(userManager, config);
         return;
+    }
 
     var email = config["Auth:BootstrapAdmin:Email"];
     var password = config["Auth:BootstrapAdmin:Password"];
@@ -513,7 +516,9 @@ static async Task SeedOperatorAuthAsync(IServiceProvider services, IConfiguratio
     var result = await userManager.CreateAsync(admin, password);
     if (result.Succeeded)
     {
-        await userManager.AddToRoleAsync(admin, SigyllRoles.Admin);
+        // The first operator can export keys; otherwise a single-admin install never could, since nobody may change
+        // their own roles.
+        await userManager.AddToRolesAsync(admin, [SigyllRoles.Admin, SigyllRoles.KeyCustodian]);
         Log.Warning(
             "Bootstrap admin '{Email}' created from configuration. Sign in, change the password, " +
             "and enroll a passkey immediately.", email);
@@ -523,6 +528,29 @@ static async Task SeedOperatorAuthAsync(IServiceProvider services, IConfiguratio
         Log.Error("Failed to create bootstrap admin: {Errors}",
             string.Join("; ", result.Errors.Select(e => e.Description)));
     }
+}
+
+// Installs whose bootstrap admin was created before it received KeyCustodian: while nobody holds KeyCustodian, the
+// bootstrap admin (Auth:BootstrapAdmin:Email) gets it, so key export is reachable without a second account.
+static async Task EnsureBootstrapKeyCustodianAsync(UserManager<SigyllUser> userManager, IConfiguration config)
+{
+    var email = config["Auth:BootstrapAdmin:Email"];
+    if (string.IsNullOrWhiteSpace(email))
+        return;
+
+    if ((await userManager.GetUsersInRoleAsync(SigyllRoles.KeyCustodian)).Count > 0)
+        return;
+
+    var admin = await userManager.FindByEmailAsync(email);
+    if (admin is null || !await userManager.IsInRoleAsync(admin, SigyllRoles.Admin))
+        return;
+
+    var result = await userManager.AddToRoleAsync(admin, SigyllRoles.KeyCustodian);
+    if (result.Succeeded)
+        Log.Warning("No operator held KeyCustodian; granted it to the bootstrap admin '{Email}'.", email);
+    else
+        Log.Error("Failed to grant KeyCustodian to the bootstrap admin: {Errors}",
+            string.Join("; ", result.Errors.Select(e => e.Description)));
 }
 
 static async Task SeedProfilesAsync(SigyllDbContext db)
