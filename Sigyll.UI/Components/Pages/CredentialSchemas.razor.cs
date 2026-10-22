@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Vc.Services;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -20,6 +21,7 @@ public partial class CredentialSchemas
     [Inject] private CredentialSchemaService SchemaService { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     private List<CredentialSchema> schemas = new();
     private bool dialogHidden = true;
@@ -47,7 +49,11 @@ public partial class CredentialSchemas
         }
         """;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        await Access.LoadAsync();
+        await LoadAsync();
+    }
 
     private async Task LoadAsync() => schemas = await SchemaService.GetAllAsync();
 
@@ -83,6 +89,8 @@ public partial class CredentialSchemas
 
     private async Task SaveAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         var entity = new CredentialSchema
@@ -113,6 +121,8 @@ public partial class CredentialSchemas
 
     private async Task DeleteAsync(CredentialSchema s)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (s.IsPreset) return;
 
         var impacts = await SchemaService.GetDeletionImpactAsync(s.Id);

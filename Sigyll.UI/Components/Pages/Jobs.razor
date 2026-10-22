@@ -31,7 +31,7 @@ else
                 <PropertyColumn Property="@(j => j.JobId)" Title="Job" />
                 <TemplateColumn Title="Schedule (Cron)">
                     <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem;">
-                        <FluentTextField @bind-Value="@context.EditableCron" Style="width: 160px; font-family: monospace;" />
+                        <FluentTextField @bind-Value="@context.EditableCron" ReadOnly="@(!Access.CanAdminister)" Style="width: 160px; font-family: monospace;" />
                         @if (context.EditableCron != context.OriginalCron)
                         {
                             <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveCron(context))">Save</FluentButton>
@@ -66,7 +66,7 @@ else
                 </TemplateColumn>
                 <TemplateColumn Title="Next Run">@When(context.NextRunAt)</TemplateColumn>
                 <TemplateColumn Title="Actions">
-                    <FluentButton Appearance="Appearance.Outline" OnClick="@(() => TriggerJob(context))">Run Now</FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" Disabled="@(!Access.CanOperate)" OnClick="@(() => TriggerJob(context))">Run Now</FluentButton>
                 </TemplateColumn>
             </FluentDataGrid>
 
@@ -121,7 +121,7 @@ else
                     <PropertyColumn Property="@(s => s.RevokedCount)" Title="Revocations" />
                     <TemplateColumn Title="Actions">
                         <FluentButton Appearance="Appearance.Outline"
-                                      Disabled="@(context.IsGenerating)"
+                                      Disabled="@(context.IsGenerating || !Access.CanOperate)"
                                       OnClick="@(() => GenerateCrl(context))">
                             @(context.HasCrl ? "Regenerate CRL" : "Generate CRL")
                         </FluentButton>

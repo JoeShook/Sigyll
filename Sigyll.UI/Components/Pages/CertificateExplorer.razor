@@ -31,12 +31,12 @@
     {
         <FluentButton Appearance="Appearance.Accent"
                       IconStart="@(new Icons.Regular.Size16.ArrowImport())"
-                      OnClick="@(() => showDropZone = !showDropZone)">
+                      OnClick="@(() => showDropZone = !showDropZone)" Disabled="@(!Access.CanOperate)">
             Import Certificate
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline"
                       IconStart="@(new Icons.Regular.Size16.ShieldKeyhole())"
-                      OnClick="@(() => ShowIssuanceDialog(null, null))">
+                      OnClick="@(() => ShowIssuanceDialog(null, null))" Disabled="@(!Access.CanOperate)">
             New Root CA
         </FluentButton>
     }
@@ -81,7 +81,7 @@
                 <span style="opacity: 0.5; font-size: 0.85rem;">or</span>
                 <FluentButton Appearance="Appearance.Outline"
                               IconStart="@(new Icons.Regular.Size16.Folder())"
-                              OnClick="TriggerFolderUpload">
+                              OnClick="TriggerFolderUpload" Disabled="@(!Access.CanOperate)">
                     Upload Folder
                 </FluentButton>
                 <span style="opacity: 0.4; font-size: 0.8rem;">Includes all subfolders</span>
@@ -149,7 +149,7 @@
         }
     </FluentDialogBody>
     <FluentDialogFooter>
-        <FluentButton Appearance="Appearance.Accent" OnClick="ImportWithPasswordAsync">Import</FluentButton>
+        <FluentButton Appearance="Appearance.Accent" OnClick="ImportWithPasswordAsync" Disabled="@(!Access.CanOperate)">Import</FluentButton>
         @if (pendingPasswordQueue.Count > 0)
         {
             <FluentButton Appearance="Appearance.Outline" OnClick="SkipPasswordFile">Skip</FluentButton>
@@ -196,7 +196,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="ConfirmImportAsync"
-                      Disabled="@(string.IsNullOrWhiteSpace(importName))">
+                      Disabled="@(string.IsNullOrWhiteSpace(importName) || !Access.CanOperate)">
             Import
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="CancelConfirmDialog">Cancel</FluentButton>
@@ -217,7 +217,7 @@
                         Label="Include certificate chain (issuing CA public certs)" />
     </FluentDialogBody>
     <FluentDialogFooter>
-        <FluentButton Appearance="Appearance.Accent" OnClick="DownloadP12Async">
+        <FluentButton Appearance="Appearance.Accent" OnClick="DownloadP12Async" Disabled="@(!Access.CanExportKeys)">
             Download
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => p12DialogHidden = true)">Cancel</FluentButton>
@@ -240,7 +240,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="MoveSelectedAsync"
-                      Disabled="@(moveTargetTrustDomain == null)">
+                      Disabled="@(moveTargetTrustDomain == null || !Access.CanOperate)">
             Move
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => moveDialogHidden = true)">Cancel</FluentButton>
@@ -279,7 +279,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="ConfirmCaAssignmentAsync"
-                      Disabled="@(selectedCaForAssignment == null)">
+                      Disabled="@(selectedCaForAssignment == null || !Access.CanOperate)">
             Assign
         </FluentButton>
         @if (pendingCaSelectQueue.Count > 0)
@@ -543,7 +543,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="IssueCertificateAsync"
-                      Disabled="@(isIssuing || string.IsNullOrWhiteSpace(issuanceSubjectDn) || (issuanceKeyStorage == "local" && string.IsNullOrWhiteSpace(issuancePfxPassword)) || selectedProfile == null || MissingRequiredSanTypes().Count > 0 || InvalidSanError() != null)">
+                      Disabled="@(isIssuing || string.IsNullOrWhiteSpace(issuanceSubjectDn) || (issuanceKeyStorage == "local" && string.IsNullOrWhiteSpace(issuancePfxPassword)) || selectedProfile == null || MissingRequiredSanTypes().Count > 0 || InvalidSanError() != null || !Access.CanOperate)">
             @(isIssuing ? "Generating..." : "Generate Certificate")
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => issuanceDialogHidden = true)"
@@ -662,14 +662,14 @@
         @if (directPairResult?.Success == true)
         {
             <FluentButton Id="direct-run-round-trip" Appearance="Appearance.Accent" OnClick="RunDirectRoundTripAsync"
-                          Disabled="@isRunningRoundTrip">
+                          Disabled="@(isRunningRoundTrip || !Access.CanOperate)">
                 @(isRunningRoundTrip ? "Running..." : "Run Round-Trip Test")
             </FluentButton>
         }
         else
         {
             <FluentButton Id="direct-issue-pair" Appearance="Appearance.Accent" OnClick="IssueDirectPairAsync"
-                          Disabled="@(!CanIssueDirectPair)">
+                          Disabled="@(!CanIssueDirectPair || !Access.CanOperate)">
                 @(isIssuingDirectPair ? (directPairRekey != null ? "Re-keying..." : "Issuing...") : (directPairRekey != null ? "Re-key Pair" : "Issue Pair"))
             </FluentButton>
         }
@@ -715,7 +715,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="ResignCertificateAsync"
-                      Disabled="@(isResigning || string.IsNullOrWhiteSpace(resignPfxPassword))">
+                      Disabled="@(isResigning || string.IsNullOrWhiteSpace(resignPfxPassword) || !Access.CanOperate)">
             @(isResigning ? "Re-signing..." : "Re-sign Certificate")
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => resignDialogHidden = true)"
@@ -769,7 +769,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="RevokeCertificateAsync"
-                      Disabled="@isRevoking"
+                      Disabled="@(isRevoking || !Access.CanOperate)"
                       Style="background: #9c27b0;">
             @(isRevoking ? "Revoking..." : "Revoke Certificate")
         </FluentButton>
@@ -976,14 +976,14 @@ else if (treeNodes.Count > 0)
                         </FluentAnchor>
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.Archive())"
-                                      OnClick="ArchiveSelectedAsync"
+                                      OnClick="ArchiveSelectedAsync" Disabled="@(!Access.CanOperate)"
                                       title="Archive this CRL (hidden but preserved)"
                                       Style="color: #ff9800;">
                             Archive
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.Delete())"
-                                      OnClick="DeleteSelectedAsync"
+                                      OnClick="DeleteSelectedAsync" Disabled="@(!Access.CanAdminister)"
                                       title="Permanently delete this CRL"
                                       Style="color: #e94560;">
                             Delete
@@ -1049,7 +1049,7 @@ else if (treeNodes.Count > 0)
                                              @onkeydown="OnRenameKeyDown" />
                             <FluentButton Appearance="Appearance.Stealth" Size="ButtonSize.Small"
                                           IconStart="@(new Icons.Regular.Size16.Checkmark())"
-                                          OnClick="SaveRenameAsync"
+                                          OnClick="SaveRenameAsync" Disabled="@(!Access.CanOperate)"
                                           title="Save name"
                                           Style="min-width: 24px; padding: 2px;" />
                             <FluentButton Appearance="Appearance.Stealth" Size="ButtonSize.Small"
@@ -1063,7 +1063,7 @@ else if (treeNodes.Count > 0)
                             <FluentLabel Typo="Typography.Subject">@selectedNode?.Name</FluentLabel>
                             <FluentButton Appearance="Appearance.Stealth" Size="ButtonSize.Small"
                                           IconStart="@(new Icons.Regular.Size16.Edit())"
-                                          OnClick="StartRename"
+                                          OnClick="StartRename" Disabled="@(!Access.CanOperate)"
                                           title="Rename certificate"
                                           Style="min-width: 24px; padding: 2px;" />
                         }
@@ -1100,20 +1100,23 @@ else if (treeNodes.Count > 0)
                         {
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
-                                          OnClick="ShowP12DownloadDialog"
+                                          OnClick="ShowP12DownloadDialog" Disabled="@(!Access.CanExportKeys)"
                                           title="Download certificate + private key (.p12)">
                                 .p12
                             </FluentButton>
-                            <FluentButton Appearance="Appearance.Outline"
-                                          IconStart="@(new Icons.Regular.Size16.Key())"
-                                          OnClick="CopyPrivateKeyAsync"
-                                          title="Copy private key as PKCS#8 PEM to clipboard">
-                                Copy Key
-                            </FluentButton>
+                            @if (selectedNode?.EntityType != "CaCertificate")
+                            {
+                                <FluentButton Appearance="Appearance.Outline"
+                                              IconStart="@(new Icons.Regular.Size16.Key())"
+                                              OnClick="CopyPrivateKeyAsync" Disabled="@(!Access.CanExportKeys)"
+                                              title="Copy private key as PKCS#8 PEM to clipboard">
+                                    Copy Key
+                                </FluentButton>
+                            }
                         }
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.ArrowForward())"
-                                      OnClick="ShowMoveDialog"
+                                      OnClick="ShowMoveDialog" Disabled="@(!Access.CanOperate)"
                                       title="Move to another trustDomain">
                             Move
                         </FluentButton>
@@ -1121,7 +1124,7 @@ else if (treeNodes.Count > 0)
                         {
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.ShieldDismiss())"
-                                          OnClick="ShowRevokeDialog"
+                                          OnClick="ShowRevokeDialog" Disabled="@(!Access.CanOperate)"
                                           title="Revoke this certificate"
                                           Style="color: #9c27b0;">
                                 Revoke
@@ -1129,14 +1132,14 @@ else if (treeNodes.Count > 0)
                         }
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.Archive())"
-                                      OnClick="ArchiveSelectedAsync"
+                                      OnClick="ArchiveSelectedAsync" Disabled="@(!Access.CanOperate)"
                                       title="Archive this certificate (hidden but preserved)"
                                       Style="color: #ff9800;">
                             Archive
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.Delete())"
-                                      OnClick="DeleteSelectedAsync"
+                                      OnClick="DeleteSelectedAsync" Disabled="@(!Access.CanAdminister)"
                                       title="Permanently delete this certificate"
                                       Style="color: #e94560;">
                             Delete
@@ -1145,32 +1148,32 @@ else if (treeNodes.Count > 0)
                         {
                             <FluentButton Appearance="Appearance.Accent"
                                           IconStart="@(new Icons.Regular.Size16.Add())"
-                                          OnClick="@(() => ShowIssuanceDialog(selectedNode.Id, selectedNode.Name))"
+                                          OnClick="@(() => ShowIssuanceDialog(selectedNode.Id, selectedNode.Name))" Disabled="@(!Access.CanOperate)"
                                           title="Issue a new certificate signed by this CA">
                                 Issue Certificate
                             </FluentButton>
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.MailShield())"
-                                          OnClick="@(() => ShowDirectPairDialog(selectedNode.Id, selectedNode.Name))"
+                                          OnClick="@(() => ShowDirectPairDialog(selectedNode.Id, selectedNode.Name))" Disabled="@(!Access.CanOperate)"
                                           title="Issue the two post-quantum certificates a Direct address or domain needs: ML-DSA signing + ML-KEM encryption">
                                 Issue Direct PQC Pair
                             </FluentButton>
                         }
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.Copy())"
-                                      OnClick="ShowSimilarDialog"
+                                      OnClick="ShowSimilarDialog" Disabled="@(!Access.CanOperate)"
                                       title="Issue a new certificate pre-populated with this certificate's metadata">
                             Similar
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.ArrowRepeatAll())"
-                                      OnClick="ShowRenewDialog"
+                                      OnClick="ShowRenewDialog" Disabled="@(!Access.CanOperate)"
                                       title="Re-key: new key pair, new serial, new validity. Downstream certs need re-issuance.">
                             Re-key
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.DocumentBulletList())"
-                                      OnClick="ShowCsrDialog"
+                                      OnClick="ShowCsrDialog" Disabled="@(!Access.CanOperate)"
                                       title="Create a PKCS#10 certificate signing request modeled on this certificate, to submit to an external CA">
                             Create CSR
                         </FluentButton>
@@ -1178,21 +1181,21 @@ else if (treeNodes.Count > 0)
                         {
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.ArrowRepeatAll())"
-                                          OnClick="ShowResignDialog"
+                                          OnClick="ShowResignDialog" Disabled="@(!Access.CanOperate)"
                                           title="Re-sign: same key, new serial and validity. Downstream certs remain valid.">
                                 Re-sign
                             </FluentButton>
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.ShieldKeyhole())"
                                           OnClick="GenerateCrlForSelectedAsync"
-                                          Disabled="@isGeneratingCrl"
+                                          Disabled="@(isGeneratingCrl || !Access.CanOperate)"
                                           title="@(SelectedCaHasCrl ? "Regenerate CRL signed by this certificate, using the trust domain validity setting" : "Generate the first CRL signed by this certificate, using the trust domain validity setting")">
                                 @(isGeneratingCrl ? "Generating..." : SelectedCaHasCrl ? "Regen CRL" : "Generate CRL")
                             </FluentButton>
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.DocumentArrowRight())"
                                           OnClick="ShowPublishCrlDialog"
-                                          Disabled="@isGeneratingCrl"
+                                          Disabled="@(isGeneratingCrl || !Access.CanOperate)"
                                           title="Generate and publish a new CRL">
                                 Publish CRL
                             </FluentButton>
@@ -1208,7 +1211,7 @@ else if (treeNodes.Count > 0)
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.Certificate())"
                                           OnClick="PublishAiaForSelectedAsync"
-                                          Disabled="@isPublishingAia"
+                                          Disabled="@(isPublishingAia || !Access.CanOperate)"
                                           title="Publish this CA's public certificate to AIA endpoints">
                                 @(isPublishingAia ? "Publishing..." : "Publish AIA")
                             </FluentButton>
@@ -1250,6 +1253,7 @@ else if (treeNodes.Count > 0)
                                 <span>
                                     <FluentCheckbox Value="@selectedNodeAutoRenew"
                                                     ValueChanged="@(v => ToggleAutoRenewAsync(v))"
+                                                    Disabled="@(!Access.CanOperate)"
                                                     Label="@(selectedNodeAutoRenew ? "Enabled" : "Disabled")" />
                                 </span>
                                 <strong>Version</strong>
@@ -1470,7 +1474,10 @@ else if (TrustDomainId > 0 && !showDropZone)
 {
     <FluentCard Style="margin-top: 1rem;">
         <p>No certificates found in this trustDomain.
-            <FluentAnchor Href="javascript:void(0)" OnClick="@(() => showDropZone = true)">Import a certificate</FluentAnchor> to get started.
+            @if (Access.CanOperate)
+            {
+                <FluentAnchor Href="javascript:void(0)" OnClick="@(() => showDropZone = true)">Import a certificate</FluentAnchor> <text>to get started.</text>
+            }
         </p>
     </FluentCard>
 }
@@ -1497,7 +1504,7 @@ else if (TrustDomainId > 0 && !showDropZone)
 
         @if (isCa && selectedNodeCanSign)
         {
-            <FluentMenuItem OnClick="@(() => ShowIssuanceDialog(n.Id, n.Name))">
+            <FluentMenuItem OnClick="@(() => ShowIssuanceDialog(n.Id, n.Name))" Disabled="@(!Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.Add())" slot="start" />
                 Issue Certificate
             </FluentMenuItem>
@@ -1506,22 +1513,22 @@ else if (TrustDomainId > 0 && !showDropZone)
 
         @if (!isCrl)
         {
-            <FluentMenuItem OnClick="ShowSimilarDialog">
+            <FluentMenuItem OnClick="ShowSimilarDialog" Disabled="@(!Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.Copy())" slot="start" />
                 Issue Similar
             </FluentMenuItem>
-            <FluentMenuItem OnClick="ShowRenewDialog">
+            <FluentMenuItem OnClick="ShowRenewDialog" Disabled="@(!Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.ArrowRepeatAll())" slot="start" />
                 Re-key
             </FluentMenuItem>
             @if (isCa && selectedNodeCanSign)
             {
-                <FluentMenuItem OnClick="ShowResignDialog">
+                <FluentMenuItem OnClick="ShowResignDialog" Disabled="@(!Access.CanOperate)">
                     <FluentIcon Value="@(new Icons.Regular.Size16.ArrowRepeatAll())" slot="start" />
                     Re-sign
                 </FluentMenuItem>
             }
-            <FluentMenuItem OnClick="StartRename">
+            <FluentMenuItem OnClick="StartRename" Disabled="@(!Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" slot="start" />
                 Rename
             </FluentMenuItem>
@@ -1529,7 +1536,7 @@ else if (TrustDomainId > 0 && !showDropZone)
                 <FluentIcon Value="@(new Icons.Regular.Size16.Copy())" slot="start" />
                 Copy Subject DN
             </FluentMenuItem>
-            <FluentMenuItem OnClick="ShowMoveDialog">
+            <FluentMenuItem OnClick="ShowMoveDialog" Disabled="@(!Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.ArrowForward())" slot="start" />
                 Move…
             </FluentMenuItem>
@@ -1538,15 +1545,15 @@ else if (TrustDomainId > 0 && !showDropZone)
 
         @if (isCa && selectedNodeCanSign)
         {
-            <FluentMenuItem OnClick="GenerateCrlForSelectedAsync" Disabled="@isGeneratingCrl">
+            <FluentMenuItem OnClick="GenerateCrlForSelectedAsync" Disabled="@(isGeneratingCrl || !Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.ShieldKeyhole())" slot="start" />
                 @(SelectedCaHasCrl ? "Regen CRL" : "Generate CRL")
             </FluentMenuItem>
-            <FluentMenuItem OnClick="ShowPublishCrlDialog" Disabled="@isGeneratingCrl">
+            <FluentMenuItem OnClick="ShowPublishCrlDialog" Disabled="@(isGeneratingCrl || !Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.DocumentArrowRight())" slot="start" />
                 Publish CRL…
             </FluentMenuItem>
-            <FluentMenuItem OnClick="PublishAiaForSelectedAsync" Disabled="@isPublishingAia">
+            <FluentMenuItem OnClick="PublishAiaForSelectedAsync" Disabled="@(isPublishingAia || !Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.Certificate())" slot="start" />
                 Publish AIA
             </FluentMenuItem>
@@ -1561,7 +1568,7 @@ else if (TrustDomainId > 0 && !showDropZone)
             </FluentMenuItem>
             @if (n.IsLatestCrl)
             {
-                <FluentMenuItem OnClick="RepublishCrlAsync">
+                <FluentMenuItem OnClick="RepublishCrlAsync" Disabled="@(!Access.CanOperate)">
                     <FluentIcon Value="@(new Icons.Regular.Size16.DocumentArrowRight())" slot="start" />
                     Re-publish to CDP
                 </FluentMenuItem>
@@ -1571,16 +1578,16 @@ else if (TrustDomainId > 0 && !showDropZone)
 
         @if (!isCrl && n.Status != CertificateStatus.Revoked)
         {
-            <FluentMenuItem OnClick="ShowRevokeDialog">
+            <FluentMenuItem OnClick="ShowRevokeDialog" Disabled="@(!Access.CanOperate)">
                 <FluentIcon Value="@(new Icons.Regular.Size16.ShieldDismiss())" slot="start" />
                 Revoke…
             </FluentMenuItem>
         }
-        <FluentMenuItem OnClick="ArchiveSelectedAsync">
+        <FluentMenuItem OnClick="ArchiveSelectedAsync" Disabled="@(!Access.CanOperate)">
             <FluentIcon Value="@(new Icons.Regular.Size16.Archive())" slot="start" />
             Archive
         </FluentMenuItem>
-        <FluentMenuItem OnClick="DeleteSelectedAsync">
+        <FluentMenuItem OnClick="DeleteSelectedAsync" Disabled="@(!Access.CanAdminister)">
             <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" slot="start" />
             Delete…
         </FluentMenuItem>
@@ -1710,7 +1717,7 @@ else if (TrustDomainId > 0 && !showDropZone)
         <FluentDatePicker @bind-Value="crlOverrideNextUpdate" Label="Next Update (UTC)" />
     </FluentDialogBody>
     <FluentDialogFooter>
-        <FluentButton Appearance="Appearance.Accent" OnClick="GenerateCrlWithOverrideAsync">
+        <FluentButton Appearance="Appearance.Accent" OnClick="GenerateCrlWithOverrideAsync" Disabled="@(!Access.CanOperate)">
             Publish
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => crlOverrideDialogHidden = true)">

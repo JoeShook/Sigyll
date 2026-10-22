@@ -9,9 +9,9 @@
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.FluentUI.AspNetCore.Components
-@* Every page in this library is CA management surface — require a signed-in operator.
+@* Every page in this library is CA management surface — require a signed-in operator with a Sigyll role.
    (Inert on non-page components; the /Account pages live in the host and stay anonymous.) *@
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = Sigyll.UI.Security.SigyllPolicies.View)]
 @using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
 @using Sigyll.UI.Components.Layout
 @using Sigyll.UI.Components.Shared
@@ -21,3 +21,4 @@
 @using Sigyll.Common.Services.Pqc
 @using Sigyll.Common.ViewModels
 @using Sigyll.UI.Services
+@using Sigyll.UI.Security

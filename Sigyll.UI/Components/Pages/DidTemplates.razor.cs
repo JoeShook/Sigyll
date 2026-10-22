@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Did.Services;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -20,6 +21,7 @@ public partial class DidTemplates
     [Inject] private DidTemplateService TemplateService { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     private List<DidTemplate> templates = new();
     private bool dialogHidden = true;
@@ -36,7 +38,11 @@ public partial class DidTemplates
     private static readonly string[] supportedMethods = ["key"];
     private static readonly string[] supportedAlgorithms = ["Ed25519"];
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        await Access.LoadAsync();
+        await LoadAsync();
+    }
 
     private async Task LoadAsync() => templates = await TemplateService.GetAllAsync();
 
@@ -68,6 +74,8 @@ public partial class DidTemplates
 
     private async Task SaveAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         var entity = new DidTemplate
@@ -98,6 +106,8 @@ public partial class DidTemplates
 
     private async Task DeleteAsync(DidTemplate t)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (t.IsPreset) return;
 
         var dialog = await DialogService.ShowConfirmationAsync(

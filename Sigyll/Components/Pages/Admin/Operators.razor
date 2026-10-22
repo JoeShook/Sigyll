@@ -11,6 +11,7 @@
 @using Microsoft.EntityFrameworkCore
 @using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
 @using Sigyll.Data
+@using Sigyll.UI.Security
 @using Sigyll.UI.Services
 
 @inject UserManager<SigyllUser> UserManager
@@ -54,6 +55,13 @@
                     @(row.User.LockoutEnd > DateTimeOffset.UtcNow ? "Locked" : "—")
                 </td>
                 <td style="padding: 0.5rem; text-align: right;">
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.PeopleTeam())"
+                                  OnClick="@(() => ShowEditRolesDialog(row))"
+                                  Disabled="@(row.User.Id == currentUserId)"
+                                  title="@(row.User.Id == currentUserId ? "Another Admin must change your roles" : "Change this operator's roles")">
+                        Roles
+                    </FluentButton>
                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                   IconStart="@(new Icons.Regular.Size16.Key())"
                                   OnClick="@(() => ShowSetPasswordDialog(row.User))"
@@ -100,6 +108,32 @@
     </FluentDialogFooter>
 </FluentDialog>
 
+@* Edit roles dialog *@
+<FluentDialog @bind-Hidden="@editRolesDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 420px;">
+    <FluentDialogHeader>Roles</FluentDialogHeader>
+    <FluentDialogBody>
+        <p style="font-size: 0.9rem;">Roles for <code>@editRolesTarget?.Email</code>.</p>
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.5rem;">
+            @foreach (var role in SigyllRoles.All)
+            {
+                <FluentCheckbox Value="@editRoles.Contains(role)"
+                                ValueChanged="@(v => ToggleEditRole(role, v))"
+                                Label="@role" />
+            }
+        </FluentStack>
+        <p style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.75rem;">
+            KeyCustodian is the only role that can export private keys; Admin does not include it.
+        </p>
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Accent" OnClick="SaveRolesAsync"
+                      Disabled="@(editRoles.Count == 0)">
+            Save
+        </FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => editRolesDialogHidden = true)">Cancel</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
 @* Set password dialog *@
 <FluentDialog @bind-Hidden="@setPasswordDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 420px;">
     <FluentDialogHeader>Set Password</FluentDialogHeader>
@@ -128,6 +162,10 @@
     private string newDisplayName = string.Empty;
     private string newPassword = string.Empty;
     private readonly HashSet<string> newRoles = new() { SigyllRoles.CaOperator };
+
+    private bool editRolesDialogHidden = true;
+    private SigyllUser? editRolesTarget;
+    private readonly HashSet<string> editRoles = new();
 
     private bool setPasswordDialogHidden = true;
     private SigyllUser? setPasswordTarget;
@@ -187,6 +225,56 @@
         newRoles.Clear();
         newRoles.Add(SigyllRoles.CaOperator);
         await LoadOperatorsAsync();
+    }
+
+    private void ShowEditRolesDialog(OperatorRow row)
+    {
+        editRolesTarget = row.User;
+        editRoles.Clear();
+        editRoles.UnionWith(row.Roles);
+        editRolesDialogHidden = false;
+    }
+
+    private void ToggleEditRole(string role, bool selected)
+    {
+        if (selected) editRoles.Add(role);
+        else editRoles.Remove(role);
+    }
+
+    private async Task SaveRolesAsync()
+    {
+        if (editRolesTarget == null) return;
+
+        // An operator never changes their own roles: granting yourself KeyCustodian, or dropping
+        // your own Admin, takes a second Admin.
+        if (editRolesTarget.Id == currentUserId)
+        {
+            ToastService.ShowWarning("Another Admin must change your roles.");
+            return;
+        }
+
+        var current = await UserManager.GetRolesAsync(editRolesTarget);
+        var toRemove = current.Except(editRoles).ToList();
+        var toAdd = editRoles.Except(current).ToList();
+
+        var result = IdentityResult.Success;
+        if (toRemove.Count > 0)
+            result = await UserManager.RemoveFromRolesAsync(editRolesTarget, toRemove);
+        if (result.Succeeded && toAdd.Count > 0)
+            result = await UserManager.AddToRolesAsync(editRolesTarget, toAdd);
+
+        if (result.Succeeded)
+        {
+            // Rotate the security stamp so the operator's open sessions pick up the change.
+            await UserManager.UpdateSecurityStampAsync(editRolesTarget);
+            ToastService.ShowSuccess($"Roles updated for '{editRolesTarget.Email}'");
+            editRolesDialogHidden = true;
+            await LoadOperatorsAsync();
+        }
+        else
+        {
+            ToastService.ShowCopyableError(string.Join("; ", result.Errors.Select(e => e.Description)));
+        }
     }
 
     private void ShowSetPasswordDialog(SigyllUser user)

@@ -16,6 +16,7 @@ using Microsoft.JSInterop;
 using Sigyll.Common.Data;
 using Sigyll.Common.Services;
 using Sigyll.Common.ViewModels;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -31,6 +32,7 @@ public partial class CsrTool : IDisposable
     [Inject] private CertificateImportService ImportService { get; set; } = null!;
     [Inject] private IDbContextFactory<SigyllDbContext> DbFactory { get; set; } = null!;
     [Inject] private IJSRuntime JS { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     public class TrustDomainChoice
     {
@@ -59,6 +61,7 @@ public partial class CsrTool : IDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        await Access.LoadAsync();
         await using var db = await DbFactory.CreateDbContextAsync();
         trustDomains = await db.TrustDomains
             .Where(t => t.Enabled)
@@ -177,6 +180,8 @@ public partial class CsrTool : IDisposable
     /// </summary>
     private async Task ImportBundleAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         if (bundleResult?.Pkcs12Bytes == null || importTrustDomain == null) return;
 
         isImporting = true;

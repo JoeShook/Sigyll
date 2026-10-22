@@ -30,7 +30,7 @@
         <FluentButton Appearance="Appearance.Accent"
                       IconStart="@(new Icons.Regular.Size16.Add())"
                       OnClick="ShowNewRequestDialog"
-                      Disabled="@(selectedTrustDomain == null)">
+                      Disabled="@(selectedTrustDomain == null || !Access.CanOperate)">
             New CSR
         </FluentButton>
     </FluentStack>
@@ -102,24 +102,24 @@ else
                     </FluentButton>
                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                   IconStart="@(new Icons.Regular.Size16.Key())"
-                                  OnClick="@(() => ShowExportKeyDialog(context))" title="Export the private key (PKCS#8, encrypted with a passphrase you choose)">
+                                  OnClick="@(() => ShowExportKeyDialog(context))" Disabled="@(!Access.CanExportKeys)" title="Export the private key (PKCS#8, encrypted with a passphrase you choose)">
                         Key
                     </FluentButton>
                     @if (context.Status == ExternalRequestStatus.Pending)
                     {
                         <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                       IconStart="@(new Icons.Regular.Size16.Edit())"
-                                      OnClick="@(() => ShowEditDialog(context))" title="Change subject, SANs or extensions and regenerate the CSR (same key unless you choose to rotate it)">
+                                      OnClick="@(() => ShowEditDialog(context))" Disabled="@(!Access.CanOperate)" title="Change subject, SANs or extensions and regenerate the CSR (same key unless you choose to rotate it)">
                             Edit…
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Accent" Size="ButtonSize.Small"
                                       IconStart="@(new Icons.Regular.Size16.Checkmark())"
-                                      OnClick="@(() => ShowCompleteDialog(context))" title="Upload the certificate the CA returned">
+                                      OnClick="@(() => ShowCompleteDialog(context))" Disabled="@(!Access.CanOperate)" title="Upload the certificate the CA returned">
                             Complete…
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                       IconStart="@(new Icons.Regular.Size16.Dismiss())"
-                                      OnClick="@(() => CancelAsync(context))" title="Cancel this request (key is kept until deleted)">
+                                      OnClick="@(() => CancelAsync(context))" Disabled="@(!Access.CanOperate)" title="Cancel this request (key is kept until deleted)">
                             Cancel
                         </FluentButton>
                     }
@@ -127,7 +127,7 @@ else
                     {
                         <FluentButton Appearance="Appearance.Accent" Size="ButtonSize.Small"
                                       IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
-                                      OnClick="@(() => ShowP12Dialog(context))" title="Download certificate + private key as a .p12 with a password you choose">
+                                      OnClick="@(() => ShowP12Dialog(context))" Disabled="@(!Access.CanExportKeys)" title="Download certificate + private key as a .p12 with a password you choose">
                             .p12
                         </FluentButton>
                         <FluentAnchor Href="@($"/explorer/{context.TrustDomainId}?thumbprint={context.FulfilledThumbprint}")"
@@ -137,7 +137,7 @@ else
                     }
                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                   IconStart="@(new Icons.Regular.Size16.Delete())"
-                                  OnClick="@(() => DeleteAsync(context))" title="Delete this request and its stored private key"
+                                  OnClick="@(() => DeleteAsync(context))" Disabled="@(!Access.CanAdminister)" title="Delete this request and its stored private key"
                                   Style="color: #e94560;">
                         Delete
                     </FluentButton>
@@ -246,7 +246,7 @@ else
     <FluentDialogFooter>
         @if (createResult == null)
         {
-            <FluentButton Appearance="Appearance.Accent" OnClick="CreateRequestAsync" Disabled="@NewRequestInvalid">
+            <FluentButton Appearance="Appearance.Accent" OnClick="CreateRequestAsync" Disabled="@(NewRequestInvalid || !Access.CanOperate)">
                 @(isCreating ? "Generating…" : editingId == null ? "Generate & Save" : "Regenerate CSR & Save")
             </FluentButton>
             <FluentButton Appearance="Appearance.Outline" OnClick="@(() => newDialogHidden = true)" Disabled="@isCreating">Cancel</FluentButton>
@@ -327,7 +327,8 @@ else
                 <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem;">
                     <FluentButton Appearance="Appearance.Accent"
                                   IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
-                                  OnClick="@(() => { if (completeTarget != null) ShowP12Dialog(completeTarget); })">
+                                  OnClick="@(() => { if (completeTarget != null) ShowP12Dialog(completeTarget); })"
+                                  Disabled="@(!Access.CanExportKeys)">
                         Download .p12
                     </FluentButton>
                 </FluentStack>
@@ -338,7 +339,7 @@ else
         @if (completeResult?.Success != true)
         {
             <FluentButton Appearance="Appearance.Accent" OnClick="CompleteRequestAsync"
-                          Disabled="@(isCompleting || completeCertBytes == null || (completeResult?.NeedsCaSelection == true && selectedIssuingCa == null && completeChain.Count == 0))">
+                          Disabled="@(isCompleting || completeCertBytes == null || (completeResult?.NeedsCaSelection == true && selectedIssuingCa == null && completeChain.Count == 0) || !Access.CanOperate)">
                 @(isCompleting ? "Importing…" : "Match & Import")
             </FluentButton>
             <FluentButton Appearance="Appearance.Outline" OnClick="CloseCompleteDialog" Disabled="@isCompleting">Cancel</FluentButton>
@@ -364,7 +365,7 @@ else
         </div>
     </FluentDialogBody>
     <FluentDialogFooter>
-        <FluentButton Appearance="Appearance.Accent" OnClick="DownloadP12Async" Disabled="@(string.IsNullOrEmpty(p12Password))">
+        <FluentButton Appearance="Appearance.Accent" OnClick="DownloadP12Async" Disabled="@(string.IsNullOrEmpty(p12Password) || !Access.CanExportKeys)">
             Download .p12
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => p12DialogHidden = true)">Cancel</FluentButton>
@@ -384,7 +385,7 @@ else
         </div>
     </FluentDialogBody>
     <FluentDialogFooter>
-        <FluentButton Appearance="Appearance.Accent" OnClick="ExportKeyAsync" Disabled="@(string.IsNullOrEmpty(exportKeyPassphrase))">
+        <FluentButton Appearance="Appearance.Accent" OnClick="ExportKeyAsync" Disabled="@(string.IsNullOrEmpty(exportKeyPassphrase) || !Access.CanExportKeys)">
             Download .key
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => exportKeyDialogHidden = true)">Cancel</FluentButton>

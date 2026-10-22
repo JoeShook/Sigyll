@@ -76,7 +76,7 @@
 - [ ] Conformance testing integration (validate certs against UDAP spec)
 
 ## Phase 9: Security & Compliance
-- [ ] Role-based access control (RBAC) — Admin, Operator, Auditor, RA roles
+- [x] Role-based access control (RBAC) — Admin, CaOperator, Auditor, KeyCustodian (key export only; Admin does not include it). RA roles come with the portal
 - [ ] Full audit logging (who did what, when, to which cert) — see **Phase 13** for the key-egress audit subset, which is sequenced earlier because revocation safety depends on it
 - [ ] Audit log viewer/export
 - [ ] RA (Registration Authority) workflows — request/approve/reject

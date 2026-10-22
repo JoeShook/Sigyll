@@ -13,7 +13,7 @@
     <FluentStack Orientation="Orientation.Horizontal" Style="align-items: center; gap: 0.5rem;">
         <FluentLabel Typo="Typography.Subject">PKI Trust Domains</FluentLabel>
         <FluentSpacer />
-        <FluentButton Appearance="Appearance.Accent" OnClick="ShowAddDialog"
+        <FluentButton Appearance="Appearance.Accent" OnClick="ShowAddDialog" Disabled="@(!Access.CanAdminister)"
                       IconStart="@(new Icons.Regular.Size16.Add())">
             Add Trust Domain
         </FluentButton>
@@ -59,7 +59,7 @@
                 <FluentButton Size="ButtonSize.Small"
                               Appearance="Appearance.Outline"
                               IconStart="@(new Icons.Regular.Size16.Delete())"
-                              OnClick="@(() => DeleteTrustDomainAsync(context))">
+                              OnClick="@(() => DeleteTrustDomainAsync(context))" Disabled="@(!Access.CanAdminister)">
                     Delete
                 </FluentButton>
             </FluentStack>
@@ -92,7 +92,7 @@
                                      Style="flex: 1;" />
                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                   IconStart="@(new Icons.Regular.Size16.FolderOpen())"
-                                  OnClick="@(() => ShowFolderBrowser(url))"
+                                  OnClick="@(() => ShowFolderBrowser(url))" Disabled="@(!Access.CanAdminister)"
                                   title="Browse for folder" />
                 </FluentStack>
             </FluentStack>
@@ -106,7 +106,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="AddTrustDomainAsync"
-                      Disabled="@(string.IsNullOrWhiteSpace(newTrustDomainName))">
+                      Disabled="@(string.IsNullOrWhiteSpace(newTrustDomainName) || !Access.CanAdminister)">
             Create
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => addDialogHidden = true)">
@@ -140,7 +140,7 @@
                                      Style="flex: 1;" />
                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                   IconStart="@(new Icons.Regular.Size16.FolderOpen())"
-                                  OnClick="@(() => ShowFolderBrowser(url))"
+                                  OnClick="@(() => ShowFolderBrowser(url))" Disabled="@(!Access.CanAdminister)"
                                   title="Browse for folder" />
                 </FluentStack>
             </FluentStack>
@@ -154,7 +154,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="SaveEditAsync"
-                      Disabled="@(string.IsNullOrWhiteSpace(editTrustDomainName))">
+                      Disabled="@(string.IsNullOrWhiteSpace(editTrustDomainName) || !Access.CanAdminister)">
             Save
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => editDialogHidden = true)">

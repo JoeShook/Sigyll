@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Sigyll.Common.Services;
 using Sigyll.Common.ViewModels;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -20,6 +21,7 @@ public partial class TrustDomains
     [Inject] private TrustDomainService TrustDomainService { get; set; } = null!;
     [Inject] private NavigationManager Navigation { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     [SupplyParameterFromQuery] public string? Action { get; set; }
     [SupplyParameterFromQuery] public int? Edit { get; set; }
@@ -62,6 +64,7 @@ public partial class TrustDomains
 
     protected override async Task OnInitializedAsync()
     {
+        await Access.LoadAsync();
         await LoadTrustDomainsAsync();
         if (Action == "new")
         {
@@ -91,6 +94,8 @@ public partial class TrustDomains
 
     private async Task AddTrustDomainAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (string.IsNullOrWhiteSpace(newTrustDomainName)) return;
 
         var baseUrls = newTrustDomainBaseUrls
@@ -114,6 +119,8 @@ public partial class TrustDomains
 
     private async Task DeleteTrustDomainAsync(TrustDomainViewModel trustDomain)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         var impacts = await TrustDomainService.GetDeletionImpactAsync(trustDomain.Id);
         impactDialogTitle = $"Delete trust domain '{trustDomain.Name}'?";
         impactDialogMessage = "All certificates, CRLs, and revocation records in this trust domain will be permanently deleted. This cannot be undone.";
@@ -126,6 +133,8 @@ public partial class TrustDomains
 
     private async Task ConfirmDeleteTrustDomainAsync(int trustDomainId)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         await TrustDomainService.DeleteAsync(trustDomainId);
         await LoadTrustDomainsAsync();
     }
@@ -162,6 +171,8 @@ public partial class TrustDomains
 
     private async Task SaveEditAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (string.IsNullOrWhiteSpace(editTrustDomainName)) return;
 
         var baseUrls = editTrustDomainBaseUrls
@@ -184,6 +195,8 @@ public partial class TrustDomains
 
     private void ShowFolderBrowser(BaseUrlEntry target)
     {
+        if (!Access.CanAdminister) return;
+
         folderBrowserTarget = target;
         folderBrowserUseRelative = true;
 
@@ -243,6 +256,8 @@ public partial class TrustDomains
 
     private void FolderBrowserConfirm()
     {
+        if (!Access.CanAdminister) return;
+
         if (folderBrowserTarget == null) return;
 
         var selected = folderBrowserSelectedSubdir ?? folderBrowserCurrentPath;

@@ -15,6 +15,7 @@ using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
 using Sigyll.UI.Services;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -86,6 +87,8 @@ public partial class CertificateExplorer
 
     private async Task ShowDirectPairDialog(int caId, string caName)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         directPairCaId = caId;
         directPairCaName = caName;
         directPairBinding = DirectBinding.Address;
@@ -112,6 +115,8 @@ public partial class CertificateExplorer
     /// </summary>
     private async Task ShowDirectPairRekeyDialogAsync(DirectPairInfo pair)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         await ShowDirectPairDialog(pair.IssuingCaCertificateId, pair.IssuingCaName);
         directPairRekey = pair;
         directPairBinding = pair.Binding;
@@ -141,6 +146,8 @@ public partial class CertificateExplorer
 
     private async Task IssueDirectPairAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         isIssuingDirectPair = true;
         directRoundTrip = null;
         StateHasChanged();
@@ -188,6 +195,8 @@ public partial class CertificateExplorer
 
     private async Task RunDirectRoundTripAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         if (directPairResult is not { Success: true }) return;
         isRunningRoundTrip = true;
         directRoundTrip = null;

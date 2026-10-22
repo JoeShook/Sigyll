@@ -14,6 +14,7 @@ using Microsoft.FluentUI.AspNetCore.Components;
 using Sigyll.Common.Data;
 using Sigyll.Did.Services;
 using Sigyll.Did.ViewModels;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -24,6 +25,7 @@ public partial class Dids
     [Inject] private IDbContextFactory<SigyllDbContext> DbFactory { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     private List<DidDocumentViewModel> dids = new();
     private List<TrustDomainOption> trustDomainOptions = new();
@@ -41,6 +43,7 @@ public partial class Dids
 
     protected override async Task OnInitializedAsync()
     {
+        await Access.LoadAsync();
         await LoadAsync();
         await LoadOptionsAsync();
     }
@@ -72,6 +75,8 @@ public partial class Dids
 
     private async Task MintAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         if (selectedTrustDomain == null || selectedDidTemplate == null) return;
 
         try
@@ -97,6 +102,8 @@ public partial class Dids
 
     private async Task DeactivateAsync(DidDocumentViewModel vm)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         var dialog = await DialogService.ShowConfirmationAsync(
             $"Deactivate DID '{vm.Did}'? Issued credentials will fail verification.",
             "Deactivate", "Cancel", "Confirm Deactivate");

@@ -16,6 +16,7 @@ using Sigyll.Common.Services;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using Sigyll.UI.Services;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -25,6 +26,7 @@ public partial class CertificateProfiles
     [Inject] private SanListService SanListService { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     [SupplyParameterFromQuery] public string? Action { get; set; }
 
@@ -98,6 +100,7 @@ public partial class CertificateProfiles
 
     protected override async Task OnInitializedAsync()
     {
+        await Access.LoadAsync();
         await LoadProfilesAsync();
         if (Action == "new")
             await ShowAddDialog();
@@ -277,6 +280,8 @@ public partial class CertificateProfiles
 
     private async Task SaveProfileAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         CertificateProfile entity;
@@ -346,6 +351,8 @@ public partial class CertificateProfiles
 
     private async Task DeleteProfileAsync(CertificateProfile profile)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (profile.IsPreset) return;
 
         var impacts = await CertificateProfileService.GetDeletionImpactAsync(profile.Id);
@@ -360,6 +367,8 @@ public partial class CertificateProfiles
 
     private async Task ConfirmDeleteProfileAsync(CertificateProfile profile)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         await CertificateProfileService.DeleteAsync(profile.Id);
         ToastService.ShowCopyableSuccess($"Certificate profile '{profile.Name}' deleted.");
         await LoadProfilesAsync();

@@ -18,6 +18,7 @@ using Serilog;
 using Sigyll.Components;
 using Sigyll.Components.Account;
 using Sigyll.Data;
+using Sigyll.UI.Security;
 using Microsoft.Extensions.Options;
 using Sigyll.Common.Data;
 using Sigyll.ServiceDefaults;
@@ -86,7 +87,8 @@ try
         .AddSignInManager()
         .AddDefaultTokenProviders();
 
-    builder.Services.AddAuthorization();
+    builder.Services.AddAuthorization(options => options.AddSigyllPolicies());
+    builder.Services.AddScoped<OperatorAccess>();
 
     // Pin the passkey Relying Party ID explicitly. A CA must not infer the RP ID from the
     // host header (credential-scoping risk).
@@ -237,7 +239,7 @@ try
 
         var cerBytes = Encoding.UTF8.GetBytes(ca.X509CertificatePem);
         return Results.File(cerBytes, "application/x-pem-file", $"{ca.Name}.cer");
-    }).RequireAuthorization();
+    }).RequireAuthorization(SigyllPolicies.View);
 
     app.MapGet("/api/ca/{id}/download/p12", async (int id, CertificateExportService exportService, bool chain = false) =>
     {
@@ -245,7 +247,7 @@ try
         return result.Success
             ? Results.File(result.PfxBytes!, "application/x-pkcs12", result.FileName)
             : Results.NotFound(result.Error);
-    }).RequireAuthorization();
+    }).RequireAuthorization(SigyllPolicies.ExportKeys);
 
     app.MapGet("/api/issued/{id}/download/cer", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -255,7 +257,7 @@ try
 
         var cerBytes = Encoding.UTF8.GetBytes(cert.X509CertificatePem);
         return Results.File(cerBytes, "application/x-pem-file", $"{cert.Name}.cer");
-    }).RequireAuthorization();
+    }).RequireAuthorization(SigyllPolicies.View);
 
     app.MapGet("/api/issued/{id}/download/p12", async (int id, CertificateExportService exportService, bool chain = false) =>
     {
@@ -263,7 +265,7 @@ try
         return result.Success
             ? Results.File(result.PfxBytes!, "application/x-pkcs12", result.FileName)
             : Results.NotFound(result.Error);
-    }).RequireAuthorization();
+    }).RequireAuthorization(SigyllPolicies.ExportKeys);
 
     app.MapGet("/api/crl/{id}/download", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -273,7 +275,7 @@ try
 
         var fileName = crl.FileName ?? $"crl-{crl.CrlNumber}.crl";
         return Results.File(crl.RawBytes, "application/pkix-crl", fileName);
-    }).RequireAuthorization();
+    }).RequireAuthorization(SigyllPolicies.View);
 
     // PEM download endpoints
     app.MapGet("/api/ca/{id}/download/pem", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
@@ -284,7 +286,7 @@ try
 
         var pemBytes = Encoding.UTF8.GetBytes(ca.X509CertificatePem);
         return Results.File(pemBytes, "application/x-pem-file", $"{ca.Name}.pem");
-    }).RequireAuthorization();
+    }).RequireAuthorization(SigyllPolicies.View);
 
     app.MapGet("/api/issued/{id}/download/pem", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -294,7 +296,7 @@ try
 
         var pemBytes = Encoding.UTF8.GetBytes(cert.X509CertificatePem);
         return Results.File(pemBytes, "application/x-pem-file", $"{cert.Name}.pem");
-    }).RequireAuthorization();
+    }).RequireAuthorization(SigyllPolicies.View);
 
     // ── RA portal internal API (true RA/CA split) ────────────────────────────────
     // The isolated request portal calls these endpoints to read the issuance catalog and to

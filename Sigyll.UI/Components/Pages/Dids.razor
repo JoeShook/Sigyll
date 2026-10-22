@@ -14,7 +14,7 @@
     <FluentStack Orientation="Orientation.Horizontal" Style="align-items: center; gap: 0.5rem;">
         <FluentLabel Typo="Typography.Subject">Decentralized Identifiers minted in Sigyll</FluentLabel>
         <FluentSpacer />
-        <FluentButton Appearance="Appearance.Accent" OnClick="ShowMintDialog"
+        <FluentButton Appearance="Appearance.Accent" OnClick="ShowMintDialog" Disabled="@(!Access.CanOperate)"
                       IconStart="@(new Icons.Regular.Size16.Add())">
             Mint DID
         </FluentButton>
@@ -50,7 +50,7 @@
                 {
                     <FluentButton Size="ButtonSize.Small" Appearance="Appearance.Outline"
                                   IconStart="@(new Icons.Regular.Size16.PlugDisconnected())"
-                                  OnClick="@(() => DeactivateAsync(context))">
+                                  OnClick="@(() => DeactivateAsync(context))" Disabled="@(!Access.CanOperate)">
                         Deactivate
                     </FluentButton>
                 }
@@ -89,7 +89,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="MintAsync"
-                      Disabled="@(selectedTrustDomain == null || selectedDidTemplate == null)">
+                      Disabled="@(selectedTrustDomain == null || selectedDidTemplate == null || !Access.CanOperate)">
             Mint
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => mintDialogHidden = true)">

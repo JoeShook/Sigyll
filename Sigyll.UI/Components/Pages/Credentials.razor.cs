@@ -14,6 +14,7 @@ using Microsoft.FluentUI.AspNetCore.Components;
 using Sigyll.Common.Data;
 using Sigyll.Vc.Services;
 using Sigyll.Vc.ViewModels;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -25,6 +26,7 @@ public partial class Credentials
     [Inject] private IDbContextFactory<SigyllDbContext> DbFactory { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     private List<IssuedCredentialViewModel> credentials = new();
     private List<TrustDomainOption> trustDomainOptions = new();
@@ -47,6 +49,7 @@ public partial class Credentials
 
     protected override async Task OnInitializedAsync()
     {
+        await Access.LoadAsync();
         await LoadAsync();
         await LoadOptionsAsync();
     }
@@ -95,6 +98,8 @@ public partial class Credentials
 
     private async Task IssueAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         if (!CanIssue() || selectedTrustDomain == null || selectedSchema == null || selectedIssuer == null) return;
 
         try
@@ -131,6 +136,8 @@ public partial class Credentials
 
     private async Task RevokeAsync(IssuedCredentialViewModel c)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         var dialog = await DialogService.ShowConfirmationAsync(
             $"Revoke credential {c.CredentialId}? Verifiers checking status will reject it.",
             "Revoke", "Cancel", "Confirm Revoke");

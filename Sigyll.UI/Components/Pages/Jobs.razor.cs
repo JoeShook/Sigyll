@@ -10,6 +10,7 @@
 
 using Microsoft.AspNetCore.Components;
 using Sigyll.Common.Services.Jobs;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -18,6 +19,7 @@ public partial class Jobs : IDisposable
     [Inject] private IRecurringJobScheduler JobScheduler { get; set; } = null!;
     [Inject] private CrlGenerationService CrlGenerationService { get; set; } = null!;
     [Inject] private Services.TimeDisplayService TimeDisplay { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     private bool isLoading = true;
     private List<CrlStatusRow> crlStatuses = new();
@@ -27,6 +29,7 @@ public partial class Jobs : IDisposable
     protected override async Task OnInitializedAsync()
     {
         TimeDisplay.OnChanged += StateHasChanged;
+        await Access.LoadAsync();
         await LoadRecurringJobsAsync();
         await LoadCrlStatusesAsync();
         isLoading = false;
@@ -50,6 +53,8 @@ public partial class Jobs : IDisposable
 
     private async Task SaveCron(RecurringJobRow row)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         try
         {
             await JobScheduler.UpdateCronExpressionAsync(row.JobId, row.EditableCron);
@@ -64,6 +69,8 @@ public partial class Jobs : IDisposable
 
     private async Task TriggerJob(RecurringJobRow row)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         await JobScheduler.TriggerJobAsync(row.JobId);
         row.Triggered = true;
 
@@ -77,6 +84,8 @@ public partial class Jobs : IDisposable
 
     private async Task GenerateCrl(CrlStatusRow row)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         row.IsGenerating = true;
         StateHasChanged();
 

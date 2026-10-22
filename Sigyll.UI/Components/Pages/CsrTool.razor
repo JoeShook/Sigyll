@@ -228,7 +228,7 @@
                           IconStart="@(new Icons.Regular.Size16.ArrowImport())"
                           OnClick="ImportBundleAsync"
                           Loading="@isImporting"
-                          Disabled="@(importTrustDomain == null)">
+                          Disabled="@(importTrustDomain == null || !Access.CanOperate)">
                 Import
             </FluentButton>
         </FluentStack>

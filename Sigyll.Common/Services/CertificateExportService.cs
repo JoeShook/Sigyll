@@ -52,11 +52,19 @@ public class CertificateExportService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Exports an end-entity private key as unencrypted PKCS#8 PEM. CA keys are never exported
+    /// this way; they leave Sigyll only as a password-protected PKCS#12.
+    /// </summary>
     public async Task<CertificateExportResult> ExportPrivateKeyPemAsync(
         int certificateId,
         string entityType,
         CancellationToken ct = default)
     {
+        if (entityType == "CaCertificate")
+            return CertificateExportResult.Failure(
+                "CA private keys cannot be exported as PEM. Download the password-protected .p12 instead.");
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         byte[]? pfxBytes;

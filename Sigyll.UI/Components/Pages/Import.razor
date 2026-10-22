@@ -23,7 +23,7 @@
         <FluentButton Appearance="Appearance.Accent"
                       OnClick="ScanAsync"
                       Loading="@isScanning"
-                      Disabled="@(string.IsNullOrWhiteSpace(certstorePath))">
+                      Disabled="@(string.IsNullOrWhiteSpace(certstorePath) || !Access.CanOperate)">
             Scan
         </FluentButton>
     </FluentStack>
@@ -38,7 +38,7 @@
             <FluentButton Appearance="Appearance.Accent"
                           OnClick="ImportAllAsync"
                           Loading="@isImporting"
-                          Disabled="@(!previews.Any(p => p.IsValid))">
+                          Disabled="@(!previews.Any(p => p.IsValid) || !Access.CanOperate)">
                 Import All
             </FluentButton>
         </FluentStack>
@@ -65,7 +65,7 @@
                 <FluentButton Size="ButtonSize.Small"
                               Appearance="Appearance.Outline"
                               OnClick="@(() => ImportSingleAsync(context))"
-                              Disabled="@(!context.IsValid || isImporting)">
+                              Disabled="@(!context.IsValid || isImporting || !Access.CanOperate)">
                     Import
                 </FluentButton>
             </TemplateColumn>

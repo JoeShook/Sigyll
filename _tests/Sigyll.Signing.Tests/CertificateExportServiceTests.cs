@@ -34,10 +34,10 @@ public class CertificateExportServiceTests : IDisposable
     [Fact]
     public async Task ExportPrivateKeyPem_Rsa_ReturnsPkcs8Pem()
     {
-        var (caId, _) = await SeedCaCertificateAsync("RSA", 2048);
+        var (issuedId, _) = await SeedIssuedCertificateAsync("RSA", 2048);
         var service = CreateService();
 
-        var result = await service.ExportPrivateKeyPemAsync(caId, "CaCertificate");
+        var result = await service.ExportPrivateKeyPemAsync(issuedId, "IssuedCertificate");
 
         result.Success.ShouldBeTrue();
         result.Pem.ShouldStartWith("-----BEGIN PRIVATE KEY-----");
@@ -47,10 +47,10 @@ public class CertificateExportServiceTests : IDisposable
     [Fact]
     public async Task ExportPrivateKeyPem_Ecdsa_ReturnsPkcs8Pem()
     {
-        var (caId, _) = await SeedCaCertificateAsync("ECDSA", 384);
+        var (issuedId, _) = await SeedIssuedCertificateAsync("ECDSA", 384);
         var service = CreateService();
 
-        var result = await service.ExportPrivateKeyPemAsync(caId, "CaCertificate");
+        var result = await service.ExportPrivateKeyPemAsync(issuedId, "IssuedCertificate");
 
         result.Success.ShouldBeTrue();
         result.Pem.ShouldStartWith("-----BEGIN PRIVATE KEY-----");
@@ -58,24 +58,26 @@ public class CertificateExportServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExportPrivateKeyPem_IssuedCertificate_Works()
-    {
-        var issuedId = await SeedIssuedCertificateAsync("RSA", 2048);
-        var service = CreateService();
-
-        var result = await service.ExportPrivateKeyPemAsync(issuedId, "IssuedCertificate");
-
-        result.Success.ShouldBeTrue();
-        result.Pem.ShouldContain("BEGIN PRIVATE KEY");
-    }
-
-    [Fact]
-    public async Task ExportPrivateKeyPem_RoundTrips_CanSignAndVerify()
+    public async Task ExportPrivateKeyPem_CaCertificate_IsRefused()
     {
         var (caId, cert) = await SeedCaCertificateAsync("RSA", 2048);
         var service = CreateService();
 
         var result = await service.ExportPrivateKeyPemAsync(caId, "CaCertificate");
+
+        result.Success.ShouldBeFalse();
+        result.Pem.ShouldBeNull();
+        result.Error!.ShouldContain(".p12");
+        cert.Dispose();
+    }
+
+    [Fact]
+    public async Task ExportPrivateKeyPem_RoundTrips_CanSignAndVerify()
+    {
+        var (issuedId, cert) = await SeedIssuedCertificateAsync("RSA", 2048);
+        var service = CreateService();
+
+        var result = await service.ExportPrivateKeyPemAsync(issuedId, "IssuedCertificate");
 
         result.Success.ShouldBeTrue();
 
@@ -94,10 +96,10 @@ public class CertificateExportServiceTests : IDisposable
     [Fact]
     public async Task ExportPrivateKeyPem_NoPfxBytes_ReturnsFailure()
     {
-        var caId = await SeedCaCertificateWithoutKeyAsync();
+        var (issuedId, _) = await SeedIssuedCertificateAsync("RSA", 2048, withKey: false);
         var service = CreateService();
 
-        var result = await service.ExportPrivateKeyPemAsync(caId, "CaCertificate");
+        var result = await service.ExportPrivateKeyPemAsync(issuedId, "IssuedCertificate");
 
         result.Success.ShouldBeFalse();
         result.Error.ShouldContain("No private key");
@@ -108,7 +110,7 @@ public class CertificateExportServiceTests : IDisposable
     {
         var service = CreateService();
 
-        var result = await service.ExportPrivateKeyPemAsync(99999, "CaCertificate");
+        var result = await service.ExportPrivateKeyPemAsync(99999, "IssuedCertificate");
 
         result.Success.ShouldBeFalse();
         result.Error.ShouldContain("not found");
@@ -117,10 +119,10 @@ public class CertificateExportServiceTests : IDisposable
     [Fact]
     public async Task ExportPrivateKeyPem_CloudKmsLevel_ReturnsFailure()
     {
-        var (caId, _) = await SeedCaCertificateAsync("RSA", 2048, securityLevel: CertSecurityLevel.CloudKms);
+        var (issuedId, _) = await SeedIssuedCertificateAsync("RSA", 2048, securityLevel: CertSecurityLevel.CloudKms);
         var service = CreateService();
 
-        var result = await service.ExportPrivateKeyPemAsync(caId, "CaCertificate");
+        var result = await service.ExportPrivateKeyPemAsync(issuedId, "IssuedCertificate");
 
         result.Success.ShouldBeFalse();
         result.Error.ShouldContain("security level");
@@ -129,10 +131,10 @@ public class CertificateExportServiceTests : IDisposable
     [Fact]
     public async Task ExportPrivateKeyPem_Fips1403Level_ReturnsFailure()
     {
-        var (caId, _) = await SeedCaCertificateAsync("RSA", 2048, securityLevel: CertSecurityLevel.Fips1403);
+        var (issuedId, _) = await SeedIssuedCertificateAsync("RSA", 2048, securityLevel: CertSecurityLevel.Fips1403);
         var service = CreateService();
 
-        var result = await service.ExportPrivateKeyPemAsync(caId, "CaCertificate");
+        var result = await service.ExportPrivateKeyPemAsync(issuedId, "IssuedCertificate");
 
         result.Success.ShouldBeFalse();
         result.Error.ShouldContain("security level");
@@ -158,7 +160,7 @@ public class CertificateExportServiceTests : IDisposable
     [Fact]
     public async Task ExportCertificateDerBase64_IssuedCertificate_Works()
     {
-        var issuedId = await SeedIssuedCertificateAsync("RSA", 2048);
+        var (issuedId, _) = await SeedIssuedCertificateAsync("RSA", 2048);
         var service = CreateService();
 
         var result = await service.ExportCertificateDerBase64Async(issuedId, "IssuedCertificate");
@@ -328,14 +330,29 @@ public class CertificateExportServiceTests : IDisposable
         return (ca.Id, cert);
     }
 
-    private async Task<int> SeedIssuedCertificateAsync(string algorithm, int keySize)
+    private async Task<(int IssuedId, X509Certificate2 Cert)> SeedIssuedCertificateAsync(
+        string algorithm, int keySize,
+        CertSecurityLevel securityLevel = CertSecurityLevel.Software,
+        bool withKey = true)
     {
         var password = "test-password";
-        using var rsa = RSA.Create(keySize);
-        var req = new CertificateRequest("CN=Test Issued Cert", rsa, HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1);
-        using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(1));
-        var pfxBytes = cert.Export(X509ContentType.Pkcs12, password);
+        X509Certificate2 cert;
+
+        if (algorithm == "ECDSA")
+        {
+            using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+            var req = new CertificateRequest("CN=Test ECDSA Issued Cert", ecdsa, HashAlgorithmName.SHA384);
+            cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(1));
+        }
+        else
+        {
+            using var rsa = RSA.Create(keySize);
+            var req = new CertificateRequest("CN=Test Issued Cert", rsa, HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pkcs1);
+            cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(1));
+        }
+
+        var pfxBytes = withKey ? cert.Export(X509ContentType.Pkcs12, password) : null;
 
         await using var db = await _dbFactory.CreateDbContextAsync();
         var issued = new IssuedCertificate
@@ -343,20 +360,21 @@ public class CertificateExportServiceTests : IDisposable
             Name = "Test-Issued",
             X509CertificatePem = cert.ExportCertificatePem(),
             EncryptedPfxBytes = pfxBytes,
-            PfxPassword = password,
+            PfxPassword = withKey ? password : null,
             Thumbprint = cert.Thumbprint,
             SerialNumber = cert.SerialNumber,
             KeyAlgorithm = algorithm,
             KeySize = keySize,
             NotBefore = cert.NotBefore,
             NotAfter = cert.NotAfter,
+            CertSecurityLevel = securityLevel,
             IssuingCaCertificateId = 1
         };
 
         db.IssuedCertificates.Add(issued);
         await db.SaveChangesAsync();
 
-        return issued.Id;
+        return (issued.Id, cert);
     }
 
     private record ChainSeedResult(

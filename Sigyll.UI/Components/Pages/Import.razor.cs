@@ -11,12 +11,16 @@
 using Microsoft.AspNetCore.Components;
 using Sigyll.Common.Services;
 using Sigyll.Common.ViewModels;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
 public partial class Import
 {
     [Inject] private CertificateImportService ImportService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync() => await Access.LoadAsync();
 
     private string certstorePath = string.Empty;
     private string pfxPassword = "udap-test";
@@ -40,6 +44,8 @@ public partial class Import
 
     private async Task ScanAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         isScanning = true;
         importResults.Clear();
 
@@ -58,6 +64,8 @@ public partial class Import
 
     private async Task ImportSingleAsync(ImportPreviewViewModel preview)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         isImporting = true;
 
         try
@@ -78,6 +86,8 @@ public partial class Import
 
     private async Task ImportAllAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
+
         isImporting = true;
 
         try

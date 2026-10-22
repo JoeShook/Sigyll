@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
+using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
@@ -20,6 +21,7 @@ public partial class SanLists
     [Inject] private SanListService SanListService { get; set; } = null!;
     [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
+    [Inject] private OperatorAccess Access { get; set; } = null!;
 
     private List<SanList> sanLists = new();
     private bool dialogHidden = true;
@@ -34,6 +36,7 @@ public partial class SanLists
 
     protected override async Task OnInitializedAsync()
     {
+        await Access.LoadAsync();
         await LoadAsync();
     }
 
@@ -64,6 +67,8 @@ public partial class SanLists
 
     private async Task SaveAsync()
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         var items = editEntries
@@ -86,6 +91,8 @@ public partial class SanLists
 
     private async Task DeleteSanListAsync(SanList list)
     {
+        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
+
         var dialog = await DialogService.ShowConfirmationAsync(
             $"Delete SAN list '{list.Name}'?",
             "Delete", "Cancel", "Confirm Delete");

@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\Sigyll.Vc\Sigyll.Vc.csproj" />
     <ProjectReference Include="..\..\Sigyll.Vault\Sigyll.Vault.csproj" />
     <ProjectReference Include="..\..\Sigyll.Gcp\Sigyll.Gcp.csproj" />
+    <ProjectReference Include="..\..\Sigyll.UI\Sigyll.UI.csproj" />
   </ItemGroup>
 
 </Project>

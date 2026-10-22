@@ -14,7 +14,7 @@
     <FluentStack Orientation="Orientation.Horizontal" Style="align-items: center; gap: 0.5rem;">
         <FluentLabel Typo="Typography.Subject">Certificate Profiles</FluentLabel>
         <FluentSpacer />
-        <FluentButton Appearance="Appearance.Accent" OnClick="ShowAddDialog"
+        <FluentButton Appearance="Appearance.Accent" OnClick="ShowAddDialog" Disabled="@(!Access.CanAdminister)"
                       IconStart="@(new Icons.Regular.Size16.Add())">
             Add Profile
         </FluentButton>
@@ -54,14 +54,14 @@
             </FluentButton>
             <FluentButton Size="ButtonSize.Small" Appearance="Appearance.Outline"
                           IconStart="@(new Icons.Regular.Size16.Copy())"
-                          OnClick="@(() => CloneProfileAsync(context))">
+                          OnClick="@(() => CloneProfileAsync(context))" Disabled="@(!Access.CanAdminister)">
                 Clone
             </FluentButton>
             @if (!context.IsPreset)
             {
                 <FluentButton Size="ButtonSize.Small" Appearance="Appearance.Outline"
                               IconStart="@(new Icons.Regular.Size16.Delete())"
-                              OnClick="@(() => DeleteProfileAsync(context))">
+                              OnClick="@(() => DeleteProfileAsync(context))" Disabled="@(!Access.CanAdminister)">
                     Delete
                 </FluentButton>
             }
@@ -213,7 +213,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="SaveProfileAsync"
-                      Disabled="@(string.IsNullOrWhiteSpace(editName))">
+                      Disabled="@(string.IsNullOrWhiteSpace(editName) || !Access.CanAdminister)">
             @(isEditing ? "Save" : "Create")
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => dialogHidden = true)">
