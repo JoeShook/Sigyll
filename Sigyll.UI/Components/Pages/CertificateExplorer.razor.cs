@@ -2525,7 +2525,14 @@ public partial class CertificateExplorer : IDisposable
             _ => t is CertificateType.EndEntityClient or CertificateType.EndEntityServer
         };
 
-        if (selectedTemplate != null && Compatible(selectedTemplate.CertificateType))
+        // A re-key keeps the key algorithm: an ML-DSA root must not fall back to the first (RSA) root template.
+        var keyAlgorithm = selectedNode.EntityType == "CaCertificate"
+            ? (await db.CaCertificates.FindAsync(selectedNode.Id))?.KeyAlgorithm
+            : (await db.IssuedCertificates.FindAsync(selectedNode.Id))?.KeyAlgorithm;
+        bool SameAlgorithm(CertificateTemplate t) =>
+            keyAlgorithm == null || string.Equals(t.KeyAlgorithm, keyAlgorithm, StringComparison.OrdinalIgnoreCase);
+
+        if (selectedTemplate != null && Compatible(selectedTemplate.CertificateType) && SameAlgorithm(selectedTemplate))
             return;
 
         var hasServerAuthEku = selectedCert?.Extensions
@@ -2537,8 +2544,9 @@ public partial class CertificateExplorer : IDisposable
             : CertificateType.EndEntityClient;
 
         selectedTemplate =
-            availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType)
+            availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType) && SameAlgorithm(t)
                 && (selectedNode.CertificateRole != "EndEntity" || t.CertificateType == preferredEndEntityType))
+            ?? availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType) && SameAlgorithm(t))
             ?? availableTemplates.FirstOrDefault(t => Compatible(t.CertificateType))
             ?? availableTemplates.FirstOrDefault();
     }
