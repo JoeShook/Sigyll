@@ -86,7 +86,7 @@ public static class CertificateExtensionHelpers
                         {
                             // uniformResourceIdentifier [6] IMPLICIT IA5String
                             writer.WriteCharacterString(
-                                UniversalTagNumber.IA5String, url,
+                                UniversalTagNumber.IA5String, EncodeUrl(url),
                                 new Asn1Tag(TagClass.ContextSpecific, 6));
                         }
                     }
@@ -96,6 +96,13 @@ public static class CertificateExtensionHelpers
 
         return new X509Extension("2.5.29.31", writer.Encode(), critical: false);
     }
+
+    /// <summary>
+    /// Percent-encodes a URL (spaces in CA names) the same way the AIA extension does; a URI
+    /// in a certificate must not contain raw spaces (RFC 5280 §4.2.1.6).
+    /// </summary>
+    public static string EncodeUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.AbsoluteUri : url;
 
     /// <summary>
     /// Builds a CRL Distribution Points extension for a single URL.
