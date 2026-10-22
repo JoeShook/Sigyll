@@ -685,7 +685,7 @@ static CertificateTemplate PqcEndEntity(string name, string description, Certifi
     IsBasicConstraintsCritical = true,
     HashAlgorithm = "Pure",
     IncludeCdp = true,
-    IncludeAia = eku == "1.3.6.1.5.5.7.3.2",
+    IncludeAia = true,
     SubjectAltNameTypes = san,
     IsPreset = true,
     RequiresRaApproval = raApproval,
