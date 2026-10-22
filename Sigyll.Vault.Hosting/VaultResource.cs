@@ -39,6 +39,21 @@ public sealed class VaultResource(string name) : ContainerResource(name), IResou
     internal List<TransitKeySpec> TransitKeys { get; } = [];
 
     /// <summary>
+    /// AppRole to create for the app that uses this Vault (<see cref="VaultAppRoleExtensions.WithAppRole"/>).
+    /// </summary>
+    internal VaultAppRoleSpec? AppRole { get; set; }
+
+    /// <summary>
+    /// Completes once Vault is unsealed and its engines, keys and AppRole are configured.
+    /// </summary>
+    internal TaskCompletionSource Configured { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Vault's address as seen from the AppHost, known once Vault is running.
+    /// </summary>
+    internal string? HostAddress { get; set; }
+
+    /// <summary>
     /// When true, Vault runs in server mode with file-backed persistent storage.
     /// Init keys / root token are saved to <see cref="HostInitStatePath"/>.
     /// When false (default), Vault runs in dev mode (in-memory, wiped on every restart).

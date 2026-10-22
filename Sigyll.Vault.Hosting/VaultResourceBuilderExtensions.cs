@@ -107,20 +107,31 @@ public static class VaultResourceBuilderExtensions
         params TransitKeySpec[] keys)
     {
         builder.Resource.TransitKeys.AddRange(keys);
+        return builder.WithConfigurationWatcher();
+    }
 
+    /// <summary>
+    /// Configures this Vault (init + unseal in persistent mode, Transit keys, AppRole) each time it becomes healthy.
+    /// Subscribed once per resource, whichever of WithTransitEngine / WithAppRole is called first.
+    /// </summary>
+    internal static IResourceBuilder<VaultResource> WithConfigurationWatcher(this IResourceBuilder<VaultResource> builder)
+    {
+        if (builder.Resource.Annotations.OfType<VaultConfigurationWatcherAnnotation>().Any())
+            return builder;
+
+        builder.WithAnnotation(new VaultConfigurationWatcherAnnotation());
+        var vault = builder.Resource;
         builder.ApplicationBuilder.Eventing.Subscribe<AfterResourcesCreatedEvent>(
             (@event, ct) =>
             {
-                foreach (var vault in @event.Model.Resources.OfType<VaultResource>())
-                {
-                    if (vault.TransitKeys.Count == 0) continue;
-                    _ = WatchAndConfigureAsync(vault, @event.Services, ct);
-                }
+                _ = WatchAndConfigureAsync(vault, @event.Services, ct);
                 return Task.CompletedTask;
             });
 
         return builder;
     }
+
+    private sealed class VaultConfigurationWatcherAnnotation : IResourceAnnotation;
 
     private static async Task WatchAndConfigureAsync(
         VaultResource vault,
@@ -158,11 +169,23 @@ public static class VaultResourceBuilderExtensions
                                 vaultAddress, vault.HostInitStatePath, vault.RootToken, logger, ct);
                         }
 
-                        logger.LogInformation(
-                            "Vault '{Name}' is healthy — (re)configuring Transit engine",
-                            vault.Name);
-                        await VaultTransitConfigurator.ConfigureTransitAsync(
-                            vaultAddress, vault.RootToken, vault.TransitKeys, logger, ct);
+                        if (vault.TransitKeys.Count > 0)
+                        {
+                            logger.LogInformation(
+                                "Vault '{Name}' is healthy — (re)configuring Transit engine",
+                                vault.Name);
+                            await VaultTransitConfigurator.ConfigureTransitAsync(
+                                vaultAddress, vault.RootToken, vault.TransitKeys, logger, ct);
+                        }
+
+                        if (vault.AppRole is not null)
+                        {
+                            await VaultAppRoleConfigurator.EnsureAsync(
+                                vaultAddress, vault.RootToken, vault.Name, vault.AppRole, logger, ct);
+                        }
+
+                        vault.HostAddress = vaultAddress;
+                        vault.Configured.TrySetResult();
                     }
                     catch (Exception ex)
                     {

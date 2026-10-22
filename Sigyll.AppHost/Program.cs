@@ -13,13 +13,53 @@ using Sigyll.Vault.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Vault with persistent file storage + Transit engine + signing keys.
-// Persistent mode survives container restarts (init state stored at
-// %LOCALAPPDATA%/Sigyll/vault-vault-init.json, data in Docker volume vault-vault-data).
-var vault = builder.AddVaultDev("vault", persistent: true)
-    .WithTransitEngine(
-        new TransitKeySpec("sigil-rsa-4096", "rsa-4096"),
-        new TransitKeySpec("sigil-ecdsa-p384", "ecdsa-p384"));
+// ── Vault ───────────────────────────────────────────────────────────────────
+// Sigyll logs in to Vault with AppRole and reads its key-password master key from a KV v2 secret. Vault:Mode picks
+// which Vault (appsettings.json; override in user secrets):
+//   local    — this AppHost runs Vault (persistent: init state at %LOCALAPPDATA%/Sigyll/vault-vault-init.json, data
+//              in the Docker volume vault-vault-data), creates the AppRole, policy and master key, and issues Sigyll
+//              a new secret id on each start. Transit signing is available.
+//   external — Sigyll logs in to an existing Vault: Vault:Address, plus the role id and secret id in the
+//              Parameters:vault-role-id / Parameters:vault-secret-id user secrets. That Vault's AppRole needs read on
+//              secret/data/<Vault:KeyProtectionPath>, and the master key (field "master-key", base64 of 32 random
+//              bytes) is written there by its owner. Signing is local or GCP KMS; Transit is not offered.
+var vaultConfig = builder.Configuration.GetSection("Vault");
+var externalVault = string.Equals(vaultConfig["Mode"], "external", StringComparison.OrdinalIgnoreCase);
+var keyProtectionPath = vaultConfig["KeyProtectionPath"] ?? "sigyll/key-protection";
+
+IResourceBuilder<VaultResource>? vault = null;
+if (!externalVault)
+{
+    vault = builder.AddVaultDev("vault", persistent: true)
+        .WithTransitEngine(
+            new TransitKeySpec("sigil-rsa-4096", "rsa-4096"),
+            new TransitKeySpec("sigil-ecdsa-p384", "ecdsa-p384"))
+        .WithAppRole(vaultConfig["RoleName"] ?? "sigyll", keyProtectionPath);
+}
+
+var vaultRoleId = externalVault ? builder.AddParameter("vault-role-id", secret: true) : null;
+var vaultSecretId = externalVault ? builder.AddParameter("vault-secret-id", secret: true) : null;
+
+IResourceBuilder<T> WithSigyllVault<T>(IResourceBuilder<T> app, string signingProvider)
+    where T : IResourceWithEnvironment, IResourceWithWaitSupport
+{
+    if (vault is not null)
+    {
+        return app.WithReference(vault)
+            .WithVaultAppRole(vault)
+            .WithEnvironment("Signing__Provider", signingProvider)
+            .WithEnvironment("Signing__AvailableProviders__0", "local")
+            .WithEnvironment("Signing__AvailableProviders__1", "vault-transit");
+    }
+
+    return app
+        .WithEnvironment("Vault__Address", vaultConfig["Address"] ?? "")
+        .WithEnvironment("Vault__RoleId", vaultRoleId!)
+        .WithEnvironment("Vault__SecretId", vaultSecretId!)
+        .WithEnvironment("Vault__KeyProtectionPath", keyProtectionPath)
+        .WithEnvironment("Signing__Provider", signingProvider == "vault-transit" ? "local" : signingProvider)
+        .WithEnvironment("Signing__AvailableProviders__0", "local");
+}
 
 // Certificate server (static file host for CRLs and certs — always runs as a project)
 var certServer = builder.AddProject<Projects.Sigyll_Certificate_Server>("certificate-server");
@@ -105,13 +145,8 @@ switch (hostMode)
                 return Task.CompletedTask;
             })
             .WithEnvironment("ASPNETCORE_URLS", "https://+:7200;http://+:5200")
-            .WithReference(vault)
-            .WithReference(sigilDb, connectionName: "SigyllDb")
-            .WithEnvironment("Vault__Address", vault.Resource.PrimaryEndpoint)
-            .WithEnvironment("Vault__Token", "root-token")
-            .WithEnvironment("Signing__Provider", signingProvider)
-            .WithEnvironment("Signing__AvailableProviders__0", "local")
-            .WithEnvironment("Signing__AvailableProviders__1", "vault-transit");
+            .WithReference(sigilDb, connectionName: "SigyllDb");
+        WithSigyllVault(dockerResource, signingProvider);
 
         if (hostMode == "docker-gcp")
             dockerResource.WithVolume("sigil-gcloud-config", "/root/.config/gcloud");
@@ -135,13 +170,8 @@ switch (hostMode)
 
     default: // "project"
         var projectResource = builder.AddProject<Projects.Sigyll>("sigil")
-            .WithReference(vault)
-            .WithReference(sigilDb, connectionName: "SigyllDb")
-            .WithEnvironment("Vault__Address", vault.Resource.PrimaryEndpoint)
-            .WithEnvironment("Vault__Token", "root-token")
-            .WithEnvironment("Signing__Provider", signingProvider)
-            .WithEnvironment("Signing__AvailableProviders__0", "local")
-            .WithEnvironment("Signing__AvailableProviders__1", "vault-transit");
+            .WithReference(sigilDb, connectionName: "SigyllDb");
+        WithSigyllVault(projectResource, signingProvider);
 
         // GCP KMS configuration for project mode
         if (signingProvider == "gcp-kms")

@@ -9,6 +9,7 @@
 #endregion
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Sigyll.Common.Data.Entities;
 
 namespace Sigyll.Common.Data;
@@ -41,6 +42,18 @@ public class SigyllDbContext : DbContext
 
         modelBuilder.HasDefaultSchema("sigil");
 
+        // Key passwords are encrypted with a master key held outside the database (KeyPasswordProtection).
+        // EF never passes null to a converter, so the nullable form only satisfies the nullable properties.
+        var keyPassword = new ValueConverter<string, string>(
+            v => KeyPasswordProtection.Protect(v),
+            v => KeyPasswordProtection.Unprotect(v));
+        var optionalKeyPassword = new ValueConverter<string?, string?>(
+            v => KeyPasswordProtection.Protect(v!),
+            v => KeyPasswordProtection.Unprotect(v!));
+        modelBuilder.Entity<CaCertificate>().Property(e => e.PfxPassword).HasConversion(optionalKeyPassword);
+        modelBuilder.Entity<IssuedCertificate>().Property(e => e.PfxPassword).HasConversion(optionalKeyPassword);
+        modelBuilder.Entity<ExternalCertificateRequest>().Property(e => e.KeyPassword).HasConversion(keyPassword);
+
         // RecurringJob — schedule and last outcome of a background job
         modelBuilder.Entity<RecurringJob>(entity =>
         {
@@ -62,7 +75,7 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.KeyAlgorithm).HasMaxLength(64).IsRequired();
             entity.Property(e => e.PublicKeyThumbprint).HasMaxLength(64).IsRequired();
             entity.Property(e => e.EncryptedPrivateKeyPem).IsRequired();
-            entity.Property(e => e.KeyPassword).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.KeyPassword).IsRequired();
             entity.Property(e => e.ExternalCaName).HasMaxLength(200);
             entity.Property(e => e.ModeledOnEntityType).HasMaxLength(40);
             entity.Property(e => e.FulfilledEntityType).HasMaxLength(40);

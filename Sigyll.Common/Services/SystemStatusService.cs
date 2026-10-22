@@ -22,7 +22,7 @@ public class SystemStatusOptions
     public string DefaultProvider { get; set; } = "local";
     public List<string> AvailableProviders { get; set; } = new() { "local" };
     public string? VaultAddress { get; set; }
-    public string? VaultToken { get; set; }
+    public bool VaultCredentialsConfigured { get; set; }
     public string? GcpProjectId { get; set; }
 }
 
@@ -106,7 +106,7 @@ public class SystemStatusService
     {
         if (!opts.AvailableProviders.Contains("vault-transit") ||
             string.IsNullOrWhiteSpace(opts.VaultAddress) ||
-            string.IsNullOrWhiteSpace(opts.VaultToken))
+            !opts.VaultCredentialsConfigured)
         {
             return ComponentStatus.NotConfigured;
         }

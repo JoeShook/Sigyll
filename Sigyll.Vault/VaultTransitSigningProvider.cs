@@ -26,16 +26,16 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
 {
     public string ProviderName => "vault-transit";
 
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly VaultTokenSource _tokens;
     private readonly VaultTransitOptions _options;
     private readonly ILogger<VaultTransitSigningProvider> _logger;
 
     public VaultTransitSigningProvider(
-        IHttpClientFactory httpClientFactory,
+        VaultTokenSource tokens,
         IOptions<VaultTransitOptions> options,
         ILogger<VaultTransitSigningProvider> logger)
     {
-        _httpClientFactory = httpClientFactory;
+        _tokens = tokens;
         _options = options.Value;
         _logger = logger;
     }
@@ -57,7 +57,7 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
         var vaultKeyType = MapToVaultKeyType(keyAlgorithm, keySize, ecdsaCurve);
         var keyName = $"sigil-{Guid.NewGuid():N}";
 
-        using var client = CreateClient();
+        using var client = await _tokens.CreateClientAsync(ct);
 
         var response = await client.PostAsync(
             $"/v1/{_options.MountPath}/keys/{keyName}",
@@ -82,7 +82,7 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
     public async Task<AsymmetricAlgorithm> GetPublicKeyAsync(
         SigningKeyReference keyRef, CancellationToken ct = default)
     {
-        using var client = CreateClient();
+        using var client = await _tokens.CreateClientAsync(ct);
 
         var response = await client.GetAsync(
             $"/v1/{_options.MountPath}/keys/{keyRef.KeyIdentifier}",
@@ -143,7 +143,7 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
         if (signatureAlgorithm != null)
             requestBody["signature_algorithm"] = signatureAlgorithm;
 
-        using var client = CreateClient();
+        using var client = await _tokens.CreateClientAsync(ct);
 
         var response = await client.PostAsync(
             $"/v1/{_options.MountPath}/sign/{keyRef.KeyIdentifier}",
@@ -193,7 +193,7 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
     {
         try
         {
-            using var client = CreateClient();
+            using var client = await _tokens.CreateClientAsync(ct);
             using var response = await client.GetAsync($"/v1/{_options.MountPath}/keys/{keyName}", ct);
             return response.IsSuccessStatusCode;
         }
@@ -210,7 +210,7 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
     /// </summary>
     public async Task DeleteKeyAsync(string keyName, CancellationToken ct = default)
     {
-        using var client = CreateClient();
+        using var client = await _tokens.CreateClientAsync(ct);
 
         // Step 1: Enable deletion (Vault protects keys by default)
         var configResponse = await client.PostAsync(
@@ -314,15 +314,6 @@ public sealed class VaultTransitSigningProvider : ISigningProvider
             4096 => "rsa-4096",
             _ => $"rsa-{keySize}"
         };
-    }
-
-    private HttpClient CreateClient()
-    {
-        var client = _httpClientFactory.CreateClient("VaultTransit");
-        client.BaseAddress = new Uri(_options.Address);
-        client.DefaultRequestHeaders.Remove("X-Vault-Token");
-        client.DefaultRequestHeaders.Add("X-Vault-Token", _options.Token);
-        return client;
     }
 
     private static StringContent JsonContent(object value)

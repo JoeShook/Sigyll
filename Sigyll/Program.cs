@@ -130,6 +130,8 @@ try
     builder.Services.Configure<GcpKmsOptions>(
         builder.Configuration.GetSection("GcpKms"));
     builder.Services.AddHttpClient("VaultTransit");
+    builder.Services.AddSingleton<VaultTokenSource>();
+    builder.Services.AddSingleton<VaultKeyProtectionLoader>();
     builder.Services.AddSingleton<LocalSigningProvider>();
     builder.Services.AddSingleton<VaultTransitSigningProvider>();
     builder.Services.AddSingleton<GcpKmsSigningProvider>();
@@ -172,7 +174,7 @@ try
         status.DefaultProvider = signing.Value.Provider;
         status.AvailableProviders = signing.Value.AvailableProviders;
         status.VaultAddress = vault.Value.Address;
-        status.VaultToken = vault.Value.Token;
+        status.VaultCredentialsConfigured = vault.Value.HasCredentials;
         status.GcpProjectId = gcp.Value.ProjectId;
     });
     builder.Services.AddSingleton<SystemStatusService>();
@@ -191,10 +193,15 @@ try
 
     var app = builder.Build();
 
+    await UseKeyPasswordMasterKeyAsync(app.Services, builder.Configuration);
+
     // Seed data. The schema is Flyway's (dist/AlloyDB/sigil), applied before the app starts.
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<SigyllDbContext>();
+        var encrypted = await KeyPasswordMigration.EncryptStoredPasswordsAsync(db);
+        if (encrypted > 0)
+            Log.Information("Encrypted {Count} stored key password(s) with the key-password master key", encrypted);
         await SeedProfilesAsync(db);
         await SeedDidTemplatesAsync(db);
         await SeedCredentialSchemasAsync(db);
@@ -444,6 +451,31 @@ static SanEntry MapSan(ApiSanEntry s) => new(
         _ => SanType.Dns
     },
     s.Value);
+
+// Key passwords (PfxPassword, KeyPassword) are encrypted with a master key from Vault KV (Vault:KeyProtectionPath,
+// read with the Vault credentials) or, without Vault, from configuration (KeyProtection:MasterKey, base64 of 32
+// bytes). With neither, they are stored in plain text. A configured source that cannot be read stops startup.
+static async Task UseKeyPasswordMasterKeyAsync(IServiceProvider services, IConfiguration config)
+{
+    var masterKey = await services.GetRequiredService<VaultKeyProtectionLoader>().LoadAsync();
+    var source = "Vault";
+    if (masterKey is null && config["KeyProtection:MasterKey"] is { Length: > 0 } configured)
+    {
+        masterKey = KeyPasswordProtection.ParseMasterKey(configured);
+        source = "configuration";
+    }
+
+    if (masterKey is null)
+    {
+        Log.Warning(
+            "No key-password master key is configured (Vault:KeyProtectionPath or KeyProtection:MasterKey): " +
+            "private-key passwords are stored in plain text.");
+        return;
+    }
+
+    KeyPasswordProtection.UseMasterKey(masterKey);
+    Log.Information("Key passwords are encrypted with the master key from {Source}", source);
+}
 
 // Seeds operator roles and, when no operator accounts exist at all, a bootstrap Admin from
 // configuration (Auth:BootstrapAdmin:Email/Password). After bootstrap, accounts are managed
