@@ -437,6 +437,11 @@ public partial class CertificateExplorer : IDisposable
         {
             selectedTrustDomain = option;
             TrustDomainId = option.Id;
+
+            // Keep the trust domain in the address so a refresh (or a copied link) reopens it.
+            // Replace, not push: switching domains shouldn't pile up Back-button entries.
+            Navigation.NavigateTo($"/explorer/{option.Id}", replace: true);
+
             await LoadTrustDomainTreeAsync(option.Id);
         }
     }
