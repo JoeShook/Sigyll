@@ -382,14 +382,14 @@ public class CertificateImportService
         if (rsa != null)
         {
             using var paired = cert.CopyWithPrivateKey(rsa);
-            return Pkcs12Writer.Write(paired, donor.PfxPassword);
+            return Pkcs12Writer.Write(paired, donor.PfxPassword ?? string.Empty);
         }
 
         using var ecdsa = donorCert.GetECDsaPrivateKey();
         if (ecdsa != null)
         {
             using var paired = cert.CopyWithPrivateKey(ecdsa);
-            return Pkcs12Writer.Write(paired, donor.PfxPassword);
+            return Pkcs12Writer.Write(paired, donor.PfxPassword ?? string.Empty);
         }
 
         throw new InvalidOperationException("Donor private key algorithm is not supported.");

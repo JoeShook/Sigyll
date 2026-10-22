@@ -102,8 +102,6 @@ public class CertificateExportService
             {
                 CryptographicOperations.ZeroMemory(pkcs8);
             }
-
-            return CertificateExportResult.Failure("Unsupported key algorithm.");
         }
         catch (Exception ex)
         {
