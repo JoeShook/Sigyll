@@ -216,6 +216,19 @@ public class IssuanceValidatorTests
     }
 
     [Fact]
+    public void CompareTemplateUrls_EncodedAndUnencodedSpacesMatch()
+    {
+        // The certificate holds the percent-encoded URL; the profile expands with raw spaces.
+        var warnings = _validator.CompareTemplateUrls(
+            ["http://localhost:5034/crls/PQC%20Test%20Intermediate%20(ML-DSA-87)%20(2).crl"],
+            ["http://localhost:5034/certs/PQC%20Test%20Intermediate%20(ML-DSA-87)%20(2).cer"],
+            ["http://localhost:5034/crls/PQC Test Intermediate (ML-DSA-87) (2).crl"],
+            ["http://localhost:5034/certs/PQC Test Intermediate (ML-DSA-87) (2).cer"]);
+
+        warnings.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void CompareTemplateUrls_MultipleChanges_ReturnsAll()
     {
         var warnings = _validator.CompareTemplateUrls(

@@ -132,10 +132,14 @@ public class IssuanceValidator
         var warnings = new List<IssuanceWarning>();
         var comparer = StringComparer.OrdinalIgnoreCase;
 
-        var oldCdp = new HashSet<string>(originalCdpUrls, comparer);
-        var oldAia = new HashSet<string>(originalAiaUrls, comparer);
-        var newCdp = new HashSet<string>(profileCdpUrls, comparer);
-        var newAia = new HashSet<string>(profileAiaUrls, comparer);
+        // Compare in the encoded form written into certificates, so "a b.crl" from the profile
+        // matches "a%20b.crl" read from the existing certificate.
+        static IEnumerable<string> Encoded(IEnumerable<string> urls) =>
+            urls.Select(Sigyll.Common.Services.CertificateExtensionHelpers.EncodeUrl);
+        var oldCdp = new HashSet<string>(Encoded(originalCdpUrls), comparer);
+        var oldAia = new HashSet<string>(Encoded(originalAiaUrls), comparer);
+        var newCdp = new HashSet<string>(Encoded(profileCdpUrls), comparer);
+        var newAia = new HashSet<string>(Encoded(profileAiaUrls), comparer);
 
         foreach (var url in oldCdp.Where(u => !newCdp.Contains(u)))
             warnings.Add(new IssuanceWarning { Category = "CDP", Message = $"CDP removed: {url}" });
