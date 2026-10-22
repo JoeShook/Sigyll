@@ -86,6 +86,12 @@ public class CertificateIssuanceRequest
     /// The new certificate records the lineage link and Version = predecessor + 1.
     /// </summary>
     public int? RenewalOfCertificateId { get; set; }
+
+    /// <summary>
+    /// An issued certificate this one belongs with (e.g. the signing half of a Direct PQC pair).
+    /// The new certificate carries an RFC 9763 RelatedCertificate extension hashing it. Local signing only.
+    /// </summary>
+    public int? RelatedCertificateId { get; set; }
 }
 
 /// <summary>

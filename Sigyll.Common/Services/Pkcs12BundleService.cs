@@ -160,10 +160,7 @@ public class Pkcs12BundleService
                 _ => throw new InvalidOperationException("Unsupported key algorithm.")
             };
 
-            var collection = new X509Certificate2Collection { leafWithKey };
-            collection.AddRange(OrderChain(chain, leaf).ToArray());
-
-            var p12 = collection.Export(X509ContentType.Pkcs12, p12Password);
+            var p12 = Pkcs12Writer.Write(leafWithKey, p12Password, OrderChain(chain, leaf));
             if (p12 == null || p12.Length == 0)
                 return Pkcs12BundleResult.Failure("PKCS#12 export produced no data.");
 

@@ -134,6 +134,35 @@ public sealed class PqcKeyPair : IDisposable
         throw new InvalidOperationException("Post-quantum key has no algorithm.");
     }
 
+    public byte[] ExportEncryptedPkcs8(string password, PbeParameters pbe)
+    {
+        if (_mlDsa != null) return _mlDsa.ExportEncryptedPkcs8PrivateKey(password, pbe);
+        if (_slhDsa != null) return _slhDsa.ExportEncryptedPkcs8PrivateKey(password, pbe);
+        if (_mlKem != null) return _mlKem.ExportEncryptedPkcs8PrivateKey(password, pbe);
+        if (_composite != null) return _composite.ExportEncryptedPkcs8PrivateKey(password, pbe);
+        throw new InvalidOperationException("Post-quantum key has no algorithm.");
+    }
+
+    /// <summary>
+    /// Reads the ML-KEM key out of a PKCS#12. Windows loads the .pfx but cannot return an
+    /// ML-KEM private key from the certificate, so the PKCS#8 is decoded directly.
+    /// </summary>
+    public static PqcKeyPair ReadKemKey(byte[] pfx, string password)
+    {
+        var pkcs8 = Pkcs12Writer.ReadPkcs8(pfx, password);
+        try
+        {
+            var kem = MLKem.ImportPkcs8PrivateKey(pkcs8);
+            return new PqcKeyPair(kem.Algorithm.Name, PqcAlgorithms.Require(kem.Algorithm.Name).KeySize, mlKem: kem);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pkcs8);
+        }
+    }
+
+    public MLKem Kem => _mlKem ?? throw new InvalidOperationException("This key is not ML-KEM.");
+
     public string ExportEncryptedPkcs8Pem(string password) => ExportEncryptedPkcs8Pem(password, KeyPbe);
 
     public string ExportEncryptedPkcs8Pem(string password, PbeParameters pbe)

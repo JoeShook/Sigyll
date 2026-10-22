@@ -472,10 +472,6 @@ public class ExternalCertificateRequestService
         var chain = new List<X509Certificate2>();
         try
         {
-            using var leaf = X509CertificateLoader.LoadPkcs12(pfx, pfxPassword,
-                X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
-
-            var collection = new X509Certificate2Collection { leaf };
             if (includeChain)
             {
                 var visited = new HashSet<int>();
@@ -486,14 +482,11 @@ public class ExternalCertificateRequestService
                     if (issuer == null) break;
                     var issuerCert = X509Certificate2.CreateFromPem(issuer.X509CertificatePem);
                     chain.Add(issuerCert);
-                    collection.Add(issuerCert);
                     next = issuer.ParentId;
                 }
             }
 
-            var bytes = collection.Export(X509ContentType.Pkcs12, password);
-            if (bytes == null || bytes.Length == 0)
-                return ExternalRequestExportResult.Failure("PKCS#12 export produced no data.");
+            var bytes = Pkcs12Writer.Rewrap(pfx, pfxPassword ?? string.Empty, password, chain);
 
             _logger.LogWarning("PKCS#12 with private key exported for external CA request '{Name}' (ID {Id}), chain: {Chain}", row.Name, row.Id, includeChain);
 

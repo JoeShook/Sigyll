@@ -132,4 +132,45 @@ public static class CertificateExtensionHelpers
     /// </summary>
     public static X509Extension BuildAiaExtension(Uri caIssuerUri, bool critical = false) =>
         BuildAiaExtension(new[] { caIssuerUri }, critical);
+
+    /// <summary>id-pe-relatedCert (RFC 9763).</summary>
+    public const string RelatedCertificateOid = "1.3.6.1.5.5.7.1.36";
+
+    private const string Sha256Oid = "2.16.840.1.101.3.4.2.1";
+
+    /// <summary>
+    /// RFC 9763 RelatedCertificate: <c>SEQUENCE { hashAlgorithm, hashValue OCTET STRING }</c>
+    /// holding the SHA-256 of the related certificate's DER. Ties a Direct encryption
+    /// certificate to its signing partner.
+    /// </summary>
+    public static X509Extension BuildRelatedCertificate(byte[] relatedCertificateDer)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        using (writer.PushSequence())
+        {
+            using (writer.PushSequence())
+                writer.WriteObjectIdentifier(Sha256Oid);
+            writer.WriteOctetString(System.Security.Cryptography.SHA256.HashData(relatedCertificateDer));
+        }
+
+        return new X509Extension(RelatedCertificateOid, writer.Encode(), critical: false);
+    }
+
+    /// <summary>
+    /// True when <paramref name="certificate"/> carries an RFC 9763 RelatedCertificate
+    /// extension whose SHA-256 hash matches <paramref name="relatedCertificateDer"/>.
+    /// </summary>
+    public static bool IsRelatedTo(X509Certificate2 certificate, byte[] relatedCertificateDer)
+    {
+        var extension = certificate.Extensions[RelatedCertificateOid];
+        if (extension == null)
+            return false;
+
+        var reader = new AsnReader(extension.RawData, AsnEncodingRules.DER);
+        var sequence = reader.ReadSequence();
+        var algorithm = sequence.ReadSequence().ReadObjectIdentifier();
+        var hash = sequence.ReadOctetString();
+        return algorithm == Sha256Oid
+            && hash.AsSpan().SequenceEqual(System.Security.Cryptography.SHA256.HashData(relatedCertificateDer));
+    }
 }

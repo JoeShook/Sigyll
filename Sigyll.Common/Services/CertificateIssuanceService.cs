@@ -209,6 +209,16 @@ public class CertificateIssuanceService
                 renewalVersion, renewalOfId);
         }
 
+        X509Extension? relatedCertificate = null;
+        if (request.RelatedCertificateId is int relatedId)
+        {
+            var related = await db.IssuedCertificates.FindAsync(relatedId);
+            if (related == null)
+                return CertificateIssuanceResult.Failure("Related certificate not found.");
+            using var relatedCert = X509Certificate2.CreateFromPem(related.X509CertificatePem);
+            relatedCertificate = CertificateExtensionHelpers.BuildRelatedCertificate(relatedCert.RawData);
+        }
+
         try
         {
             // Generate key pair
@@ -219,6 +229,8 @@ public class CertificateIssuanceService
 
             // Add extensions
             AddExtensions(certRequest, template, request, issuingCert);
+            if (relatedCertificate != null)
+                certRequest.CertificateExtensions.Add(relatedCertificate);
 
             // Determine validity
             var notBefore = request.NotBefore ?? DateTimeOffset.UtcNow;
@@ -269,7 +281,7 @@ public class CertificateIssuanceService
                 }
 
                 // Export
-                var pfxBytes = cert.Export(X509ContentType.Pkcs12, request.PfxPassword);
+                var pfxBytes = ExportPfx(cert, keyHolder, request.PfxPassword);
                 var pem = cert.ExportCertificatePem();
 
                 var certName = string.IsNullOrWhiteSpace(request.CertificateName)
@@ -787,7 +799,7 @@ public class CertificateIssuanceService
                         return CertificateIssuanceResult.Failure(issuerError);
                 }
 
-                var pfxBytes = newCert.Export(X509ContentType.Pkcs12, request.PfxPassword);
+                var pfxBytes = Pkcs12Writer.Write(newCert, request.PfxPassword);
                 var pem = newCert.ExportCertificatePem();
 
                 // Update the existing entity in-place so all child relationships
@@ -1064,7 +1076,7 @@ public class CertificateIssuanceService
                 if (issuerError != null)
                     return CertificateIssuanceResult.Failure(issuerError);
 
-                var pfxBytes = certWithKey.Export(X509ContentType.Pkcs12, request.PfxPassword);
+                var pfxBytes = Pkcs12Writer.Write(certWithKey, request.PfxPassword);
                 var pem = certWithKey.ExportCertificatePem();
 
                 var certName = string.IsNullOrWhiteSpace(request.CertificateName)
@@ -1433,6 +1445,9 @@ public class CertificateIssuanceService
 
     private static X509Certificate2 AttachPrivateKey(X509Certificate2 signedCert, KeyHolder keyHolder)
     {
+        // Windows cannot attach an ML-KEM key to a certificate; ExportPfx writes it from the key holder.
+        if (keyHolder.Pqc is { CanSign: false })
+            return X509CertificateLoader.LoadCertificate(signedCert.RawData);
         if (keyHolder.Pqc != null)
             return keyHolder.Pqc.CopyWithPrivateKey(signedCert);
         if (keyHolder.Ecdsa != null)
@@ -1440,6 +1455,11 @@ public class CertificateIssuanceService
 
         return signedCert.CopyWithPrivateKey(keyHolder.Rsa!);
     }
+
+    private static byte[] ExportPfx(X509Certificate2 cert, KeyHolder keyHolder, string password) =>
+        keyHolder.Pqc is { CanSign: false } kem
+            ? Pkcs12Writer.Write(cert, kem, password)
+            : Pkcs12Writer.Write(cert, password);
 
     private async Task PublishCaCertAndCrlAsync(
         int trustDomainId, string certName, byte[] certDerBytes)

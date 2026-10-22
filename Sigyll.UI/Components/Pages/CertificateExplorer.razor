@@ -553,6 +553,102 @@
     </FluentDialogFooter>
 </FluentDialog>
 
+@* Issue Direct PQC Pair dialog *@
+<FluentDialog @bind-Hidden="@directPairDialogHidden" Modal="true" TrapFocus="true"
+              Style="--dialog-width: 760px; max-width: 95vw; max-height: 85vh;">
+    <FluentDialogHeader>
+        <span>Issue Direct PQC Pair — signed by @directPairCaName</span>
+    </FluentDialogHeader>
+    <FluentDialogBody>
+        <div class="direct-pair" style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <p style="margin: 0; font-size: 0.85rem; opacity: 0.8;">
+                ML-DSA only signs and ML-KEM only encrypts, so a Direct address needs two certificates.
+                Both get the same identity from this CA; the encryption certificate points at its signing
+                partner (RFC 9763 RelatedCertificate).
+            </p>
+            <FluentRadioGroup Name="direct-binding" @bind-Value="DirectPairBindingValue" Label="Binding"
+                              Disabled="@(directPairResult?.Success == true)">
+                <FluentRadio Value="@nameof(DirectBinding.Address)">Address-bound (rfc822Name)</FluentRadio>
+                <FluentRadio Value="@nameof(DirectBinding.Domain)">Domain-bound (dNSName)</FluentRadio>
+            </FluentRadioGroup>
+            <FluentTextField Id="direct-identifier" @bind-Value="directPairIdentifier" Immediate="true"
+                             Label="@(directPairBinding == DirectBinding.Address ? "Direct address" : "Direct domain")"
+                             Placeholder="@(directPairBinding == DirectBinding.Address ? "alice@direct.example.org" : "direct.example.org")"
+                             Disabled="@(directPairResult?.Success == true)" Style="width: 100%;" />
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <FluentSelect TOption="CertificateTemplate" Id="direct-signing-template"
+                              Label="Signing template (ML-DSA)"
+                              Items="@directSigningTemplates"
+                              OptionText="@(t => t.Name)" OptionValue="@(t => t.Id.ToString())"
+                              @bind-SelectedOption="directSigningTemplate"
+                              Disabled="@(directPairResult?.Success == true)" Style="width: 100%;" />
+                <FluentSelect TOption="CertificateTemplate" Id="direct-encryption-template"
+                              Label="Encryption template (ML-KEM)"
+                              Items="@directEncryptionTemplates"
+                              OptionText="@(t => t.Name)" OptionValue="@(t => t.Id.ToString())"
+                              @bind-SelectedOption="directEncryptionTemplate"
+                              Disabled="@(directPairResult?.Success == true)" Style="width: 100%;" />
+            </div>
+            @if (directSigningTemplates.Count == 0 || directEncryptionTemplates.Count == 0)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Warning" AllowDismiss="false">
+                    Needs an ML-DSA signing template (digitalSignature only) and an ML-KEM template (keyEncipherment only).
+                    The presets "Direct Signing (ML-DSA-87)" and "Direct Encryption (ML-KEM-1024)" are created at startup.
+                </FluentMessageBar>
+            }
+            <FluentTextField Id="direct-pfx-password" @bind-Value="directPairPassword" Immediate="true"
+                             Label="PFX password (both private keys)" TextFieldType="TextFieldType.Password"
+                             Disabled="@(directPairResult?.Success == true)" Style="width: 100%;" />
+
+            @if (directPairResult?.Success == true)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Success" AllowDismiss="false" Title="Pair issued">
+                    Signing certificate #@directPairResult.SigningCertificateId and encryption certificate
+                    #@directPairResult.EncryptionCertificateId for @directPairIdentifier.Trim().
+                </FluentMessageBar>
+            }
+
+            @if (directRoundTrip != null)
+            {
+                <div id="direct-round-trip" style="border: 1px solid var(--neutral-stroke-rest); border-radius: 6px; padding: 0.5rem 0.75rem;">
+                    <strong>Round trip: @(directRoundTrip.Passed ? "passed" : "failed")</strong>
+                    <ol style="margin: 0.4rem 0 0; padding-left: 1.4rem; display: flex; flex-direction: column; gap: 0.3rem;">
+                        @foreach (var step in directRoundTrip.Steps)
+                        {
+                            <li class="@(step.Passed ? "rt-pass" : "rt-fail")">
+                                <span style="font-weight: 600; color: @(step.Passed ? "#2e7d32" : "#c62828");">
+                                    @(step.Passed ? "✓" : "✗") @step.Name
+                                </span>
+                                <div style="font-size: 0.8rem; opacity: 0.85;">@step.Detail</div>
+                            </li>
+                        }
+                    </ol>
+                </div>
+            }
+        </div>
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        @if (directPairResult?.Success == true)
+        {
+            <FluentButton Id="direct-run-round-trip" Appearance="Appearance.Accent" OnClick="RunDirectRoundTripAsync"
+                          Disabled="@isRunningRoundTrip">
+                @(isRunningRoundTrip ? "Running..." : "Run Round-Trip Test")
+            </FluentButton>
+        }
+        else
+        {
+            <FluentButton Id="direct-issue-pair" Appearance="Appearance.Accent" OnClick="IssueDirectPairAsync"
+                          Disabled="@(!CanIssueDirectPair)">
+                @(isIssuingDirectPair ? "Issuing..." : "Issue Pair")
+            </FluentButton>
+        }
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => directPairDialogHidden = true)"
+                      Disabled="@(isIssuingDirectPair || isRunningRoundTrip)">
+            Close
+        </FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
 @* Re-sign Certificate dialog *@
 <FluentDialog @bind-Hidden="@resignDialogHidden" Modal="true" TrapFocus="true"
               Style="min-width: 500px;">
@@ -1021,6 +1117,12 @@ else if (treeNodes.Count > 0)
                                           OnClick="@(() => ShowIssuanceDialog(selectedNode.Id, selectedNode.Name))"
                                           title="Issue a new certificate signed by this CA">
                                 Issue Certificate
+                            </FluentButton>
+                            <FluentButton Appearance="Appearance.Outline"
+                                          IconStart="@(new Icons.Regular.Size16.MailShield())"
+                                          OnClick="@(() => ShowDirectPairDialog(selectedNode.Id, selectedNode.Name))"
+                                          title="Issue the two post-quantum certificates a Direct address or domain needs: ML-DSA signing + ML-KEM encryption">
+                                Issue Direct PQC Pair
                             </FluentButton>
                         }
                         <FluentButton Appearance="Appearance.Outline"

@@ -92,16 +92,16 @@ public class CertificateExportService
 
         try
         {
-            using var cert = X509CertificateLoader.LoadPkcs12(pfxBytes, pfxPassword,
-                X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
-
-            using var rsa = cert.GetRSAPrivateKey();
-            if (rsa != null)
-                return CertificateExportResult.Ok(rsa.ExportPkcs8PrivateKeyPem());
-
-            using var ecdsa = cert.GetECDsaPrivateKey();
-            if (ecdsa != null)
-                return CertificateExportResult.Ok(ecdsa.ExportPkcs8PrivateKeyPem());
+            // Read the PKCS#8 straight from the file: works for every algorithm, ML-KEM included.
+            var pkcs8 = Pkcs12Writer.ReadPkcs8(pfxBytes, pfxPassword ?? string.Empty);
+            try
+            {
+                return CertificateExportResult.Ok(PemEncoding.WriteString("PRIVATE KEY", pkcs8));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(pkcs8);
+            }
 
             return CertificateExportResult.Failure("Unsupported key algorithm.");
         }
@@ -155,14 +155,12 @@ public class CertificateExportService
         if (pfxBytes == null)
             return PfxExportResult.Failure("No private key available for this certificate.");
 
-        if (!includeChain || issuerCaId == null)
-            return PfxExportResult.Ok(pfxBytes, $"{name}.p12");
-
         var chainCerts = new List<X509Certificate2>();
         try
         {
-            using var leaf = X509CertificateLoader.LoadPkcs12(pfxBytes, pfxPassword,
-                X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            // Always re-encrypt: rows written before Pkcs12Writer hold 3DES/SHA-1 files.
+            if (!includeChain || issuerCaId == null)
+                return PfxExportResult.Ok(Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty), $"{name}.p12");
 
             var visited = new HashSet<int>();
             var nextId = issuerCaId;
@@ -174,13 +172,7 @@ public class CertificateExportService
                 nextId = issuer.ParentId;
             }
 
-            var collection = new X509Certificate2Collection { leaf };
-            collection.AddRange(chainCerts.ToArray());
-
-            var bytes = collection.Export(X509ContentType.Pkcs12, pfxPassword);
-            if (bytes == null)
-                return PfxExportResult.Failure("PKCS#12 export produced no data.");
-
+            var bytes = Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty, extraCerts: chainCerts);
             return PfxExportResult.Ok(bytes, $"{name}-chain.p12");
         }
         catch (Exception ex)

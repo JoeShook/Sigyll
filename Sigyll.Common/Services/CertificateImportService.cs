@@ -273,7 +273,7 @@ public class CertificateImportService
         using var key = CsrSigningKey.ImportEncryptedPkcs8(
             request.KeyAlgorithm, request.KeySize, request.EncryptedPrivateKeyPem, request.KeyPassword!);
         using var paired = key.AttachPrivateKey(cert);
-        return paired.Export(X509ContentType.Pkcs12, request.KeyPassword);
+        return Pkcs12Writer.Write(paired, request.KeyPassword!);
     }
 
     private static async Task MarkRequestFulfilledAsync(
@@ -382,14 +382,14 @@ public class CertificateImportService
         if (rsa != null)
         {
             using var paired = cert.CopyWithPrivateKey(rsa);
-            return paired.Export(X509ContentType.Pkcs12, donor.PfxPassword);
+            return Pkcs12Writer.Write(paired, donor.PfxPassword);
         }
 
         using var ecdsa = donorCert.GetECDsaPrivateKey();
         if (ecdsa != null)
         {
             using var paired = cert.CopyWithPrivateKey(ecdsa);
-            return paired.Export(X509ContentType.Pkcs12, donor.PfxPassword);
+            return Pkcs12Writer.Write(paired, donor.PfxPassword);
         }
 
         throw new InvalidOperationException("Donor private key algorithm is not supported.");

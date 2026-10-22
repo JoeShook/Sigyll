@@ -152,6 +152,7 @@ try
     builder.Services.AddScoped<CsrGenerationService>();
     builder.Services.AddScoped<Pkcs12BundleService>();
     builder.Services.AddScoped<ExternalCertificateRequestService>();
+    builder.Services.AddScoped<DirectPqcPairService>();
     builder.Services.AddScoped<CrlAutoRenewalJob>();
     builder.Services.AddScoped<Sigyll.UI.Services.TimeDisplayService>();
     builder.Services.AddScoped<Sigyll.UI.Services.IssuancePasswordCache>();
@@ -629,7 +630,19 @@ static IEnumerable<CertificateTemplate> PresetTemplates()
         "ML-KEM-1024 subject key (FIPS 203). Encapsulates a shared secret; it cannot sign and cannot be a CA.",
         CertificateType.EndEntityClient, "ML-KEM-1024", 1024, 365,
         eku: null, san: null, raApproval: false, autoIssue: false,
-        keyUsage: (int)X509KeyUsageFlags.KeyAgreement);
+        keyUsage: (int)X509KeyUsageFlags.KeyEncipherment);
+
+    // Direct secure messaging: PQC splits the S/MIME key in two. The pair is issued together
+    // (Issue Direct PQC Pair) with the same rfc822Name or dNSName and an RFC 9763 link.
+    yield return PqcEndEntity("Direct Signing (ML-DSA-87)",
+        "Direct (S/MIME) signing certificate, ML-DSA-87. Issue with its encryption partner via Issue Direct PQC Pair.",
+        CertificateType.EndEntityClient, "ML-DSA-87", 87, 365,
+        eku: "1.3.6.1.5.5.7.3.4", san: null, raApproval: false, autoIssue: false);
+    yield return PqcEndEntity("Direct Encryption (ML-KEM-1024)",
+        "Direct (S/MIME) encryption certificate, ML-KEM-1024 (keyEncipherment only). Issue with its signing partner via Issue Direct PQC Pair.",
+        CertificateType.EndEntityClient, "ML-KEM-1024", 1024, 365,
+        eku: "1.3.6.1.5.5.7.3.4", san: null, raApproval: false, autoIssue: false,
+        keyUsage: (int)X509KeyUsageFlags.KeyEncipherment);
 }
 
 static CertificateTemplate PqcCa(string name, string description, CertificateType type,
