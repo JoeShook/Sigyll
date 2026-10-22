@@ -111,8 +111,10 @@ public static class VaultResourceBuilderExtensions
     }
 
     /// <summary>
-    /// Configures this Vault (init + unseal in persistent mode, Transit keys, AppRole) each time it becomes healthy.
-    /// Subscribed once per resource, whichever of WithTransitEngine / WithAppRole is called first.
+    /// Configures this Vault (init + unseal in persistent mode, Transit keys, AppRole) each time it becomes ready.
+    /// Runs inside Vault's ResourceReadyEvent, which resources that WaitFor(vault) wait on, so they start only once
+    /// Vault is unsealed and configured. Subscribed once per resource, whichever of WithTransitEngine / WithAppRole
+    /// is called first.
     /// </summary>
     internal static IResourceBuilder<VaultResource> WithConfigurationWatcher(this IResourceBuilder<VaultResource> builder)
     {
@@ -120,89 +122,58 @@ public static class VaultResourceBuilderExtensions
             return builder;
 
         builder.WithAnnotation(new VaultConfigurationWatcherAnnotation());
-        var vault = builder.Resource;
-        builder.ApplicationBuilder.Eventing.Subscribe<AfterResourcesCreatedEvent>(
-            (@event, ct) =>
-            {
-                _ = WatchAndConfigureAsync(vault, @event.Services, ct);
-                return Task.CompletedTask;
-            });
+        builder.ApplicationBuilder.Eventing.Subscribe<ResourceReadyEvent>(builder.Resource,
+            (@event, ct) => ConfigureAsync(builder.Resource, @event.Services, ct));
 
         return builder;
     }
 
     private sealed class VaultConfigurationWatcherAnnotation : IResourceAnnotation;
 
-    private static async Task WatchAndConfigureAsync(
-        VaultResource vault,
-        IServiceProvider services,
-        CancellationToken ct)
+    private static async Task ConfigureAsync(VaultResource vault, IServiceProvider services, CancellationToken ct)
     {
         var logger = services.GetRequiredService<ILogger<VaultResource>>();
-        var notificationService = services.GetRequiredService<ResourceNotificationService>();
-
-        bool wasHealthy = false;
+        // A failed earlier attempt (e.g. before a Vault restart) must not fail apps started after this one succeeds.
+        if (vault.Configured.Task.IsFaulted)
+            vault.Configured = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         try
         {
-            await foreach (var update in notificationService.WatchAsync(ct))
+            var endpoint = vault.GetEndpoint(VaultResource.HttpEndpointName);
+            var vaultAddress = $"http://localhost:{endpoint.Port}";
+
+            if (vault.IsPersistent && vault.HostInitStatePath != null)
             {
-                if (update.Resource is not VaultResource vr || vr.Name != vault.Name)
-                    continue;
-
-                var healthy = update.Snapshot.HealthStatus == HealthStatus.Healthy;
-
-                if (healthy && !wasHealthy)
-                {
-                    wasHealthy = true;
-                    try
-                    {
-                        var endpoint = vault.GetEndpoint(VaultResource.HttpEndpointName);
-                        var vaultAddress = $"http://localhost:{endpoint.Port}";
-
-                        if (vault.IsPersistent && vault.HostInitStatePath != null)
-                        {
-                            logger.LogInformation(
-                                "Vault '{Name}' is reachable — ensuring init + unseal (persistent mode)",
-                                vault.Name);
-                            await VaultServerConfigurator.EnsureVaultUsableAsync(
-                                vaultAddress, vault.HostInitStatePath, vault.RootToken, logger, ct);
-                        }
-
-                        if (vault.TransitKeys.Count > 0)
-                        {
-                            logger.LogInformation(
-                                "Vault '{Name}' is healthy — (re)configuring Transit engine",
-                                vault.Name);
-                            await VaultTransitConfigurator.ConfigureTransitAsync(
-                                vaultAddress, vault.RootToken, vault.TransitKeys, logger, ct);
-                        }
-
-                        if (vault.AppRole is not null)
-                        {
-                            await VaultAppRoleConfigurator.EnsureAsync(
-                                vaultAddress, vault.RootToken, vault.Name, vault.AppRole, logger, ct);
-                        }
-
-                        vault.HostAddress = vaultAddress;
-                        vault.Configured.TrySetResult();
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex,
-                            "Failed to configure Vault for resource '{Name}'",
-                            vault.Name);
-                    }
-                }
-                else if (!healthy)
-                {
-                    wasHealthy = false;
-                }
+                logger.LogInformation(
+                    "Vault '{Name}' is reachable — ensuring init + unseal (persistent mode)",
+                    vault.Name);
+                await VaultServerConfigurator.EnsureVaultUsableAsync(
+                    vaultAddress, vault.HostInitStatePath, vault.RootToken, logger, ct);
             }
+
+            if (vault.TransitKeys.Count > 0)
+            {
+                logger.LogInformation(
+                    "Vault '{Name}' is healthy — (re)configuring Transit engine",
+                    vault.Name);
+                await VaultTransitConfigurator.ConfigureTransitAsync(
+                    vaultAddress, vault.RootToken, vault.TransitKeys, logger, ct);
+            }
+
+            if (vault.AppRole is not null)
+            {
+                await VaultAppRoleConfigurator.EnsureAsync(
+                    vaultAddress, vault.RootToken, vault.Name, vault.AppRole, logger, ct);
+            }
+
+            vault.HostAddress = vaultAddress;
+            vault.Configured.TrySetResult();
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Shutting down — ignore
+            logger.LogError(ex, "Failed to configure Vault for resource '{Name}'", vault.Name);
+            vault.Configured.TrySetException(
+                new InvalidOperationException($"Vault '{vault.Name}' could not be configured: {ex.Message}", ex));
         }
     }
 

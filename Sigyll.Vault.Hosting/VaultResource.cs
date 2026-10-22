@@ -46,7 +46,7 @@ public sealed class VaultResource(string name) : ContainerResource(name), IResou
     /// <summary>
     /// Completes once Vault is unsealed and its engines, keys and AppRole are configured.
     /// </summary>
-    internal TaskCompletionSource Configured { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal TaskCompletionSource Configured { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
     /// Vault's address as seen from the AppHost, known once Vault is running.
