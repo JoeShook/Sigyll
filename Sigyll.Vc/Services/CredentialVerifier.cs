@@ -15,6 +15,7 @@ using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
 using SimpleBase;
 using Sigyll.Common.Data;
+using Sigyll.Common.Security;
 using Sigyll.Vc.ViewModels;
 
 namespace Sigyll.Vc.Services;
@@ -27,14 +28,18 @@ namespace Sigyll.Vc.Services;
 public class CredentialVerifier
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
 
-    public CredentialVerifier(IDbContextFactory<SigyllDbContext> dbFactory)
+    public CredentialVerifier(IDbContextFactory<SigyllDbContext> dbFactory, IOperatorContext operatorContext)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
     }
 
     public async Task<CredentialVerifyResult> VerifyAsync(string jwt, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         string headerJson, payloadJson;
         byte[] signature;
         byte[] signingInput;

@@ -17,6 +17,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 
@@ -36,17 +37,20 @@ public class DirectPqcPairService
     private static readonly Oid Sha512 = new("2.16.840.1.101.3.4.2.3");
 
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly CertificateIssuanceService _issuance;
     private readonly ChainValidationService _chainValidation;
     private readonly ILogger<DirectPqcPairService> _logger;
 
     public DirectPqcPairService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         CertificateIssuanceService issuance,
         ChainValidationService chainValidation,
         ILogger<DirectPqcPairService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _issuance = issuance;
         _chainValidation = chainValidation;
         _logger = logger;
@@ -66,6 +70,8 @@ public class DirectPqcPairService
 
     public async Task<DirectPairResult> IssuePairAsync(DirectPairRequest request, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         var identifier = request.Identifier.Trim();
         var bindingError = ValidateIdentifier(request.Binding, identifier);
         if (bindingError != null)
@@ -143,6 +149,8 @@ public class DirectPqcPairService
     /// </summary>
     public async Task<DirectPairInfo?> FindPairAsync(int issuedCertificateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.IssuedCertificates
             .Include(i => i.Profile)
@@ -209,6 +217,8 @@ public class DirectPqcPairService
     /// </summary>
     public async Task<DirectRoundTripResult> RunRoundTripAsync(int signingCertificateId, int encryptionCertificateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         var result = new DirectRoundTripResult();
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var signingRow = await db.IssuedCertificates.FindAsync([signingCertificateId], ct);

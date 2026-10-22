@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Did.Services;
@@ -19,18 +20,23 @@ namespace Sigyll.Did.Services;
 public class DidTemplateService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<DidTemplateService> _logger;
 
     public DidTemplateService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<DidTemplateService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
     public async Task<List<DidTemplate>> GetAllAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.DidTemplates
             .OrderByDescending(t => t.IsPreset)
@@ -41,12 +47,16 @@ public class DidTemplateService
 
     public async Task<DidTemplate?> GetByIdAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.DidTemplates.FindAsync([id], ct);
     }
 
     public async Task<DidTemplate> SaveAsync(DidTemplate entity, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         if (entity.Id > 0)
@@ -67,6 +77,8 @@ public class DidTemplateService
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.DidTemplates.FindAsync([id], ct);
         if (entity != null && !entity.IsPreset)
@@ -78,6 +90,8 @@ public class DidTemplateService
 
     public async Task<List<ImpactItem>> GetDeletionImpactAsync(int templateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var impacts = new List<ImpactItem>();
 

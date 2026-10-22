@@ -16,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using X509Extension = System.Security.Cryptography.X509Certificates.X509Extension;
@@ -42,6 +43,7 @@ public class ExternalCertificateRequestService
     };
 
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<ExternalCertificateRequestService> _logger;
     private readonly Pkcs12BundleService _bundleService;
     private readonly CertificateParsingService _parsingService;
@@ -49,12 +51,14 @@ public class ExternalCertificateRequestService
 
     public ExternalCertificateRequestService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<ExternalCertificateRequestService> logger,
         Pkcs12BundleService bundleService,
         CertificateParsingService parsingService,
         CertificateImportService importService)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
         _bundleService = bundleService;
         _parsingService = parsingService;
@@ -65,6 +69,8 @@ public class ExternalCertificateRequestService
 
     public async Task<ExternalCertificateRequestResult> CreateAsync(CreateExternalCertificateRequest request, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         if (string.IsNullOrWhiteSpace(request.Name))
             return ExternalCertificateRequestResult.Failure("A name is required.");
         if (string.IsNullOrWhiteSpace(request.SubjectDn))
@@ -164,6 +170,8 @@ public class ExternalCertificateRequestService
     /// </summary>
     public async Task<ExternalCertificateRequestResult> UpdateAsync(UpdateExternalCertificateRequest request, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         if (string.IsNullOrWhiteSpace(request.Name))
             return ExternalCertificateRequestResult.Failure("A name is required.");
         if (string.IsNullOrWhiteSpace(request.SubjectDn))
@@ -332,6 +340,8 @@ public class ExternalCertificateRequestService
 
     public async Task<List<ExternalCertificateRequestSummary>> ListAsync(int? trustDomainId, bool includeCompleted, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var query = db.ExternalCertificateRequests.Include(r => r.TrustDomain).AsQueryable();
@@ -344,6 +354,8 @@ public class ExternalCertificateRequestService
 
     public async Task<ExternalCertificateRequestSummary?> GetAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.Include(r => r.TrustDomain).FirstOrDefaultAsync(r => r.Id == id, ct);
         return row == null ? null : ToSummary(row);
@@ -385,6 +397,8 @@ public class ExternalCertificateRequestService
 
     public async Task<ExternalRequestExportResult> ExportCsrAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
         if (row == null) return ExternalRequestExportResult.Failure("Request not found.");
@@ -404,6 +418,8 @@ public class ExternalCertificateRequestService
     /// </summary>
     public async Task<ExternalRequestExportResult> ExportPrivateKeyAsync(int id, string passphrase, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.ExportKeys);
+
         if (string.IsNullOrEmpty(passphrase))
             return ExternalRequestExportResult.Failure("A passphrase is required to export the private key.");
 
@@ -441,6 +457,8 @@ public class ExternalCertificateRequestService
     /// </summary>
     public async Task<ExternalRequestExportResult> ExportPkcs12Async(int id, string password, bool includeChain, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.ExportKeys);
+
         if (string.IsNullOrEmpty(password))
             return ExternalRequestExportResult.Failure("A password for the .p12 is required.");
 
@@ -524,6 +542,8 @@ public class ExternalCertificateRequestService
         int? issuingCaId = null,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
         if (row == null) return FulfillExternalRequestResult.Failure("Request not found.");
@@ -649,6 +669,8 @@ public class ExternalCertificateRequestService
 
     public async Task<bool> CancelAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
         if (row == null || row.Status != ExternalRequestStatus.Pending) return false;
@@ -660,6 +682,8 @@ public class ExternalCertificateRequestService
     /// <summary>Deletes the request and its stored private key. Irreversible.</summary>
     public async Task<bool> DeleteAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
         if (row == null) return false;

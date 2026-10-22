@@ -41,7 +41,7 @@ public class CredentialIssuanceServiceTests
     public async Task IssueAsync_ValidClaims_ProducesJwtVc()
     {
         var (trustDomainId, schemaId, issuerDidId) = await SeedAsync();
-        var service = new CredentialIssuanceService(_dbFactory, _signing, NullLogger<CredentialIssuanceService>.Instance);
+        var service = new CredentialIssuanceService(_dbFactory, TestOperators.Full, _signing, NullLogger<CredentialIssuanceService>.Instance);
 
         var result = await service.IssueAsync(new CredentialIssuanceRequest(
             TrustDomainId: trustDomainId,
@@ -64,7 +64,7 @@ public class CredentialIssuanceServiceTests
     public async Task IssueAsync_InvalidClaims_Throws()
     {
         var (trustDomainId, schemaId, issuerDidId) = await SeedAsync();
-        var service = new CredentialIssuanceService(_dbFactory, _signing, NullLogger<CredentialIssuanceService>.Instance);
+        var service = new CredentialIssuanceService(_dbFactory, TestOperators.Full, _signing, NullLogger<CredentialIssuanceService>.Instance);
 
         // Missing required "role" field.
         await Should.ThrowAsync<InvalidOperationException>(async () =>
@@ -84,7 +84,7 @@ public class CredentialIssuanceServiceTests
             await db.SaveChangesAsync();
         }
 
-        var service = new CredentialIssuanceService(_dbFactory, _signing, NullLogger<CredentialIssuanceService>.Instance);
+        var service = new CredentialIssuanceService(_dbFactory, TestOperators.Full, _signing, NullLogger<CredentialIssuanceService>.Instance);
 
         await Should.ThrowAsync<InvalidOperationException>(async () =>
             await service.IssueAsync(new CredentialIssuanceRequest(
@@ -95,7 +95,7 @@ public class CredentialIssuanceServiceTests
     {
         // Mint issuer DID
         var didService = new DidIssuanceService(
-            _dbFactory, [new DidKeyMethodProvider()], _signing, NullLogger<DidIssuanceService>.Instance);
+            _dbFactory, TestOperators.Full, [new DidKeyMethodProvider()], _signing, NullLogger<DidIssuanceService>.Instance);
 
         await using var db = _dbFactory.CreateDbContext();
         var td = new TrustDomain { Name = "td" };

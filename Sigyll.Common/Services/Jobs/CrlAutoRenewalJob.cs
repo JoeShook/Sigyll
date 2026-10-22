@@ -11,6 +11,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
+using Sigyll.Common.Security;
 
 namespace Sigyll.Common.Services.Jobs;
 
@@ -26,21 +27,26 @@ public class CrlAutoRenewalJob : IRecurringJobDefinition
     public string DefaultCron => "0 * * * *";
 
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly CrlGenerationService _crlGenerationService;
     private readonly ILogger<CrlAutoRenewalJob> _logger;
 
     public CrlAutoRenewalJob(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         CrlGenerationService crlGenerationService,
         ILogger<CrlAutoRenewalJob> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _crlGenerationService = crlGenerationService;
         _logger = logger;
     }
 
     public async Task ExecuteAsync(CancellationToken ct)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var cas = await db.CaCertificates

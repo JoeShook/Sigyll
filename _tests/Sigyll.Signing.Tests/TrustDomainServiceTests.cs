@@ -21,7 +21,7 @@ public class TrustDomainServiceTests
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory = new TestDbContextFactory();
 
     private TrustDomainService CreateService() =>
-        new(_dbFactory, NullLogger<TrustDomainService>.Instance);
+        new(_dbFactory, TestOperators.Full, NullLogger<TrustDomainService>.Instance);
 
     [Fact]
     public async Task GetAll_EmptyDb_ReturnsEmpty()

@@ -167,7 +167,19 @@
         </FluentNavMenu>
         <main style="flex: 1; overflow-y: auto;">
             <div style="padding: 1.5rem; padding-bottom: 4rem;">
-                @Body
+                <OperatorErrorBoundary @ref="errorBoundary">
+                    <ChildContent>
+                        @Body
+                    </ChildContent>
+                    <ErrorContent>
+                        <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false" Style="margin-bottom: 1rem;">
+                            @(context is Sigyll.Common.Security.OperatorAccessDeniedException
+                                ? "Your role does not allow this page's actions."
+                                : "Something went wrong on this page. The details are in the log.")
+                        </FluentMessageBar>
+                        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => errorBoundary?.Recover())">Try again</FluentButton>
+                    </ErrorContent>
+                </OperatorErrorBoundary>
             </div>
         </main>
     </div>
@@ -183,6 +195,10 @@
     private bool settingsOpen;
     private bool statusOpen;
     private SystemStatusViewModel? status;
+    private OperatorErrorBoundary? errorBoundary;
+
+    // A new page starts clean, even if the previous one ended in an error.
+    protected override void OnParametersSet() => errorBoundary?.Recover();
 
     protected override void OnInitialized()
     {

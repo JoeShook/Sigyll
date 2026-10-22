@@ -16,6 +16,7 @@ using Org.BouncyCastle.X509;
 using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 
@@ -46,13 +47,16 @@ public record SingleImportResult
 public class CertificateImportService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CertificateImportService> _logger;
 
     public CertificateImportService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CertificateImportService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
@@ -70,6 +74,8 @@ public class CertificateImportService
         byte[]? rawFileOverride = null,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var cert = parsed.Certificate;
         var thumbprint = cert.Thumbprint;
@@ -398,8 +404,10 @@ public class CertificateImportService
     /// <summary>
     /// Scans a certstores directory and returns a preview of what can be imported.
     /// </summary>
-    public List<ImportPreviewViewModel> ScanCertStore(string certstoresPath, string pfxPassword = "udap-test")
+    public async Task<List<ImportPreviewViewModel>> ScanCertStoreAsync(string certstoresPath, string pfxPassword = "udap-test")
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         var results = new List<ImportPreviewViewModel>();
 
         if (!Directory.Exists(certstoresPath))
@@ -474,6 +482,8 @@ public class CertificateImportService
         string pfxPassword = "udap-test",
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         var trustDomainName = Path.GetFileName(trustDomainDir);
         var errors = new List<string>();
         int imported = 0;

@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Sigyll.Common.Data;
+using Sigyll.Common.Security;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Services;
@@ -25,6 +26,7 @@ public class SystemStatusOptions
     public string? GcpProjectId { get; set; }
 }
 
+[NoOperatorCheck("Health of the database and signing backends for the status bar; exposes no CA data.")]
 public class SystemStatusService
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);

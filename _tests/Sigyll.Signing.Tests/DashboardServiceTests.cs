@@ -24,7 +24,7 @@ public class DashboardServiceTests
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory = new TestDbContextFactory();
 
     private DashboardService CreateService() =>
-        new(_dbFactory, NullLogger<DashboardService>.Instance);
+        new(_dbFactory, TestOperators.Full, NullLogger<DashboardService>.Instance);
 
     [Fact]
     public async Task GetDashboard_EmptyDb_ReturnsZeroCounts()

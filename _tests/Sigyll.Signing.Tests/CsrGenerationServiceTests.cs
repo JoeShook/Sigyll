@@ -35,7 +35,7 @@ public class CsrGenerationServiceTests
 
     public CsrGenerationServiceTests()
     {
-        _service = new CsrGenerationService(_dbFactory, NullLogger<CsrGenerationService>.Instance);
+        _service = new CsrGenerationService(_dbFactory, TestOperators.Full, NullLogger<CsrGenerationService>.Instance);
     }
 
     [Fact]

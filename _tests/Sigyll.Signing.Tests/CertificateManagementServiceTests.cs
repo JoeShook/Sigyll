@@ -35,18 +35,18 @@ public class CertificateManagementServiceTests
         httpFactory.CreateClient(Arg.Any<string>()).Returns(new HttpClient());
 
         _chainValidator = new ChainValidationService(
-            _dbFactory,
+            _dbFactory, TestOperators.Full,
             httpFactory,
             NullLogger<ChainValidationService>.Instance);
 
         _crlGenService = new CrlGenerationService(
-            _dbFactory,
+            _dbFactory, TestOperators.Full,
             NullLogger<CrlGenerationService>.Instance,
             new LocalSigningProvider());
     }
 
     private CertificateManagementService CreateService() =>
-        new(_dbFactory, NullLogger<CertificateManagementService>.Instance,
+        new(_dbFactory, TestOperators.Full, NullLogger<CertificateManagementService>.Instance,
             _chainValidator, _crlGenService);
 
     [Fact]

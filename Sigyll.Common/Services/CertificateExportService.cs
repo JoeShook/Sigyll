@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 
 namespace Sigyll.Common.Services;
 
@@ -42,13 +43,16 @@ public class PfxExportResult
 public class CertificateExportService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CertificateExportService> _logger;
 
     public CertificateExportService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CertificateExportService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
@@ -61,6 +65,8 @@ public class CertificateExportService
         string entityType,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.ExportKeys);
+
         if (entityType == "CaCertificate")
             return CertificateExportResult.Failure(
                 "CA private keys cannot be exported as PEM. Download the password-protected .p12 instead.");
@@ -130,6 +136,8 @@ public class CertificateExportService
         bool includeChain,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.ExportKeys);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         byte[]? pfxBytes;
@@ -197,6 +205,8 @@ public class CertificateExportService
         string entityType,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         string? pem;

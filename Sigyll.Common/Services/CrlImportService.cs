@@ -15,19 +15,23 @@ using Org.BouncyCastle.X509;
 using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 
 namespace Sigyll.Common.Services;
 
 public class CrlImportService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CrlImportService> _logger;
 
     public CrlImportService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CrlImportService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
@@ -41,6 +45,8 @@ public class CrlImportService
         int trustDomainId,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await ImportCrlAsync(db, crlBytes, fileName, trustDomainId, ct);
     }
@@ -55,6 +61,8 @@ public class CrlImportService
         int trustDomainId,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         var crlParser = new X509CrlParser();
         var crl = crlParser.ReadCrl(crlBytes);
         var issuerDn = crl.IssuerDN.ToString();

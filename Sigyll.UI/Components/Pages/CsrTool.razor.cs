@@ -180,8 +180,6 @@ public partial class CsrTool : IDisposable
     /// </summary>
     private async Task ImportBundleAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (bundleResult?.Pkcs12Bytes == null || importTrustDomain == null) return;
 
         isImporting = true;

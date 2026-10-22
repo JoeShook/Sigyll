@@ -12,24 +12,30 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 
 namespace Sigyll.Common.Services;
 
 public class SanListService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<SanListService> _logger;
 
     public SanListService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<SanListService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
     public async Task<List<SanList>> GetAllAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.SanLists
             .Include(s => s.Profiles)
@@ -39,6 +45,8 @@ public class SanListService
 
     public async Task<SanList> SaveAsync(SanList entity, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         if (entity.Id > 0)
@@ -61,6 +69,8 @@ public class SanListService
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.SanLists.FindAsync([id], ct);
         if (entity != null)

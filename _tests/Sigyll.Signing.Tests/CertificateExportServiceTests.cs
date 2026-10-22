@@ -29,7 +29,7 @@ public class CertificateExportServiceTests : IDisposable
     }
 
     private CertificateExportService CreateService() =>
-        new(_dbFactory, NullLogger<CertificateExportService>.Instance);
+        new(_dbFactory, TestOperators.Full, NullLogger<CertificateExportService>.Instance);
 
     [Fact]
     public async Task ExportPrivateKeyPem_Rsa_ReturnsPkcs8Pem()

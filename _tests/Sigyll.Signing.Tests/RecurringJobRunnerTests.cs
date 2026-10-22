@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Jobs;
 
 namespace Sigyll.Signing.Tests;
@@ -27,12 +28,14 @@ public class RecurringJobRunnerTests
     public RecurringJobRunnerTests()
     {
         var services = new ServiceCollection();
-        services.AddScoped<IRecurringJobDefinition>(_ => _ok);
-        services.AddScoped<IRecurringJobDefinition>(_ => _broken);
+        services.AddScoped<OperatorContext>();
+        services.AddScoped<IOperatorContext>(sp => sp.GetRequiredService<OperatorContext>());
+        services.AddScoped<IRecurringJobDefinition>(sp => _ok.InScope(sp));
+        services.AddScoped<IRecurringJobDefinition>(sp => _broken.InScope(sp));
         var provider = services.BuildServiceProvider();
         _runner = new RecurringJobRunner(_dbFactory, provider.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<RecurringJobRunner>.Instance);
-        _scheduler = new RecurringJobScheduler(_dbFactory, new RecurringJobSignal());
+        _scheduler = new RecurringJobScheduler(_dbFactory, TestOperators.Full, new RecurringJobSignal());
     }
 
     [Fact]
@@ -65,6 +68,7 @@ public class RecurringJobRunnerTests
         (await _runner.RunDueJobsAsync()).ShouldBe(1);
 
         _ok.Runs.ShouldBe(1);
+        _ok.RanAs.ShouldBe(RecurringJobRunner.Scheduler);
         _broken.Runs.ShouldBe(0);
         var job = (await _scheduler.GetRecurringJobsAsync()).Single(j => j.JobId == "ok-job");
         job.LastResult.ShouldBe("Succeeded");
@@ -122,14 +126,24 @@ public class RecurringJobRunnerTests
 
     private sealed class FakeJob(string id, bool fail = false) : IRecurringJobDefinition
     {
+        private IOperatorContext? _operator;
+
         public int Runs { get; private set; }
+        public OperatorIdentity? RanAs { get; private set; }
         public string JobId => id;
         public string DefaultCron => "0 * * * *";
 
-        public Task ExecuteAsync(CancellationToken ct)
+        public FakeJob InScope(IServiceProvider scope)
+        {
+            _operator = scope.GetRequiredService<IOperatorContext>();
+            return this;
+        }
+
+        public async Task ExecuteAsync(CancellationToken ct)
         {
             Runs++;
-            return fail ? throw new InvalidOperationException("boom") : Task.CompletedTask;
+            RanAs = await _operator!.GetCurrentAsync();
+            if (fail) throw new InvalidOperationException("boom");
         }
     }
 }

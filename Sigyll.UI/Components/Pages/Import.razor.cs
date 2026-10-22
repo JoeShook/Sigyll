@@ -44,17 +44,12 @@ public partial class Import
 
     private async Task ScanAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         isScanning = true;
         importResults.Clear();
 
         try
         {
-            await Task.Run(() =>
-            {
-                previews = ImportService.ScanCertStore(certstorePath, pfxPassword);
-            });
+            previews = await Task.Run(() => ImportService.ScanCertStoreAsync(certstorePath, pfxPassword));
         }
         finally
         {
@@ -64,8 +59,6 @@ public partial class Import
 
     private async Task ImportSingleAsync(ImportPreviewViewModel preview)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         isImporting = true;
 
         try
@@ -86,8 +79,6 @@ public partial class Import
 
     private async Task ImportAllAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         isImporting = true;
 
         try

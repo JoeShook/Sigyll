@@ -280,8 +280,6 @@ public partial class CertificateProfiles
 
     private async Task SaveProfileAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         CertificateProfile entity;
@@ -351,8 +349,6 @@ public partial class CertificateProfiles
 
     private async Task DeleteProfileAsync(CertificateProfile profile)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (profile.IsPreset) return;
 
         var impacts = await CertificateProfileService.GetDeletionImpactAsync(profile.Id);
@@ -367,8 +363,6 @@ public partial class CertificateProfiles
 
     private async Task ConfirmDeleteProfileAsync(CertificateProfile profile)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         await CertificateProfileService.DeleteAsync(profile.Id);
         ToastService.ShowCopyableSuccess($"Certificate profile '{profile.Name}' deleted.");
         await LoadProfilesAsync();

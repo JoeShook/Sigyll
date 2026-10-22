@@ -177,8 +177,6 @@ public partial class ExternalRequests
 
     private async Task ShowNewRequestDialog()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedTrustDomain == null) return;
 
         editingId = null;
@@ -274,8 +272,6 @@ public partial class ExternalRequests
     /// <summary>Opens the request dialog in edit mode, pre-filled from the pending request.</summary>
     private void ShowEditDialog(ExternalCertificateRequestSummary row)
     {
-        if (!Access.CanOperate) return;
-
         editingId = row.Id;
         editRegenerateKey = false;
         editCurrentKey = $"{row.KeyAlgorithm} {row.KeySize}";
@@ -301,8 +297,6 @@ public partial class ExternalRequests
 
     private async Task CreateRequestAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (NewRequestInvalid || (editingId == null && selectedTrustDomain == null)) return;
 
         isCreating = true;
@@ -402,8 +396,6 @@ public partial class ExternalRequests
 
     private void ShowP12Dialog(ExternalCertificateRequestSummary row)
     {
-        if (!Access.CanExportKeys) return;
-
         p12Target = row;
         p12Password = string.Empty;
         p12IncludeChain = true;
@@ -412,8 +404,6 @@ public partial class ExternalRequests
 
     private async Task DownloadP12Async()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.ExportKeys)) return;
-
         if (p12Target == null) return;
         var export = await RequestService.ExportPkcs12Async(p12Target.Id, p12Password, p12IncludeChain);
         p12Password = string.Empty;
@@ -424,8 +414,6 @@ public partial class ExternalRequests
 
     private void ShowExportKeyDialog(ExternalCertificateRequestSummary row)
     {
-        if (!Access.CanExportKeys) return;
-
         exportKeyTarget = row;
         exportKeyPassphrase = string.Empty;
         exportKeyDialogHidden = false;
@@ -433,8 +421,6 @@ public partial class ExternalRequests
 
     private async Task ExportKeyAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.ExportKeys)) return;
-
         if (exportKeyTarget == null) return;
         var export = await RequestService.ExportPrivateKeyAsync(exportKeyTarget.Id, exportKeyPassphrase);
         exportKeyPassphrase = string.Empty;
@@ -446,8 +432,6 @@ public partial class ExternalRequests
 
     private async Task CancelAsync(ExternalCertificateRequestSummary row)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (await RequestService.CancelAsync(row.Id))
         {
             ToastService.ShowSuccess($"Cancelled '{row.Name}'. Its key is kept until you delete the request.");
@@ -457,8 +441,6 @@ public partial class ExternalRequests
 
     private async Task DeleteAsync(ExternalCertificateRequestSummary row)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (row.Status == ExternalRequestStatus.Pending)
         {
             var confirmed = await JS.InvokeAsync<bool>("confirm",
@@ -477,8 +459,6 @@ public partial class ExternalRequests
 
     private async Task ShowCompleteDialog(ExternalCertificateRequestSummary row)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         completeTarget = row;
         completeCertBytes = null;
         completeCertName = null;
@@ -499,8 +479,6 @@ public partial class ExternalRequests
 
     private async Task OnSignedCertUploaded(IEnumerable<FluentInputFileEventArgs> files)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         var file = files.FirstOrDefault(f => f.LocalFile != null && !string.IsNullOrEmpty(f.Name));
         if (file == null) return;
         try
@@ -521,8 +499,6 @@ public partial class ExternalRequests
 
     private async Task OnChainUploaded(IEnumerable<FluentInputFileEventArgs> files)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         foreach (var file in files.Where(f => f.LocalFile != null))
         {
             try { completeChain.Add(await File.ReadAllBytesAsync(file.LocalFile!.FullName)); }
@@ -534,8 +510,6 @@ public partial class ExternalRequests
 
     private async Task CompleteRequestAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (completeTarget == null || completeCertBytes == null) return;
 
         isCompleting = true;

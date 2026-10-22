@@ -22,7 +22,7 @@ public class CertificateProfileServiceTests
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory = new TestDbContextFactory();
 
     private CertificateProfileService CreateService() =>
-        new(_dbFactory, NullLogger<CertificateProfileService>.Instance);
+        new(_dbFactory, TestOperators.Full, NullLogger<CertificateProfileService>.Instance);
 
     [Fact]
     public async Task GetAll_EmptyDb_ReturnsEmpty()

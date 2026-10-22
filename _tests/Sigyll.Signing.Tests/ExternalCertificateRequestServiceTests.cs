@@ -35,9 +35,9 @@ public class ExternalCertificateRequestServiceTests
 
     public ExternalCertificateRequestServiceTests()
     {
-        _importService = new CertificateImportService(_dbFactory, NullLogger<CertificateImportService>.Instance);
+        _importService = new CertificateImportService(_dbFactory, TestOperators.Full, NullLogger<CertificateImportService>.Instance);
         _service = new ExternalCertificateRequestService(
-            _dbFactory,
+            _dbFactory, TestOperators.Full,
             NullLogger<ExternalCertificateRequestService>.Instance,
             new Pkcs12BundleService(NullLogger<Pkcs12BundleService>.Instance),
             new CertificateParsingService(),

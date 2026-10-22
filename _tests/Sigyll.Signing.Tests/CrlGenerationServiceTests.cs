@@ -44,7 +44,7 @@ public class CrlGenerationServiceTests
     public CrlGenerationServiceTests()
     {
         _service = new CrlGenerationService(
-            _dbFactory,
+            _dbFactory, TestOperators.Full,
             NullLogger<CrlGenerationService>.Instance,
             new LocalSigningProvider());
     }

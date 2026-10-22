@@ -24,6 +24,7 @@ public class DidIssuanceServiceTests
 
     private DidIssuanceService CreateService() => new(
         _dbFactory,
+        TestOperators.Full,
         [new DidKeyMethodProvider()],
         _signing,
         NullLogger<DidIssuanceService>.Instance);

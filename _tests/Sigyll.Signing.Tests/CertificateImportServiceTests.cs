@@ -24,7 +24,7 @@ public class CertificateImportServiceTests
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory = new TestDbContextFactory();
 
     private CertificateImportService CreateService() =>
-        new(_dbFactory, NullLogger<CertificateImportService>.Instance);
+        new(_dbFactory, TestOperators.Full, NullLogger<CertificateImportService>.Instance);
 
     [Fact]
     public async Task ImportParsed_RootCa_CreatesEntity()

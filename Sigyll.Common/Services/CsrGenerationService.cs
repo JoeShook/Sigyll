@@ -17,6 +17,7 @@ using Org.BouncyCastle.Asn1;
 using Org.BouncyCastle.Asn1.X509;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using X509Extension = System.Security.Cryptography.X509Certificates.X509Extension;
@@ -41,19 +42,24 @@ public class CsrGenerationService
     private const string BasicConstraintsOid = "2.5.29.19";
 
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CsrGenerationService> _logger;
 
     public CsrGenerationService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CsrGenerationService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
     /// <summary>Generates a CSR modeled on a certificate stored in Sigyll (CA or issued).</summary>
     public async Task<CsrGenerationResult> GenerateCsrAsync(CsrGenerationRequest request, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         string name;
@@ -125,6 +131,7 @@ public class CsrGenerationService
     /// database, and no issuing CA is required. When <see cref="CsrKeyMode.ReuseExistingKey"/> is
     /// requested the certificate must carry its private key (e.g. loaded from a .p12).
     /// </summary>
+    [NoOperatorCheck("Works only on a certificate and key the caller supplies; reads and changes no CA state.")]
     public CsrGenerationResult GenerateCsrFromCertificate(X509Certificate2 certificate, string name, CsrGenerationRequest options)
     {
         CsrSigningKey? key = null;

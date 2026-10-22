@@ -98,8 +98,6 @@ public partial class Credentials
 
     private async Task IssueAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (!CanIssue() || selectedTrustDomain == null || selectedSchema == null || selectedIssuer == null) return;
 
         try
@@ -136,8 +134,6 @@ public partial class Credentials
 
     private async Task RevokeAsync(IssuedCredentialViewModel c)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         var dialog = await DialogService.ShowConfirmationAsync(
             $"Revoke credential {c.CredentialId}? Verifiers checking status will reject it.",
             "Revoke", "Cancel", "Confirm Revoke");

@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Vc.Services;
@@ -21,18 +22,23 @@ namespace Sigyll.Vc.Services;
 public class CredentialSchemaService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CredentialSchemaService> _logger;
 
     public CredentialSchemaService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CredentialSchemaService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
     public async Task<List<CredentialSchema>> GetAllAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.CredentialSchemas
             .OrderByDescending(s => s.IsPreset)
@@ -42,12 +48,16 @@ public class CredentialSchemaService
 
     public async Task<CredentialSchema?> GetByIdAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.CredentialSchemas.FindAsync([id], ct);
     }
 
     public async Task<CredentialSchema> SaveAsync(CredentialSchema entity, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         // Validate the schema text parses as a JSON Schema before persisting.
         try { JsonSchema.FromText(entity.ClaimsSchemaJson); }
         catch (Exception ex)
@@ -76,6 +86,8 @@ public class CredentialSchemaService
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.CredentialSchemas.FindAsync([id], ct);
         if (entity != null && !entity.IsPreset)
@@ -87,6 +99,8 @@ public class CredentialSchemaService
 
     public async Task<List<ImpactItem>> GetDeletionImpactAsync(int schemaId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var impacts = new List<ImpactItem>();
 

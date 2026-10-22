@@ -74,8 +74,6 @@ public partial class DidTemplates
 
     private async Task SaveAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         var entity = new DidTemplate
@@ -106,8 +104,6 @@ public partial class DidTemplates
 
     private async Task DeleteAsync(DidTemplate t)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (t.IsPreset) return;
 
         var dialog = await DialogService.ShowConfirmationAsync(

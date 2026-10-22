@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Services;
@@ -19,18 +20,23 @@ namespace Sigyll.Common.Services;
 public class CertificateProfileService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CertificateProfileService> _logger;
 
     public CertificateProfileService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CertificateProfileService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
     public async Task<List<CertificateProfile>> GetAllAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.CertificateProfiles
             .OrderByDescending(t => t.IsPreset)
@@ -41,6 +47,8 @@ public class CertificateProfileService
 
     public async Task<CertificateProfile> SaveAsync(CertificateProfile entity, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         if (entity.Id > 0)
@@ -61,6 +69,8 @@ public class CertificateProfileService
 
     public async Task UpdateSanListsAsync(int profileId, HashSet<int> sanListIds, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var profile = await db.CertificateProfiles
             .Include(t => t.SanLists)
@@ -82,6 +92,8 @@ public class CertificateProfileService
 
     public async Task<List<CertificateProfile>> GetAllWithSanListsAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.CertificateProfiles
             .Include(t => t.SanLists)
@@ -93,6 +105,8 @@ public class CertificateProfileService
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.CertificateProfiles.FindAsync([id], ct);
         if (entity != null && !entity.IsPreset)
@@ -104,6 +118,8 @@ public class CertificateProfileService
 
     public async Task<List<ImpactItem>> GetDeletionImpactAsync(int profileId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var impacts = new List<ImpactItem>();
 

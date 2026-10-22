@@ -24,7 +24,7 @@ public class CsrIssuanceTests
     private readonly TestDbContextFactory _dbFactory = new();
 
     private CertificateIssuanceService CreateService() =>
-        new(_dbFactory, NullLogger<CertificateIssuanceService>.Instance);
+        new(_dbFactory, TestOperators.Full, NullLogger<CertificateIssuanceService>.Instance);
 
     [Fact]
     public async Task IssueFromCsr_UsesCsrPublicKey_AndStoresNoPrivateKey()

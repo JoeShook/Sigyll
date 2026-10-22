@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Services;
@@ -19,18 +20,23 @@ namespace Sigyll.Common.Services;
 public class TrustDomainService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<TrustDomainService> _logger;
 
     public TrustDomainService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<TrustDomainService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
     }
 
     public async Task<List<TrustDomainViewModel>> GetAllAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         return await db.TrustDomains
@@ -60,6 +66,8 @@ public class TrustDomainService
         int crlValidityDays = 7,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var trustDomain = new TrustDomain
@@ -97,6 +105,8 @@ public class TrustDomainService
         int crlValidityDays = 7,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.TrustDomains
             .Include(c => c.BaseUrls)
@@ -128,6 +138,8 @@ public class TrustDomainService
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.TrustDomains.FindAsync([id], ct);
         if (entity != null)
@@ -139,6 +151,8 @@ public class TrustDomainService
 
     public async Task<List<ImpactItem>> GetDeletionImpactAsync(int trustDomainId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var impacts = new List<ImpactItem>();
 

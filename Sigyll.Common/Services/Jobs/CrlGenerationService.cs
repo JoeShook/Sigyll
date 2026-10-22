@@ -22,6 +22,7 @@ using Org.BouncyCastle.X509;
 using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using X509Extensions = Org.BouncyCastle.Asn1.X509.X509Extensions;
@@ -47,15 +48,18 @@ public record CrlGenerationResult
 public class CrlGenerationService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CrlGenerationService> _logger;
     private readonly ISigningProvider _signingProvider;
 
     public CrlGenerationService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CrlGenerationService> logger,
         ISigningProvider signingProvider)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
         _signingProvider = signingProvider;
     }
@@ -70,6 +74,8 @@ public class CrlGenerationService
         TimeSpan? validity = null,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var ca = await db.CaCertificates
@@ -224,6 +230,8 @@ public class CrlGenerationService
     /// </summary>
     public async Task PublishCrlAsync(int caCertificateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var ca = await db.CaCertificates
@@ -457,6 +465,8 @@ public class CrlGenerationService
 
     public async Task<List<CrlStatusSummary>> GetCrlStatusesAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var cas = await db.CaCertificates

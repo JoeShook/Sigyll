@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Did.ViewModels;
 
@@ -20,17 +21,20 @@ namespace Sigyll.Did.Services;
 public class DidIssuanceService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly IEnumerable<IDidMethodProvider> _methodProviders;
     private readonly ISigningProvider _signingProvider;
     private readonly ILogger<DidIssuanceService> _logger;
 
     public DidIssuanceService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         IEnumerable<IDidMethodProvider> methodProviders,
         ISigningProvider signingProvider,
         ILogger<DidIssuanceService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _methodProviders = methodProviders;
         _signingProvider = signingProvider;
         _logger = logger;
@@ -38,6 +42,8 @@ public class DidIssuanceService
 
     public async Task<DidIssuanceResult> IssueDidAsync(DidIssuanceRequest request, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var template = await db.DidTemplates.FindAsync([request.DidTemplateId], ct)
@@ -90,6 +96,8 @@ public class DidIssuanceService
 
     public async Task<List<DidDocumentViewModel>> GetAllAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var docs = await db.DidDocuments
@@ -104,6 +112,8 @@ public class DidIssuanceService
 
     public async Task<DidDocumentViewModel?> GetByIdAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var doc = await db.DidDocuments
             .Include(d => d.TrustDomain)
@@ -116,6 +126,8 @@ public class DidIssuanceService
 
     public async Task DeactivateAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var doc = await db.DidDocuments.FindAsync([id], ct);
         if (doc == null || doc.Deactivated) return;

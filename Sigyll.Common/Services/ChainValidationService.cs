@@ -16,6 +16,7 @@ using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.X509;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Pqc;
 using BcX509Certificate = Org.BouncyCastle.X509.X509Certificate;
 
@@ -24,15 +25,18 @@ namespace Sigyll.Common.Services;
 public class ChainValidationService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ChainValidationService> _logger;
 
     public ChainValidationService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         IHttpClientFactory httpClientFactory,
         ILogger<ChainValidationService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
@@ -62,6 +66,8 @@ public class ChainValidationService
     public async Task<Dictionary<string, ChainValidationResult>> ValidateTrustDomainAsync(
         int trustDomainId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var allCas = await db.CaCertificates
@@ -124,6 +130,8 @@ public class ChainValidationService
     public async Task<ChainValidationResult> ValidateCaCertificateAsync(
         int caCertificateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var caCert = await db.CaCertificates
@@ -148,6 +156,8 @@ public class ChainValidationService
     public async Task<ChainValidationResult> ValidateIssuedCertificateAsync(
         int issuedCertificateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var issued = await db.IssuedCertificates
@@ -180,6 +190,8 @@ public class ChainValidationService
     public async Task<ChainValidationResult> ValidateOnlineAsync(
         string leafPem, string leafName, int trustDomainId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         // Only load root CAs as trust anchors
@@ -373,6 +385,8 @@ public class ChainValidationService
     public async Task<ChainValidationResult> ValidateCaCertificateOnlineAsync(
         int caCertificateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var caCert = await db.CaCertificates.FindAsync(new object[] { caCertificateId }, ct);
         if (caCert == null) return ChainValidationResult.Failed("Certificate not found");
@@ -385,6 +399,8 @@ public class ChainValidationService
     public async Task<ChainValidationResult> ValidateIssuedCertificateOnlineAsync(
         int issuedCertificateId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var issued = await db.IssuedCertificates
             .Include(i => i.IssuingCaCertificate)
@@ -401,6 +417,8 @@ public class ChainValidationService
         List<Crl> trustDomainCrls,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         return await ValidateChainAsync(leafPem, leafName, trustDomainCas, trustDomainCrls,
             skipOnlineCrl: false, ct);
     }
@@ -413,6 +431,8 @@ public class ChainValidationService
         bool skipOnlineCrl,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         var parser = new X509CertificateParser();
         var bcCas = new List<(CaCertificate entity, BcX509Certificate bcCert)>();
         foreach (var ca in trustDomainCas)

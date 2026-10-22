@@ -30,10 +30,10 @@ public class DirectPqcPairServiceTests
 
     public DirectPqcPairServiceTests()
     {
-        _issuance = new CertificateIssuanceService(_dbFactory, NullLogger<CertificateIssuanceService>.Instance);
-        var chain = new ChainValidationService(_dbFactory, Substitute.For<IHttpClientFactory>(),
+        _issuance = new CertificateIssuanceService(_dbFactory, TestOperators.Full, NullLogger<CertificateIssuanceService>.Instance);
+        var chain = new ChainValidationService(_dbFactory, TestOperators.Full, Substitute.For<IHttpClientFactory>(),
             NullLogger<ChainValidationService>.Instance);
-        _service = new DirectPqcPairService(_dbFactory, _issuance, chain, NullLogger<DirectPqcPairService>.Instance);
+        _service = new DirectPqcPairService(_dbFactory, TestOperators.Full, _issuance, chain, NullLogger<DirectPqcPairService>.Instance);
     }
 
     [Fact]
@@ -314,7 +314,7 @@ public class DirectPqcPairServiceTests
         root.Success.ShouldBeTrue(root.Error);
         AssertModernPfx((await db.CaCertificates.FindAsync(root.EntityId))!.EncryptedPfxBytes!, Password);
 
-        var crl = await new Sigyll.Common.Services.Jobs.CrlGenerationService(_dbFactory, NullLogger<Sigyll.Common.Services.Jobs.CrlGenerationService>.Instance, new Sigyll.Common.Services.Signing.LocalSigningProvider())
+        var crl = await new Sigyll.Common.Services.Jobs.CrlGenerationService(_dbFactory, TestOperators.Full, NullLogger<Sigyll.Common.Services.Jobs.CrlGenerationService>.Instance, new Sigyll.Common.Services.Signing.LocalSigningProvider())
             .GenerateCrlAsync(root.EntityId!.Value);
         crl.IsSuccess.ShouldBeTrue(crl.Error);
 

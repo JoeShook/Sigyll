@@ -75,8 +75,6 @@ public partial class Dids
 
     private async Task MintAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedTrustDomain == null || selectedDidTemplate == null) return;
 
         try
@@ -102,8 +100,6 @@ public partial class Dids
 
     private async Task DeactivateAsync(DidDocumentViewModel vm)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         var dialog = await DialogService.ShowConfirmationAsync(
             $"Deactivate DID '{vm.Did}'? Issued credentials will fail verification.",
             "Deactivate", "Cancel", "Confirm Deactivate");

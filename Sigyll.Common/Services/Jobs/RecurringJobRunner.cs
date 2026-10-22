@@ -15,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 
 namespace Sigyll.Common.Services.Jobs;
 
@@ -22,11 +23,18 @@ namespace Sigyll.Common.Services.Jobs;
 /// Runs recurring jobs from the <c>RecurringJobs</c> table: creates a row for each registered
 /// <see cref="IRecurringJobDefinition"/>, runs the due ones, and records the outcome and next run.
 /// On PostgreSQL a session advisory lock makes sure only one Sigyll instance runs jobs at a time.
+/// Each job runs in its own scope as <see cref="Scheduler"/>, so the services it calls check
+/// that identity like any other.
 /// </summary>
+[NoOperatorCheck("Driven by the hosted service, not by operators; jobs run as the Scheduler identity.")]
 public class RecurringJobRunner
 {
     /// <summary>Advisory lock key shared by every Sigyll instance on the same database.</summary>
     private const long AdvisoryLockKey = 7_316_455_001;
+
+    /// <summary>The identity recurring jobs run as: CRL renewal and publishing, nothing else.</summary>
+    public static readonly OperatorIdentity Scheduler =
+        OperatorIdentity.System("scheduler", Permission.View, Permission.Operate);
 
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -131,6 +139,7 @@ public class RecurringJobRunner
     private async Task RunAsync(string jobId, CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
+        scope.ServiceProvider.GetRequiredService<OperatorContext>().RunAs(Scheduler);
         var definition = scope.ServiceProvider.GetServices<IRecurringJobDefinition>().FirstOrDefault(d => d.JobId == jobId);
 
         var stopwatch = Stopwatch.StartNew();
@@ -175,16 +184,20 @@ public class RecurringJobRunner
 public class RecurringJobScheduler : IRecurringJobScheduler
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly RecurringJobSignal _signal;
 
-    public RecurringJobScheduler(IDbContextFactory<SigyllDbContext> dbFactory, RecurringJobSignal signal)
+    public RecurringJobScheduler(IDbContextFactory<SigyllDbContext> dbFactory, IOperatorContext operatorContext, RecurringJobSignal signal)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _signal = signal;
     }
 
     public async Task<List<RecurringJobInfo>> GetRecurringJobsAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.RecurringJobs
             .OrderBy(j => j.Id)
@@ -195,6 +208,8 @@ public class RecurringJobScheduler : IRecurringJobScheduler
 
     public async Task UpdateCronExpressionAsync(string jobId, string cronExpression, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         var cron = cronExpression.Trim();
         var next = RecurringJobRunner.NextOccurrence(cron, DateTime.UtcNow); // validates
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -208,6 +223,8 @@ public class RecurringJobScheduler : IRecurringJobScheduler
 
     public async Task TriggerJobAsync(string jobId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.RecurringJobs.FindAsync([jobId], ct)
                   ?? throw new InvalidOperationException($"Recurring job '{jobId}' not found.");

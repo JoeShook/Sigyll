@@ -24,7 +24,6 @@ using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
 using Sigyll.Common.ViewModels;
-using Sigyll.Gcp;
 using Sigyll.UI.Services;
 using Sigyll.Vault;
 using Sigyll.UI.Security;
@@ -50,7 +49,6 @@ public partial class CertificateExplorer : IDisposable
     [Inject] private CertificateImportService ImportService { get; set; } = null!;
     [Inject] private ISigningProvider SigningProvider { get; set; } = null!;
     [Inject] private VaultTransitSigningProvider VaultTransitProvider { get; set; } = null!;
-    [Inject] private GcpKmsSigningProvider GcpKmsProvider { get; set; } = null!;
     [Inject] private IOptions<SigningProviderOptions> SigningOptions { get; set; } = null!;
     [Inject] private IHttpClientFactory HttpClientFactory { get; set; } = null!;
     [Inject] private IJSRuntime JS { get; set; } = null!;
@@ -360,8 +358,6 @@ public partial class CertificateExplorer : IDisposable
     [JSInvokable]
     public async Task OnDragDropRenew(int certId, string entityType, int targetCaId, string targetCaName)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         var node = FindNodeById(treeNodes, certId, entityType);
         if (node == null) return;
 
@@ -622,8 +618,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task RepublishCrlAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedCrl == null) return;
         try
         {
@@ -699,8 +693,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task GenerateCrlForSelectedAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (isGeneratingCrl || selectedNode == null) return;
         if (selectedNode.CertificateRole is not ("RootCA" or "IntermediateCA")) return;
 
@@ -734,8 +726,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ShowPublishCrlDialog()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null) return;
 
         await using var db = await DbFactory.CreateDbContextAsync();
@@ -750,8 +740,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task GenerateCrlWithOverrideAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null || crlOverrideNextUpdate == null) return;
 
         crlOverrideDialogHidden = true;
@@ -792,8 +780,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task PublishAiaForSelectedAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (isPublishingAia || selectedNode == null) return;
         if (selectedNode.CertificateRole is not ("RootCA" or "IntermediateCA")) return;
 
@@ -868,8 +854,6 @@ public partial class CertificateExplorer : IDisposable
 
     private void StartRename()
     {
-        if (!Access.CanOperate) return;
-
         if (selectedNode == null) return;
         renamingValue = selectedNode.Name;
         isRenaming = true;
@@ -888,8 +872,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task SaveRenameAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null || string.IsNullOrWhiteSpace(renamingValue)) return;
 
         var trimmed = renamingValue.Trim();
@@ -930,8 +912,6 @@ public partial class CertificateExplorer : IDisposable
 
     private void ShowP12DownloadDialog()
     {
-        if (!Access.CanExportKeys) return;
-
         if (selectedNode == null) return;
         p12IncludeChain = false;
         p12DialogHidden = false;
@@ -939,8 +919,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task DownloadP12Async()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.ExportKeys)) return;
-
         if (selectedNode == null) return;
 
         var url = GetPfxDownloadUrl();
@@ -952,8 +930,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task CopyPrivateKeyAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.ExportKeys)) return;
-
         if (selectedNode == null) return;
 
         var result = await ExportService.ExportPrivateKeyPemAsync(
@@ -1009,8 +985,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task OnFilesCompleted(IEnumerable<FluentInputFileEventArgs> files)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         importError = null;
         importErrors.Clear();
 
@@ -1040,8 +1014,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task OnFolderSelected(InputFileChangeEventArgs e)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         importError = null;
         importErrors.Clear();
 
@@ -1265,8 +1237,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task TriggerFolderUpload()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         await JS.InvokeVoidAsync("sigilFolderUpload", "folder-input");
     }
 
@@ -1274,8 +1244,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ToggleAutoRenewAsync(bool enabled)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null) return;
 
         await ManagementService.SetAutoRenewAsync(selectedNode.Id, selectedNode.EntityType, enabled);
@@ -1286,8 +1254,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ArchiveSelectedAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null) return;
 
         var dialog = await DialogService.ShowConfirmationAsync(
@@ -1308,8 +1274,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task DeleteSelectedAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (selectedNode == null) return;
 
         var impacts = selectedNode.EntityType switch
@@ -1329,15 +1293,14 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ConfirmDeleteSelectedAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (selectedNode == null) return;
 
-        var deleteResult = await ManagementService.DeleteAsync(
-            selectedNode.Id, selectedNode.EntityType, DeleteRemoteKeyAsync);
+        var deleteResult = await ManagementService.DeleteAsync(selectedNode.Id, selectedNode.EntityType);
 
         if (deleteResult.Success)
         {
+            if (deleteResult.Warning != null)
+                ToastService.ShowCopyableWarning(deleteResult.Warning);
             ToastService.ShowCopyableSuccess($"Permanently deleted '{selectedNode.Name}'");
             await ClearSelectionAndReloadTreeAsync();
         }
@@ -1380,37 +1343,6 @@ public partial class CertificateExplorer : IDisposable
         impactDialogHidden = true;
     }
 
-    /// <summary>
-    /// Deletes a remote signing key (Vault Transit or GCP KMS) if the StoreProviderHint indicates one.
-    /// </summary>
-    private async Task DeleteRemoteKeyAsync(string? storeProviderHint)
-    {
-        if (string.IsNullOrEmpty(storeProviderHint))
-            return;
-
-        try
-        {
-            if (storeProviderHint.StartsWith("vault-transit:"))
-            {
-                var keyName = storeProviderHint["vault-transit:".Length..];
-                if (!string.IsNullOrEmpty(keyName))
-                    await VaultTransitProvider.DeleteKeyAsync(keyName);
-            }
-            else if (storeProviderHint.StartsWith("gcp-kms:"))
-            {
-                var keyId = storeProviderHint["gcp-kms:".Length..];
-                if (!string.IsNullOrEmpty(keyId))
-                    await GcpKmsProvider.DestroyKeyVersionAsync(keyId);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Log but don't block the DB delete — the remote key is orphaned but that's better
-            // than leaving the DB record pointing to a deleted cert
-            ToastService.ShowCopyableError($"Remote key cleanup failed: {ex.Message}");
-        }
-    }
-
     private async Task ClearSelectionAndReloadTreeAsync()
     {
         selectedTreeItem = null;
@@ -1427,16 +1359,12 @@ public partial class CertificateExplorer : IDisposable
 
     private void ShowMoveDialog()
     {
-        if (!Access.CanOperate) return;
-
         moveTargetTrustDomain = null;
         moveDialogHidden = false;
     }
 
     private async Task MoveSelectedAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null || moveTargetTrustDomain == null) return;
 
         var moveResult = await ManagementService.MoveAsync(
@@ -1527,8 +1455,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ImportWithPasswordAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (pendingFileBytes == null) return;
 
         passwordError = null;
@@ -1652,8 +1578,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ConfirmImportAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (parsedCert == null || string.IsNullOrWhiteSpace(importName)) return;
 
         try
@@ -1703,8 +1627,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ImportCrlAsync(byte[] crlBytes, string fileName)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         var result = await CrlImporter.ImportCrlAsync(crlBytes, fileName, TrustDomainId);
 
         if (!result.IsSuccess)
@@ -1783,8 +1705,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ConfirmCaAssignmentAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedCaForAssignment == null) return;
 
         // Use pre-parsed cert if available, otherwise re-parse from bytes
@@ -2056,8 +1976,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ShowIssuanceDialog(int? issuingCaId, string? issuingCaName)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         isRenewMode = false;
         renewalOfCertificateId = null;
         urlChangeWarnings.Clear();
@@ -2340,8 +2258,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task IssueCertificateAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (isIssuing) return;
         if (selectedProfile == null || string.IsNullOrWhiteSpace(issuanceSubjectDn)) return;
 
@@ -2469,8 +2385,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ShowSimilarDialog()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null || selectedCert == null) return;
 
         renewalOriginalCdpUrls = ExtractExtensionUrls(selectedCert, "2.5.29.31");
@@ -2640,8 +2554,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ShowRenewDialog()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null || selectedCert == null) return;
 
         // A Direct pair is re-keyed as a unit (see ShowDirectPairRekeyDialogAsync).
@@ -2776,8 +2688,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ShowResignDialog()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null || selectedCert == null) return;
 
         // Load parent CA's NotAfter for clamping
@@ -2807,8 +2717,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ResignCertificateAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null) return;
 
         isResigning = true;
@@ -2857,8 +2765,6 @@ public partial class CertificateExplorer : IDisposable
     /// </summary>
     private void ShowCsrDialog()
     {
-        if (!Access.CanOperate) return;
-
         if (selectedNode == null || selectedCert == null) return;
         csrDialogHidden = false;
     }
@@ -2866,8 +2772,6 @@ public partial class CertificateExplorer : IDisposable
     /// <summary>Callback for <see cref="CsrBuilder"/>: generate against the stored certificate.</summary>
     private Task<CsrGenerationResult> GenerateCsrForSelectedAsync(CsrGenerationRequest request)
     {
-        if (!Access.CanOperate)
-            return Task.FromResult(CsrGenerationResult.Failure("Your role does not allow this action."));
         if (selectedNode == null)
             return Task.FromResult(CsrGenerationResult.Failure("No certificate selected."));
 
@@ -2956,8 +2860,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task ShowRevokeDialog()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null) return;
         selectedRevokeReason = revokeReasonOptions[0];
         isRevoking = false;
@@ -2969,8 +2871,6 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task RevokeCertificateAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Operate)) return;
-
         if (selectedNode == null) return;
 
         isRevoking = true;

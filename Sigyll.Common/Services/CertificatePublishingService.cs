@@ -12,6 +12,7 @@ using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Jobs;
 
 namespace Sigyll.Common.Services;
@@ -21,21 +22,26 @@ public record PublishResult(bool Success, int PublishedCount = 0, string? Error 
 public class CertificatePublishingService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CertificatePublishingService> _logger;
     private readonly CrlGenerationService _crlGenService;
 
     public CertificatePublishingService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CertificatePublishingService> logger,
         CrlGenerationService crlGenService)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
         _crlGenService = crlGenService;
     }
 
     public async Task<PublishResult> PublishAiaCertificateAsync(int caId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var ca = await db.CaCertificates.FindAsync([caId], ct);
         if (ca == null)
@@ -70,6 +76,8 @@ public class CertificatePublishingService
 
     public async Task EnsureIssuerPublishedAsync(int issuingCaId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var ca = await db.CaCertificates.FindAsync([issuingCaId], ct);
         if (ca == null) return;

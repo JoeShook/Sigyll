@@ -13,7 +13,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Jobs;
+using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
 using Sigyll.Common.ViewModels;
 
@@ -21,7 +23,7 @@ namespace Sigyll.Common.Services;
 
 public record RenameResult(bool Success, string? Error = null);
 public record ArchiveResult(bool Success, string? Error = null);
-public record DeleteResult(bool Success, string? Error = null);
+public record DeleteResult(bool Success, string? Error = null, string? Warning = null);
 public record MoveResult(bool Success, string? Error = null);
 public record RevokeResult(bool Success, int? CrlNumber = null, int? RevokedCount = null, string? Error = null);
 
@@ -50,27 +52,35 @@ public class TrustDomainTreeData
 public class CertificateManagementService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CertificateManagementService> _logger;
     private readonly ChainValidationService _chainValidator;
     private readonly CrlGenerationService _crlGenService;
     private readonly IssuanceValidator _validator;
+    private readonly IRemoteKeyStore? _remoteKeys;
 
     public CertificateManagementService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CertificateManagementService> logger,
         ChainValidationService chainValidator,
         CrlGenerationService crlGenService,
-        IssuanceValidator? validator = null)
+        IssuanceValidator? validator = null,
+        IRemoteKeyStore? remoteKeys = null)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
         _chainValidator = chainValidator;
         _crlGenService = crlGenService;
         _validator = validator ?? new IssuanceValidator();
+        _remoteKeys = remoteKeys;
     }
 
     public async Task<TrustDomainTreeData> GetTrustDomainTreeAsync(int trustDomainId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var trustDomain = await db.TrustDomains.FindAsync([trustDomainId], ct);
@@ -102,6 +112,8 @@ public class CertificateManagementService
     public async Task<CertificateNodeDetails> GetNodeDetailsAsync(
         int id, string entityType, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var details = new CertificateNodeDetails();
 
@@ -134,6 +146,8 @@ public class CertificateManagementService
     public async Task<RenameResult> RenameAsync(
         int id, string entityType, string newName, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         if (string.IsNullOrWhiteSpace(newName))
             return new RenameResult(false, "Name cannot be empty.");
 
@@ -164,6 +178,8 @@ public class CertificateManagementService
     public async Task SetAutoRenewAsync(
         int id, string entityType, bool enabled, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         if (entityType == "CaCertificate")
@@ -189,6 +205,8 @@ public class CertificateManagementService
     public async Task<ArchiveResult> ArchiveAsync(
         int id, string entityType, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var now = DateTime.UtcNow;
 
@@ -220,12 +238,20 @@ public class CertificateManagementService
         return new ArchiveResult(true);
     }
 
+    /// <summary>
+    /// Deletes a certificate or CRL. For a certificate whose key lives in Vault Transit or GCP KMS,
+    /// the remote key is destroyed after the database delete commits; if that fails the key is
+    /// left orphaned (reported in <see cref="DeleteResult.Warning"/>) rather than leaving a
+    /// certificate row that points at a destroyed key.
+    /// </summary>
     public async Task<DeleteResult> DeleteAsync(
         int id, string entityType,
-        Func<string?, Task>? deleteRemoteKeyAsync = null,
         CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Administer);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        string? remoteKeyHint = null;
 
         switch (entityType)
         {
@@ -240,8 +266,7 @@ public class CertificateManagementService
                 if (ca.Children.Count > 0 || ca.IssuedCertificates.Count > 0)
                     return new DeleteResult(false,
                         $"Cannot delete: it has {ca.Children.Count} child CA(s) and {ca.IssuedCertificates.Count} issued cert(s). Delete or move them first.");
-                if (deleteRemoteKeyAsync != null)
-                    await deleteRemoteKeyAsync(ca.StoreProviderHint);
+                remoteKeyHint = ca.StoreProviderHint;
                 foreach (var crl in ca.Crls.ToList())
                 {
                     db.CertificateRevocations.RemoveRange(crl.Revocations);
@@ -253,8 +278,7 @@ public class CertificateManagementService
                 var issued = await db.IssuedCertificates.FindAsync([id], ct);
                 if (issued == null)
                     return new DeleteResult(false, "Certificate not found.");
-                if (deleteRemoteKeyAsync != null)
-                    await deleteRemoteKeyAsync(issued.StoreProviderHint);
+                remoteKeyHint = issued.StoreProviderHint;
                 db.IssuedCertificates.Remove(issued);
                 break;
             case "Crl":
@@ -271,12 +295,29 @@ public class CertificateManagementService
         }
 
         await db.SaveChangesAsync(ct);
+
+        if (_remoteKeys != null && !string.IsNullOrEmpty(remoteKeyHint))
+        {
+            try
+            {
+                await _remoteKeys.DestroyKeyAsync(remoteKeyHint, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Deleted {EntityType} {Id} but could not destroy its remote key {Hint}",
+                    entityType, id, remoteKeyHint);
+                return new DeleteResult(true, Warning: $"Deleted, but the remote key was not destroyed: {ex.Message}");
+            }
+        }
+
         return new DeleteResult(true);
     }
 
     public async Task<MoveResult> MoveAsync(
         int id, string entityType, int targetTrustDomainId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         switch (entityType)
@@ -320,6 +361,8 @@ public class CertificateManagementService
     public async Task<RevokeResult> RevokeAsync(
         int id, string entityType, int reasonCode, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var now = DateTime.UtcNow;
         int? issuingCaId = null;
@@ -359,12 +402,16 @@ public class CertificateManagementService
 
     public async Task<int?> FindCaBySkiAsync(int trustDomainId, string authorityKeyIdentifier, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await FindCaBySkiInternalAsync(db, trustDomainId, authorityKeyIdentifier, ct);
     }
 
     public async Task<int?> FindCaByDnAndSignatureAsync(int trustDomainId, X509Certificate2 cert, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await FindCaByDnAndSignatureInternalAsync(db, trustDomainId, cert, ct);
     }
@@ -582,6 +629,8 @@ public class CertificateManagementService
 
     public async Task<List<ImpactItem>> GetCaDeletionImpactAsync(int caId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var ca = await db.CaCertificates
             .Include(c => c.Children)
@@ -608,6 +657,8 @@ public class CertificateManagementService
 
     public async Task<List<ImpactItem>> GetIssuedDeletionImpactAsync(int issuedId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var issued = await db.IssuedCertificates.FindAsync([issuedId], ct);
         var impacts = new List<ImpactItem>();
@@ -621,6 +672,8 @@ public class CertificateManagementService
 
     public async Task<List<ImpactItem>> GetCaRevokeImpactAsync(int caId, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var ca = await db.CaCertificates
             .Include(c => c.Children)

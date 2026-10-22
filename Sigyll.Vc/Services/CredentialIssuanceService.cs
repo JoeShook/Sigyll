@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Vc.ViewModels;
 
@@ -24,15 +25,18 @@ public class CredentialIssuanceService
     private static readonly string[] DefaultContexts = ["https://www.w3.org/ns/credentials/v2"];
 
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ISigningProvider _signingProvider;
     private readonly ILogger<CredentialIssuanceService> _logger;
 
     public CredentialIssuanceService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ISigningProvider signingProvider,
         ILogger<CredentialIssuanceService> logger)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _signingProvider = signingProvider;
         _logger = logger;
     }
@@ -40,6 +44,8 @@ public class CredentialIssuanceService
     public async Task<CredentialIssuanceResult> IssueAsync(
         CredentialIssuanceRequest request, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var schema = await db.CredentialSchemas.FindAsync([request.CredentialSchemaId], ct)
@@ -116,6 +122,8 @@ public class CredentialIssuanceService
 
     public async Task<List<IssuedCredentialViewModel>> GetAllAsync(CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
         var creds = await db.IssuedCredentials
@@ -130,6 +138,8 @@ public class CredentialIssuanceService
 
     public async Task<IssuedCredentialViewModel?> GetByIdAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.View);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var cred = await db.IssuedCredentials
             .Include(c => c.TrustDomain)
@@ -142,6 +152,8 @@ public class CredentialIssuanceService
 
     public async Task RevokeAsync(int id, CancellationToken ct = default)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.IssuedCredentials.FindAsync([id], ct);
         if (entity == null || entity.Revoked) return;

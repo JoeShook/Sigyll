@@ -89,8 +89,6 @@ public partial class CredentialSchemas
 
     private async Task SaveAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         var entity = new CredentialSchema
@@ -121,8 +119,6 @@ public partial class CredentialSchemas
 
     private async Task DeleteAsync(CredentialSchema s)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (s.IsPreset) return;
 
         var impacts = await SchemaService.GetDeletionImpactAsync(s.Id);

@@ -40,7 +40,7 @@ public class CredentialVerifierTests
     public async Task Verify_ValidCredential_ReturnsValid()
     {
         var jwt = await IssueOneAsync();
-        var verifier = new CredentialVerifier(_dbFactory);
+        var verifier = new CredentialVerifier(_dbFactory, TestOperators.Full);
 
         var result = await verifier.VerifyAsync(jwt);
 
@@ -51,7 +51,7 @@ public class CredentialVerifierTests
     public async Task Verify_TamperedSignature_ReturnsInvalid()
     {
         var jwt = await IssueOneAsync();
-        var verifier = new CredentialVerifier(_dbFactory);
+        var verifier = new CredentialVerifier(_dbFactory, TestOperators.Full);
 
         // Tamper a character near the start of the signature segment.
         // (The very last char in base64url only encodes a couple of bits and flipping it
@@ -80,7 +80,7 @@ public class CredentialVerifierTests
             await db.SaveChangesAsync();
         }
 
-        var verifier = new CredentialVerifier(_dbFactory);
+        var verifier = new CredentialVerifier(_dbFactory, TestOperators.Full);
         var result = await verifier.VerifyAsync(jwt);
 
         result.Valid.ShouldBeFalse();
@@ -90,7 +90,7 @@ public class CredentialVerifierTests
     [Fact]
     public async Task Verify_MalformedJwt_ReturnsInvalid()
     {
-        var verifier = new CredentialVerifier(_dbFactory);
+        var verifier = new CredentialVerifier(_dbFactory, TestOperators.Full);
         var result = await verifier.VerifyAsync("not.a.valid-jwt-because.too.many.segments");
 
         result.Valid.ShouldBeFalse();
@@ -99,7 +99,7 @@ public class CredentialVerifierTests
     private async Task<string> IssueOneAsync()
     {
         var didService = new DidIssuanceService(
-            _dbFactory, [new DidKeyMethodProvider()], _signing, NullLogger<DidIssuanceService>.Instance);
+            _dbFactory, TestOperators.Full, [new DidKeyMethodProvider()], _signing, NullLogger<DidIssuanceService>.Instance);
 
         await using var db = _dbFactory.CreateDbContext();
         var td = new TrustDomain { Name = "td" };
@@ -118,7 +118,7 @@ public class CredentialVerifierTests
 
         var mint = await didService.IssueDidAsync(new DidIssuanceRequest(td.Id, tmpl.Id));
 
-        var credentialService = new CredentialIssuanceService(_dbFactory, _signing, NullLogger<CredentialIssuanceService>.Instance);
+        var credentialService = new CredentialIssuanceService(_dbFactory, TestOperators.Full, _signing, NullLogger<CredentialIssuanceService>.Instance);
         var result = await credentialService.IssueAsync(new CredentialIssuanceRequest(
             td.Id, schema.Id, mint.DidDocumentId,
             "did:key:zSubject",

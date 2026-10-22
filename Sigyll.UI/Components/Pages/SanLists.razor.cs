@@ -67,8 +67,6 @@ public partial class SanLists
 
     private async Task SaveAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (string.IsNullOrWhiteSpace(editName)) return;
 
         var items = editEntries
@@ -91,8 +89,6 @@ public partial class SanLists
 
     private async Task DeleteSanListAsync(SanList list)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         var dialog = await DialogService.ShowConfirmationAsync(
             $"Delete SAN list '{list.Name}'?",
             "Delete", "Cancel", "Confirm Delete");

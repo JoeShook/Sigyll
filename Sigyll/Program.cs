@@ -18,11 +18,11 @@ using Serilog;
 using Sigyll.Components;
 using Sigyll.Components.Account;
 using Sigyll.Data;
-using Sigyll.UI.Security;
 using Microsoft.Extensions.Options;
 using Sigyll.Common.Data;
 using Sigyll.ServiceDefaults;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
@@ -32,6 +32,7 @@ using Sigyll.Contracts;
 using Sigyll.Did.Services;
 using Sigyll.Gcp;
 using Sigyll.Services;
+using Sigyll.UI.Security;
 using Sigyll.Vault;
 using Sigyll.Vc.Services;
 
@@ -88,6 +89,13 @@ try
         .AddDefaultTokenProviders();
 
     builder.Services.AddAuthorization(options => options.AddSigyllPolicies());
+
+    // Who is acting, for the services' own permission checks: the signed-in operator in a
+    // circuit or request, or a system identity (scheduler, RA client) set with RunAs.
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<IOperatorPrincipalSource, OperatorPrincipalSource>();
+    builder.Services.AddScoped<OperatorContext>();
+    builder.Services.AddScoped<IOperatorContext>(sp => sp.GetRequiredService<OperatorContext>());
     builder.Services.AddScoped<OperatorAccess>();
 
     // Pin the passkey Relying Party ID explicitly. A CA must not infer the RP ID from the
@@ -136,6 +144,7 @@ try
         };
     });
     builder.Services.AddScoped<CertificateIssuanceService>();
+    builder.Services.AddSingleton<IRemoteKeyStore, RemoteKeyStore>();
 
     // DID + VC services (Phase A + D)
     builder.Services.AddScoped<DidTemplateService>();
@@ -172,7 +181,7 @@ try
     builder.Services.AddScoped<IRecurringJobDefinition>(sp => sp.GetRequiredService<CrlAutoRenewalJob>());
     builder.Services.AddSingleton<RecurringJobSignal>();
     builder.Services.AddSingleton<RecurringJobRunner>();
-    builder.Services.AddSingleton<IRecurringJobScheduler, RecurringJobScheduler>();
+    builder.Services.AddScoped<IRecurringJobScheduler, RecurringJobScheduler>();
     builder.Services.AddHostedService<RecurringJobHostedService>();
 
     // Blazor Server + Fluent UI
@@ -304,6 +313,9 @@ try
     // Authentication is mTLS (production) or a shared API key (dev), see RaAuth/RaOptions below.
     var raOptions = builder.Configuration.GetSection("Ra").Get<RaOptions>() ?? new RaOptions();
 
+    // The RA can only ask for CSR-based issuance; every other service call from its requests is refused.
+    var RaClient = OperatorIdentity.System("ra-client", Permission.IssueFromRa);
+
     app.MapGet("/api/ra/catalog", async (HttpContext http, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
         if (!RaAuth.IsAuthorized(http, raOptions)) return Results.Unauthorized();
@@ -340,9 +352,11 @@ try
         HttpContext http,
         IssuanceApiRequest apiRequest,
         IDbContextFactory<SigyllDbContext> dbFactory,
+        OperatorContext operatorContext,
         CertificateIssuanceService issuanceService) =>
     {
         if (!RaAuth.IsAuthorized(http, raOptions)) return Results.Unauthorized();
+        operatorContext.RunAs(RaClient);
 
         await using var db = await dbFactory.CreateDbContextAsync();
 

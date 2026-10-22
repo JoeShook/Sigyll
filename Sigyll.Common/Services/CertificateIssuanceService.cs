@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
@@ -31,17 +32,20 @@ namespace Sigyll.Common.Services;
 public class CertificateIssuanceService
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
+    private readonly IOperatorContext _operator;
     private readonly ILogger<CertificateIssuanceService> _logger;
     private readonly ISigningProvider _signingProvider;
     private readonly IssuanceValidator _validator;
 
     public CertificateIssuanceService(
         IDbContextFactory<SigyllDbContext> dbFactory,
+        IOperatorContext operatorContext,
         ILogger<CertificateIssuanceService> logger,
         ISigningProvider? signingProvider = null,
         IssuanceValidator? validator = null)
     {
         _dbFactory = dbFactory;
+        _operator = operatorContext;
         _logger = logger;
         _signingProvider = signingProvider ?? new LocalSigningProvider();
         _validator = validator ?? new IssuanceValidator();
@@ -61,6 +65,8 @@ public class CertificateIssuanceService
     /// </summary>
     public async Task<CertificateIssuanceResult> IssueCertificateAsync(CertificateIssuanceRequest request)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         await using var db = await _dbFactory.CreateDbContextAsync();
 
         // Load profile
@@ -409,6 +415,8 @@ public class CertificateIssuanceService
     /// </summary>
     public async Task<CsrIssuanceResult> IssueCertificateFromCsrAsync(CsrIssuanceRequest request)
     {
+        await _operator.DemandAsync(Permission.Operate, Permission.IssueFromRa);
+
         await using var db = await _dbFactory.CreateDbContextAsync();
 
         var profile = await db.CertificateProfiles.FindAsync(request.ProfileId);
@@ -649,6 +657,8 @@ public class CertificateIssuanceService
     /// </summary>
     public async Task<CertificateIssuanceResult> ResignCertificateAsync(CertificateResignRequest request)
     {
+        await _operator.DemandAsync(Permission.Operate);
+
         if (string.IsNullOrWhiteSpace(request.PfxPassword))
             return CertificateIssuanceResult.Failure("PFX password is required.");
 

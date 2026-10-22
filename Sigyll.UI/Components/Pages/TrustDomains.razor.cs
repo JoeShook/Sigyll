@@ -94,8 +94,6 @@ public partial class TrustDomains
 
     private async Task AddTrustDomainAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (string.IsNullOrWhiteSpace(newTrustDomainName)) return;
 
         var baseUrls = newTrustDomainBaseUrls
@@ -119,8 +117,6 @@ public partial class TrustDomains
 
     private async Task DeleteTrustDomainAsync(TrustDomainViewModel trustDomain)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         var impacts = await TrustDomainService.GetDeletionImpactAsync(trustDomain.Id);
         impactDialogTitle = $"Delete trust domain '{trustDomain.Name}'?";
         impactDialogMessage = "All certificates, CRLs, and revocation records in this trust domain will be permanently deleted. This cannot be undone.";
@@ -133,8 +129,6 @@ public partial class TrustDomains
 
     private async Task ConfirmDeleteTrustDomainAsync(int trustDomainId)
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         await TrustDomainService.DeleteAsync(trustDomainId);
         await LoadTrustDomainsAsync();
     }
@@ -171,8 +165,6 @@ public partial class TrustDomains
 
     private async Task SaveEditAsync()
     {
-        if (!await Access.EnsureAsync(SigyllPolicies.Administer)) return;
-
         if (string.IsNullOrWhiteSpace(editTrustDomainName)) return;
 
         var baseUrls = editTrustDomainBaseUrls
@@ -195,8 +187,6 @@ public partial class TrustDomains
 
     private void ShowFolderBrowser(BaseUrlEntry target)
     {
-        if (!Access.CanAdminister) return;
-
         folderBrowserTarget = target;
         folderBrowserUseRelative = true;
 
@@ -256,8 +246,6 @@ public partial class TrustDomains
 
     private void FolderBrowserConfirm()
     {
-        if (!Access.CanAdminister) return;
-
         if (folderBrowserTarget == null) return;
 
         var selected = folderBrowserSelectedSubdir ?? folderBrowserCurrentPath;

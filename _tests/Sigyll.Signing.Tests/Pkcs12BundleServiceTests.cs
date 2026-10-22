@@ -25,7 +25,7 @@ namespace Sigyll.Signing.Tests;
 public class Pkcs12BundleServiceTests
 {
     private readonly Pkcs12BundleService _service = new(NullLogger<Pkcs12BundleService>.Instance);
-    private readonly CsrGenerationService _csrService = new(new TestDbContextFactory(), NullLogger<CsrGenerationService>.Instance);
+    private readonly CsrGenerationService _csrService = new(new TestDbContextFactory(), TestOperators.Full, NullLogger<CsrGenerationService>.Instance);
 
     private const string KeyPass = "key-passphrase";
     private const string P12Pass = "p12-password";
