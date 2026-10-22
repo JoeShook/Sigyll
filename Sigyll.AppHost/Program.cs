@@ -8,6 +8,7 @@
 // */
 #endregion
 
+using Sigyll.AppHost;
 using Sigyll.Vault.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -23,18 +24,36 @@ var vault = builder.AddVaultDev("vault", persistent: true)
 // Certificate server (static file host for CRLs and certs — always runs as a project)
 var certServer = builder.AddProject<Projects.Sigyll_Certificate_Server>("certificate-server");
 
-// Database schemas are Flyway's (dist/AlloyDB/<db>/<schema>). Each runs once per AppHost start,
-// before its app; after adding a V file, restart the flyway resource, then rebuild the app.
-// PostgreSQL itself runs outside the AppHost on the host's port 5432.
-var dbUser = builder.Configuration["Sigyll:Database:User"] ?? "sigil";
-var dbPassword = builder.Configuration["Sigyll:Database:Password"] ?? "sigil_pass";
-IResourceBuilder<ContainerResource> AddFlyway(string database) =>
+// ── PostgreSQL ──────────────────────────────────────────────────────────────
+// A persistent container, created on first run or reused when one with the same name and spec is running.
+// Name, volume, image tag and the shared-container version stamp come from appsettings.json and can be
+// overridden in user secrets to share a Postgres other projects already run (dist/AlloyDB/README.md).
+// The password parameter (Parameters:postgres-password) is generated on first run and kept in user secrets;
+// to share an existing container, set it to that container's password.
+var pg = builder.Configuration.GetSection("Postgres");
+var pgContainer = pg["ContainerName"] ?? "sigyll-postgres";
+var postgres = builder.AddPostgres("postgres")
+    .WithImageTag(pg["ImageTag"] ?? "17.6")
+    .WithContainerName(pgContainer)
+    .WithDataVolume(pg["DataVolume"] ?? "sigyll-postgres-data")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithSharedAspireVersion(pgContainer, pg["AspireVersionVariable"]);
+
+var sigilDb = postgres.AddDatabase("sigil-db", databaseName: "sigil");
+var portalDb = postgres.AddDatabase("portal-db", databaseName: "portal");
+
+// ── Schemas (Flyway) ────────────────────────────────────────────────────────
+// dist/AlloyDB/<db>/<schema>. Each runs once per AppHost start, before its app; after adding a V file,
+// restart the flyway resource, then rebuild the app (a rebuild alone does not run new migrations).
+IResourceBuilder<ContainerResource> AddFlyway(string database, IResourceBuilder<PostgresDatabaseResource> db) =>
     builder.AddContainer($"{database}-flyway", "flyway/flyway", "10")
+        .WithParentRelationship(db)
         .WithBindMount(Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "dist", "AlloyDB", database, database)),
             "/flyway/sql", isReadOnly: true)
-        .WithEnvironment("FLYWAY_URL", $"jdbc:postgresql://host.docker.internal:5432/{database}")
-        .WithEnvironment("FLYWAY_USER", dbUser)
-        .WithEnvironment("FLYWAY_PASSWORD", dbPassword)
+        // The Postgres container answers to its resource name on the network Aspire puts both containers on.
+        .WithEnvironment("FLYWAY_URL", $"jdbc:postgresql://{postgres.Resource.Name}:5432/{database}")
+        .WithEnvironment("FLYWAY_USER", "postgres")
+        .WithEnvironment(ctx => ctx.EnvironmentVariables["FLYWAY_PASSWORD"] = postgres.Resource.PasswordParameter)
         .WithEnvironment("FLYWAY_SCHEMAS", database)
         .WithEnvironment("FLYWAY_DEFAULT_SCHEMA", database)
         .WithEnvironment("FLYWAY_LOCATIONS", "filesystem:/flyway/sql")
@@ -45,9 +64,10 @@ IResourceBuilder<ContainerResource> AddFlyway(string database) =>
         .WithEnvironment("FLYWAY_OUT_OF_ORDER", "true")
         // Rides out PostgreSQL still starting when the AppHost comes up.
         .WithEnvironment("FLYWAY_CONNECT_RETRIES", "10")
-        .WithArgs("migrate");
-var sigilFlyway = AddFlyway("sigil");
-var portalFlyway = AddFlyway("portal");
+        .WithArgs("migrate")
+        .WaitFor(db);
+var sigilFlyway = AddFlyway("sigil", sigilDb);
+var portalFlyway = AddFlyway("portal", portalDb);
 
 // Sigyll hosting mode: "project" (default), "docker", or "docker-gcp"
 // Set via env var Sigyll__HostMode in launch profile.
@@ -86,7 +106,7 @@ switch (hostMode)
             })
             .WithEnvironment("ASPNETCORE_URLS", "https://+:7200;http://+:5200")
             .WithReference(vault)
-            .WithEnvironment("ConnectionStrings__SigyllDb", "Host=host.docker.internal;Database=sigil;Username=sigil;Password=sigil_pass;Search Path=sigil")
+            .WithReference(sigilDb, connectionName: "SigyllDb")
             .WithEnvironment("Vault__Address", vault.Resource.PrimaryEndpoint)
             .WithEnvironment("Vault__Token", "root-token")
             .WithEnvironment("Signing__Provider", signingProvider)
@@ -116,6 +136,7 @@ switch (hostMode)
     default: // "project"
         var projectResource = builder.AddProject<Projects.Sigyll>("sigil")
             .WithReference(vault)
+            .WithReference(sigilDb, connectionName: "SigyllDb")
             .WithEnvironment("Vault__Address", vault.Resource.PrimaryEndpoint)
             .WithEnvironment("Vault__Token", "root-token")
             .WithEnvironment("Signing__Provider", signingProvider)
@@ -143,6 +164,7 @@ switch (hostMode)
 // reaches the CA only via the internal RA API. CaBaseUrl is wired to the running CA endpoint;
 // the dev RA API key matches the CA's "Ra:ApiKey". The portal uses its own 'portal' database.
 builder.AddProject<Projects.Sigyll_Portal>("portal")
+    .WithReference(portalDb, connectionName: "PortalDb")
     .WithEnvironment("Portal__CaBaseUrl", sigil.GetEndpoint("https"))
     .WithEnvironment("Portal__UseMtls", "false")
     .WithEnvironment("Portal__RaApiKey", "dev-ra-key-change-me")

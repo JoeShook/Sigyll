@@ -47,7 +47,12 @@ examples/CA/
 
 ## Getting Started
 
-### 1. Create the PostgreSQL Databases
+With the Aspire AppHost (`dotnet run --project Sigyll.AppHost`), steps 1 and 2 happen for you: it runs
+PostgreSQL in a persistent container, creates the databases and applies the schema before Sigyll starts. To
+use a PostgreSQL container you already run for other projects, see
+[Sharing a Postgres you already run](dist/AlloyDB/README.md#sharing-a-postgres-you-already-run).
+
+### 1. Create the PostgreSQL Databases (standalone only)
 
 ```sql
 CREATE USER sigil WITH PASSWORD 'sigil_pass';

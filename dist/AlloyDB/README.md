@@ -44,6 +44,38 @@ DML (`INSERT`, `UPDATE`, ...), string literals and `DO $$ ... $$` bodies are not
 4. Under the Aspire AppHost: restart the `sigil-flyway` (or `portal-flyway`) resource, then rebuild the app.
    A rebuild alone does not run new migrations.
 
+## Under the Aspire AppHost
+
+`Sigyll.AppHost` runs PostgreSQL as a persistent container (`sigyll-postgres`, volume `sigyll-postgres-data`,
+image `postgres:17.6`), creates the `sigil` and `portal` databases, runs `sigil-flyway` and `portal-flyway`,
+and only then starts the apps, handing them their connection strings. Nothing to install or configure.
+
+### Sharing a Postgres you already run
+
+Aspire reuses a persistent container whose name and spec match, instead of creating one. To put Sigyll's
+databases in a container other projects' AppHosts already share, override the defaults from
+[`Sigyll.AppHost/appsettings.json`](../../Sigyll.AppHost/appsettings.json) in the AppHost's user secrets,
+which stay out of source control:
+
+```bash
+cd Sigyll.AppHost
+dotnet user-secrets set Parameters:postgres-password "<that container's postgres password>"
+dotnet user-secrets set Postgres:ContainerName "<its container name>"
+dotnet user-secrets set Postgres:DataVolume "<its data volume>"
+dotnet user-secrets set Postgres:ImageTag "<its postgres image tag>"
+# Only if those AppHosts stamp the container with their Aspire version in an environment variable:
+dotnet user-secrets set Postgres:AspireVersionVariable "<that variable's name>"
+```
+
+Every value must match what the other AppHosts declare, and Sigyll.AppHost must be on the same Aspire
+version: any difference makes Aspire recreate the shared container (the data survives on the volume, but
+the other AppHosts lose their connections). With `AspireVersionVariable` set, Sigyll.AppHost refuses to
+start against a container that belongs to a newer Aspire version.
+
+To move existing Sigyll data into the shared container: create the `sigil` and `portal` databases there, copy
+each schema with `pg_dump -Fc -n <schema> | pg_restore --no-owner --no-privileges`, and start the AppHost;
+Flyway adopts the copies.
+
 ## Running without the AppHost
 
 Create the databases once (as a PostgreSQL superuser), then run Flyway before starting the app:

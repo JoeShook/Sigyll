@@ -45,9 +45,9 @@ python tools/sql-lint/check_sql.py
 ```
 
 ## Database
-PostgreSQL on localhost. Connection in `Sigyll/appsettings.json` (key **`SigyllDb`**):
-`Host=localhost;Database=sigil;Username=sigil;Password=sigil_pass;Search Path=sigil`
-The DB/user/schema name is lowercase **`sigil`** (see Conventions → case-sensitive heritage); the portal uses database/schema `portal`.
+Under the AppHost, PostgreSQL is an Aspire persistent container (default `sigyll-postgres`; name, volume, image tag and the shared-container Aspire version stamp come from `Sigyll.AppHost/appsettings.json`, overridable in the AppHost's user secrets to share an existing container, e.g. one other AppHosts use). Aspire creates the `sigil` and `portal` databases and injects `ConnectionStrings__SigyllDb` / `ConnectionStrings__PortalDb`. Sigyll.AppHost must stay on the same Aspire version as any AppHost it shares the container with (`SharedPostgresGuard.cs`).
+Standalone runs use `Sigyll/appsettings.json` (key **`SigyllDb`**): `Host=localhost;Database=sigil;Username=sigil;Password=sigil_pass;Search Path=sigil`.
+The DB/schema name is lowercase **`sigil`** (see Conventions → case-sensitive heritage); the portal uses database/schema `portal`. The model sets its schema (`HasDefaultSchema`), so connection strings need no `Search Path`.
 
 **Schemas are owned by Flyway, not EF** (since 2026-10-22): `dist/AlloyDB/<db>/<schema>/tables/V*.sql`, run by the `sigil-flyway` / `portal-flyway` AppHost resources before the apps start. Never add EF migrations or call `MigrateAsync`. Every new V file must pass `tools/sql-lint/check_sql.py`: UPPERCASE DDL keywords and types, lowercase unquoted identifiers (`USING btree`), quoted PascalCase table/column names, and `COMMENT ON TABLE`/`COMMENT ON COLUMN` for every table and column. Rules and the add-a-migration steps: `dist/AlloyDB/README.md`. After adding a V file, restart the flyway resource, then rebuild the app.
 

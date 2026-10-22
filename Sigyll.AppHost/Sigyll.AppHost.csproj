@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.1">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -7,9 +7,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <NoWarn>$(NoWarn);ASPIRECERTIFICATES001</NoWarn>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+    <UserSecretsId>sigyll-apphost</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.1" />
     <ProjectReference Include="..\Sigyll.Vault.Hosting\Sigyll.Vault.Hosting.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
 
