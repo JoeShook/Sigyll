@@ -31,7 +31,7 @@ public class ExternalCertificateRequestServiceTests
     private readonly ExternalCertificateRequestService _service;
     private readonly CertificateImportService _importService;
 
-    private const string SanUri = "https://shin-sand-idp.dev.surescripts.tech";
+    private const string SanUri = "https://idp.example.org";
 
     public ExternalCertificateRequestServiceTests()
     {
@@ -55,7 +55,7 @@ public class ExternalCertificateRequestServiceTests
         {
             TrustDomainId = tdId,
             Name = "fhirlabs client",
-            SubjectDn = "CN=https://fhirlabs.net/fhir/r4, O=Surescripts LLC, C=US",
+            SubjectDn = "CN=https://fhirlabs.net/fhir/r4, O=Example Org, C=US",
             SubjectAltNames = [new SanEntry(SanType.Uri, SanUri), new SanEntry(SanType.Uri, "https://fhirlabs.net/fhir/r4")],
             KeyAlgorithm = "RSA",
             KeySize = 2048,
@@ -68,7 +68,7 @@ public class ExternalCertificateRequestServiceTests
 
         var csr = CertificateRequest.LoadSigningRequestPem(result.CsrPem!, HashAlgorithmName.SHA256,
             CertificateRequestLoadOptions.UnsafeLoadCertificateExtensions);
-        csr.SubjectName.Name.ShouldBe("CN=https://fhirlabs.net/fhir/r4, O=Surescripts LLC, C=US");
+        csr.SubjectName.Name.ShouldBe("CN=https://fhirlabs.net/fhir/r4, O=Example Org, C=US");
         csr.CertificateExtensions.OfType<X509KeyUsageExtension>().Single().KeyUsages.ShouldBe(X509KeyUsageFlags.DigitalSignature);
         csr.CertificateExtensions.OfType<X509EnhancedKeyUsageExtension>().Single()
             .EnhancedKeyUsages.Cast<Oid>().Select(o => o.Value).ShouldBe(["1.3.6.1.5.5.7.3.2"]);

@@ -263,7 +263,7 @@ public class CsrGenerationServiceTests
     {
         // .NET's SubjectAlternativeNameBuilder would emit "https://host/" — UDAP needs the exact base URL
         var (id, entityType, _) = await SeedImportedEndEntityAsync();
-        const string bareHost = "https://shin-sand-idp.dev.surescripts.tech";
+        const string bareHost = "https://idp.example.org";
 
         var result = await _service.GenerateCsrAsync(new CsrGenerationRequest
         {
