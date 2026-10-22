@@ -56,6 +56,7 @@ The DB/user/schema name is lowercase **`sigil`** (see Conventions → case-sensi
 - **Key decision**: passkeys are *authentication only*; the **RA/proofing gate mints the EAB credential** that lets ACME automate issuance/renewal for already-vetted accounts. UDAP server certs fit ACME domain-validation; UDAP client certs need EAB on top of portal vetting. No standardized ACME-for-UDAP profile exists yet.
 
 ## Conventions & gotchas (learned the hard way)
+- **Naming is settled — read `Sigyll/docs/NAMING.md` before renaming anything.** Issuance definitions are **Certificate Profiles** (never "templates"; that word is kept for string templates such as `SubjectTemplate`/`CdpUrlTemplate`, and for DID Templates). Groups of CA hierarchies are **Trust Domains** (never "CA pools", "trust communities" or "realms"). The doc holds the standards, product and healthcare-framework evidence (2026-10-22); revisit it, don't re-argue from taste.
 - **Tests: use Shouldly (MIT), never FluentAssertions** — FA v8 is paid for commercial use, and this code is used in a for-profit solution.
 - **Case-sensitive heritage**: the Sigil→Sigyll rename replaced capital `Sigil` only. Lowercase `sigil` was preserved on purpose because it ties to persisted/external state — do NOT blindly "fix" these:
   - PostgreSQL DB/user/schema name `sigil`
