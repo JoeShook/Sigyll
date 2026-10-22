@@ -14,13 +14,14 @@ using Microsoft.EntityFrameworkCore.Design;
 namespace Sigyll.Common.Data;
 
 /// <summary>
-/// Lets <c>dotnet ef migrations add</c> run with Sigyll.Common as both project and startup
-/// project, so migrations can be scaffolded without building (or stopping) the Blazor host:
+/// Lets <c>dotnet ef</c> design-time commands run with Sigyll.Common as both project and startup
+/// project, without building (or stopping) the Blazor host. The schema is owned by Flyway
+/// (dist/AlloyDB/sigil); use this to print the DDL EF would create for a model change and copy
+/// it into a new V file:
 ///
-/// <code>dotnet ef migrations add &lt;Name&gt; --project Sigyll.Common --startup-project Sigyll.Common</code>
+/// <code>dotnet ef dbcontext script --project Sigyll.Common --startup-project Sigyll.Common</code>
 ///
-/// Scaffolding never opens a connection; the connection string only needs to be well-formed.
-/// Applying migrations still happens at host startup against the configured SigyllDb.
+/// It never opens a connection; the connection string only needs to be well-formed.
 /// </summary>
 public sealed class SigyllDbContextDesignTimeFactory : IDesignTimeDbContextFactory<SigyllDbContext>
 {
@@ -30,7 +31,7 @@ public sealed class SigyllDbContextDesignTimeFactory : IDesignTimeDbContextFacto
             ?? "Host=localhost;Database=sigil;Username=sigil;Password=sigil_pass;Search Path=sigil";
 
         var options = new DbContextOptionsBuilder<SigyllDbContext>()
-            .UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "sigil"))
+            .UseNpgsql(connectionString)
             .Options;
 
         return new SigyllDbContext(options);

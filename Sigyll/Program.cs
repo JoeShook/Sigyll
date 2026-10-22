@@ -59,10 +59,9 @@ try
         options.UseNpgsql(builder.Configuration.GetConnectionString("SigyllDb")));
 
     // CA operator authentication — deliberately a separate user store from the RA portal's
-    // requester accounts (true RA/CA split). Same database, own schema + migrations history.
+    // requester accounts (true RA/CA split). Same database and schema.
     builder.Services.AddDbContext<SigyllAuthDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("SigyllDb"),
-            npgsql => npgsql.MigrationsHistoryTable(SigyllAuthDbContext.MigrationsHistoryTable, SigyllAuthDbContext.Schema)));
+        options.UseNpgsql(builder.Configuration.GetConnectionString("SigyllDb")));
 
     builder.Services.AddCascadingAuthenticationState();
     builder.Services.AddScoped<IdentityRedirectManager>();
@@ -181,17 +180,14 @@ try
 
     var app = builder.Build();
 
-    // Run migrations + seed data
+    // Seed data. The schema is Flyway's (dist/AlloyDB/sigil), applied before the app starts.
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<SigyllDbContext>();
-        await db.Database.MigrateAsync();
         await SeedProfilesAsync(db);
         await SeedDidTemplatesAsync(db);
         await SeedCredentialSchemasAsync(db);
 
-        var authDb = scope.ServiceProvider.GetRequiredService<SigyllAuthDbContext>();
-        await authDb.Database.MigrateAsync();
         await SeedOperatorAuthAsync(scope.ServiceProvider, builder.Configuration);
     }
 

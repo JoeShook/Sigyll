@@ -3,8 +3,6 @@ using System.Text;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.Extensions.Options;
 using Sigyll.Portal.Components;
@@ -92,17 +90,9 @@ builder.Services.AddSingleton<IEmailSender<PortalUser>, IdentityNoOpEmailSender>
 
 var app = builder.Build();
 
-// Apply portal migrations on startup. Ensure the database and the 'portal' schema exist first:
-// with "Search Path=portal" in the connection string, Npgsql can't create __EFMigrationsHistory
-// until the schema exists, so we create the empty DB + schema before MigrateAsync().
+// Seed data. The schema is Flyway's (dist/AlloyDB/portal), applied before the portal starts.
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<PortalDbContext>();
-    var creator = db.Database.GetService<IRelationalDatabaseCreator>();
-    if (!await creator.ExistsAsync())
-        await creator.CreateAsync();
-    await db.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{PortalDbContext.Schema}\";");
-    await db.Database.MigrateAsync();
 
     // Seed roles and dev accounts. Requesters only need to be authenticated (no role); RA/PortalAdmin
     // gate the RA queue. Passkeys can be enrolled after first sign-in under Account → Manage.

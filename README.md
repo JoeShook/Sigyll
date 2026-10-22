@@ -43,25 +43,31 @@ examples/CA/
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [PostgreSQL](https://www.postgresql.org/download/) (15+ recommended)
-- [Docker](https://www.docker.com/) (only if using Vault Transit via Aspire)
+- [Docker](https://www.docker.com/) (Flyway migrations; Vault Transit via Aspire)
 
 ## Getting Started
 
-### 1. Create the PostgreSQL Database
+### 1. Create the PostgreSQL Databases
 
 ```sql
 CREATE USER sigil WITH PASSWORD 'sigil_pass';
 CREATE DATABASE sigil OWNER sigil;
+CREATE DATABASE portal OWNER sigil;
 ```
 
-### 2. Apply Migrations
+### 2. Apply the Schema (Flyway)
+
+The schemas live in [`dist/AlloyDB`](dist/AlloyDB) as Flyway migrations; the apps never create tables.
+The Aspire AppHost runs them automatically before the apps start. Without it:
 
 ```bash
-cd examples/CA/Sigyll
-dotnet ef database update --project ../Sigyll.Common
+docker run --rm -v "$PWD/dist/AlloyDB/sigil/sigil:/flyway/sql:ro" flyway/flyway:10 \
+  -url=jdbc:postgresql://host.docker.internal:5432/sigil -user=sigil -password=sigil_pass \
+  -schemas=sigil -defaultSchema=sigil -locations=filesystem:/flyway/sql migrate
 ```
 
-Or let Entity Framework apply pending migrations on startup (Sigyll calls `Database.MigrateAsync()` at startup).
+See [`dist/AlloyDB/README.md`](dist/AlloyDB/README.md) for the SQL style rules, adding a migration, and
+upgrading a database created by older (EF-migrated) builds.
 
 ### 3. Run Sigyll (Standalone)
 

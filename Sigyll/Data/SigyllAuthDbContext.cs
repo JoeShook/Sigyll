@@ -15,15 +15,13 @@ namespace Sigyll.Data;
 
 /// <summary>
 /// Identity store for CA operator accounts. Shares the <c>sigil</c> schema with
-/// <c>SigyllDbContext</c> (the dev DB user has no CREATE-schema privilege) but is a separate
-/// context with its own migrations history table (<c>__EFMigrationsHistory_Auth</c>), keeping
-/// authentication concerns out of the PKI data model.
+/// <c>SigyllDbContext</c> but is a separate context, keeping authentication concerns out of the
+/// PKI data model. Its tables are created by Flyway (dist/AlloyDB/sigil).
 /// </summary>
 public class SigyllAuthDbContext(DbContextOptions<SigyllAuthDbContext> options)
     : IdentityDbContext<SigyllUser>(options)
 {
     public const string Schema = "sigil";
-    public const string MigrationsHistoryTable = "__EFMigrationsHistory_Auth";
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

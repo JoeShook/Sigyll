@@ -40,14 +40,16 @@ dotnet run --project Sigyll
 # Tests — use Shouldly, NOT FluentAssertions (see Conventions)
 dotnet test _tests/Sigyll.Signing.Tests
 
-# EF migrations
-dotnet ef database update --project Sigyll.Common --startup-project Sigyll
+# SQL style check for Flyway migrations
+python tools/sql-lint/check_sql.py
 ```
 
 ## Database
 PostgreSQL on localhost. Connection in `Sigyll/appsettings.json` (key **`SigyllDb`**):
 `Host=localhost;Database=sigil;Username=sigil;Password=sigil_pass;Search Path=sigil`
-The DB/user/schema name is lowercase **`sigil`** (see Conventions → case-sensitive heritage). EF applies migrations on startup.
+The DB/user/schema name is lowercase **`sigil`** (see Conventions → case-sensitive heritage); the portal uses database/schema `portal`.
+
+**Schemas are owned by Flyway, not EF** (since 2026-10-22): `dist/AlloyDB/<db>/<schema>/tables/V*.sql`, run by the `sigil-flyway` / `portal-flyway` AppHost resources before the apps start. Never add EF migrations or call `MigrateAsync`. Every new V file must pass `tools/sql-lint/check_sql.py`: UPPERCASE DDL keywords and types, lowercase unquoted identifiers (`USING btree`), quoted PascalCase table/column names, and `COMMENT ON TABLE`/`COMMENT ON COLUMN` for every table and column. Rules and the add-a-migration steps: `dist/AlloyDB/README.md`. After adding a V file, restart the flyway resource, then rebuild the app.
 
 ## Current focus — Phase 12 (see `ROADMAP.md`)
 **Certificate Request Portal & ACME Automation**, sequenced **portal-first**:

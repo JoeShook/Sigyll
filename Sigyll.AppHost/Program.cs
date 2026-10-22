@@ -23,6 +23,32 @@ var vault = builder.AddVaultDev("vault", persistent: true)
 // Certificate server (static file host for CRLs and certs — always runs as a project)
 var certServer = builder.AddProject<Projects.Sigyll_Certificate_Server>("certificate-server");
 
+// Database schemas are Flyway's (dist/AlloyDB/<db>/<schema>). Each runs once per AppHost start,
+// before its app; after adding a V file, restart the flyway resource, then rebuild the app.
+// PostgreSQL itself runs outside the AppHost on the host's port 5432.
+var dbUser = builder.Configuration["Sigyll:Database:User"] ?? "sigil";
+var dbPassword = builder.Configuration["Sigyll:Database:Password"] ?? "sigil_pass";
+IResourceBuilder<ContainerResource> AddFlyway(string database) =>
+    builder.AddContainer($"{database}-flyway", "flyway/flyway", "10")
+        .WithBindMount(Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "dist", "AlloyDB", database, database)),
+            "/flyway/sql", isReadOnly: true)
+        .WithEnvironment("FLYWAY_URL", $"jdbc:postgresql://host.docker.internal:5432/{database}")
+        .WithEnvironment("FLYWAY_USER", dbUser)
+        .WithEnvironment("FLYWAY_PASSWORD", dbPassword)
+        .WithEnvironment("FLYWAY_SCHEMAS", database)
+        .WithEnvironment("FLYWAY_DEFAULT_SCHEMA", database)
+        .WithEnvironment("FLYWAY_LOCATIONS", "filesystem:/flyway/sql")
+        // A database created by EF migrations (before Flyway) is adopted at V1 instead of recreated.
+        .WithEnvironment("FLYWAY_BASELINE_ON_MIGRATE", "true")
+        .WithEnvironment("FLYWAY_BASELINE_VERSION", "1")
+        .WithEnvironment("FLYWAY_VALIDATE_ON_MIGRATE", "false")
+        .WithEnvironment("FLYWAY_OUT_OF_ORDER", "true")
+        // Rides out PostgreSQL still starting when the AppHost comes up.
+        .WithEnvironment("FLYWAY_CONNECT_RETRIES", "10")
+        .WithArgs("migrate");
+var sigilFlyway = AddFlyway("sigil");
+var portalFlyway = AddFlyway("portal");
+
 // Sigyll hosting mode: "project" (default), "docker", or "docker-gcp"
 // Set via env var Sigyll__HostMode in launch profile.
 var hostMode = builder.Configuration["Sigyll:HostMode"]?.ToLowerInvariant() ?? "project";
@@ -83,7 +109,7 @@ switch (hostMode)
                 .WithEnvironment("GcpKms__KeyRingId", gcpKeyRing);
         }
 
-        sigil = dockerResource;
+        sigil = dockerResource.WaitForCompletion(sigilFlyway);
         break;
     }
 
@@ -109,7 +135,7 @@ switch (hostMode)
                 .WithEnvironment("GcpKms__KeyRingId", gcpKeyRing);
         }
 
-        sigil = projectResource;
+        sigil = projectResource.WaitForCompletion(sigilFlyway);
         break;
 }
 
@@ -120,6 +146,7 @@ builder.AddProject<Projects.Sigyll_Portal>("portal")
     .WithEnvironment("Portal__CaBaseUrl", sigil.GetEndpoint("https"))
     .WithEnvironment("Portal__UseMtls", "false")
     .WithEnvironment("Portal__RaApiKey", "dev-ra-key-change-me")
+    .WaitForCompletion(portalFlyway)
     .WaitFor(sigil);
 
 builder.Build().Run();
