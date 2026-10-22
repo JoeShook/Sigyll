@@ -37,9 +37,34 @@ else
                             <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveCron(context))">Save</FluentButton>
                         }
                     </FluentStack>
+                    @if (context.CronError != null)
+                    {
+                        <div style="color: var(--error); font-size: 0.8rem; margin-top: 0.25rem;">@context.CronError</div>
+                    }
                 </TemplateColumn>
-                <PropertyColumn Property="@(j => j.LastExecution)" Title="Last Run" />
-                <PropertyColumn Property="@(j => j.NextExecution)" Title="Next Run" />
+                <TemplateColumn Title="Last Run">
+                    @When(context.LastRunAt)
+                    @if (context.LastDurationMs is { } ms)
+                    {
+                        <span style="opacity: 0.6;"> (@(ms) ms)</span>
+                    }
+                </TemplateColumn>
+                <TemplateColumn Title="Result">
+                    @if (context.LastResult == "Succeeded")
+                    {
+                        <FluentBadge Appearance="Appearance.Accent" BackgroundColor="#2e7d32" Color="white">Succeeded</FluentBadge>
+                    }
+                    else if (context.LastResult == "Failed")
+                    {
+                        <FluentBadge BackgroundColor="#c62828" Color="white" title="@context.LastError">Failed</FluentBadge>
+                        <div style="font-size: 0.8rem; white-space: normal;">@context.LastError</div>
+                    }
+                    else
+                    {
+                        <span style="opacity: 0.6;">Not run yet</span>
+                    }
+                </TemplateColumn>
+                <TemplateColumn Title="Next Run">@When(context.NextRunAt)</TemplateColumn>
                 <TemplateColumn Title="Actions">
                     <FluentButton Appearance="Appearance.Outline" OnClick="@(() => TriggerJob(context))">Run Now</FluentButton>
                 </TemplateColumn>
@@ -105,13 +130,4 @@ else
             </FluentCard>
         }
     }
-
-    @* --- Hangfire Link --- *@
-    <FluentCard Style="margin-top: 1rem;">
-        <FluentLabel Typo="Typography.Subject">Hangfire Dashboard</FluentLabel>
-        <p style="margin-top: 0.5rem;">View detailed job execution history, retries, and scheduled jobs.</p>
-        <FluentAnchor Href="/hangfire" Target="_blank" Appearance="Appearance.Accent" Style="margin-top: 0.5rem;">
-            Open Hangfire Dashboard
-        </FluentAnchor>
-    </FluentCard>
 }

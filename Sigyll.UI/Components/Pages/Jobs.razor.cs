@@ -27,42 +27,53 @@ public partial class Jobs : IDisposable
     protected override async Task OnInitializedAsync()
     {
         TimeDisplay.OnChanged += StateHasChanged;
-        LoadRecurringJobs();
+        await LoadRecurringJobsAsync();
         await LoadCrlStatusesAsync();
         isLoading = false;
     }
 
-    private void LoadRecurringJobs()
+    private async Task LoadRecurringJobsAsync()
     {
-        var jobs = JobScheduler.GetRecurringJobs();
+        var jobs = await JobScheduler.GetRecurringJobsAsync();
         recurringJobs = jobs.Select(j => new RecurringJobRow
         {
             JobId = j.JobId,
             OriginalCron = j.CronExpression,
             EditableCron = j.CronExpression,
-            LastExecution = j.LastExecution,
-            NextExecution = j.NextExecution
+            LastRunAt = j.LastRunAt,
+            NextRunAt = j.NextRunAt,
+            LastResult = j.LastResult,
+            LastError = j.LastError,
+            LastDurationMs = j.LastDurationMs,
         }).ToList();
     }
 
-    private void SaveCron(RecurringJobRow row)
+    private async Task SaveCron(RecurringJobRow row)
     {
-        JobScheduler.UpdateCronExpression(row.JobId, row.EditableCron);
-        row.OriginalCron = row.EditableCron;
-
-        // Refresh to get updated next execution time
-        LoadRecurringJobs();
-        StateHasChanged();
+        try
+        {
+            await JobScheduler.UpdateCronExpressionAsync(row.JobId, row.EditableCron);
+            row.CronError = null;
+            await LoadRecurringJobsAsync();
+        }
+        catch (FormatException ex)
+        {
+            row.CronError = ex.Message;
+        }
     }
 
-    private void TriggerJob(RecurringJobRow row)
+    private async Task TriggerJob(RecurringJobRow row)
     {
-        JobScheduler.TriggerJob(row.JobId);
+        await JobScheduler.TriggerJobAsync(row.JobId);
+        row.Triggered = true;
 
-        // Refresh to reflect the trigger
-        LoadRecurringJobs();
-        StateHasChanged();
+        // The runner picks it up within a second or two; refresh to show the outcome.
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        await LoadRecurringJobsAsync();
+        await LoadCrlStatusesAsync();
     }
+
+    private string When(DateTime? utc) => utc is { } t ? TimeDisplay.FormatMedium(t) : "—";
 
     private async Task GenerateCrl(CrlStatusRow row)
     {
@@ -105,8 +116,13 @@ public partial class Jobs : IDisposable
         public string JobId { get; init; } = string.Empty;
         public string OriginalCron { get; set; } = string.Empty;
         public string EditableCron { get; set; } = string.Empty;
-        public string? LastExecution { get; init; }
-        public string? NextExecution { get; init; }
+        public string? CronError { get; set; }
+        public bool Triggered { get; set; }
+        public DateTime? LastRunAt { get; init; }
+        public DateTime? NextRunAt { get; init; }
+        public string? LastResult { get; init; }
+        public string? LastError { get; init; }
+        public int? LastDurationMs { get; init; }
     }
 
     private class CrlStatusRow

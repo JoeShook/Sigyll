@@ -24,6 +24,7 @@ public class SigyllDbContext : DbContext
     public DbSet<CaCertificate> CaCertificates => Set<CaCertificate>();
     public DbSet<IssuedCertificate> IssuedCertificates => Set<IssuedCertificate>();
     public DbSet<Crl> Crls => Set<Crl>();
+    public DbSet<RecurringJob> RecurringJobs => Set<RecurringJob>();
     public DbSet<CertificateRevocation> CertificateRevocations => Set<CertificateRevocation>();
     public DbSet<CertificateProfile> CertificateProfiles => Set<CertificateProfile>();
     public DbSet<SanList> SanLists => Set<SanList>();
@@ -39,6 +40,15 @@ public class SigyllDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.HasDefaultSchema("sigil");
+
+        // RecurringJob — schedule and last outcome of a background job
+        modelBuilder.Entity<RecurringJob>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasMaxLength(100);
+            entity.Property(e => e.Cron).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.LastResult).HasMaxLength(20);
+        });
 
         // ExternalCertificateRequest — outbound CSR + private key awaiting an external CA
         modelBuilder.Entity<ExternalCertificateRequest>(entity =>

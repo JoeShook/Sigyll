@@ -10,16 +10,41 @@
 
 namespace Sigyll.Common.Services.Jobs;
 
-public record RecurringJobInfo(string JobId, string CronExpression, string? LastExecution, string? NextExecution);
+public record RecurringJobInfo(
+    string JobId,
+    string CronExpression,
+    bool Enabled,
+    DateTime? LastRunAt,
+    DateTime? NextRunAt,
+    string? LastResult,
+    string? LastError,
+    int? LastDurationMs);
 
 /// <summary>
-/// Abstraction over Hangfire's recurring job management so the UI layer
-/// can read and update job schedules without depending on Hangfire directly.
+/// Read and change recurring job schedules from the UI.
 /// </summary>
 public interface IRecurringJobScheduler
 {
-    List<RecurringJobInfo> GetRecurringJobs();
-    void UpdateCronExpression(string jobId, string cronExpression);
-    void TriggerJob(string jobId);
-    void RemoveJob(string jobId);
+    Task<List<RecurringJobInfo>> GetRecurringJobsAsync(CancellationToken ct = default);
+
+    /// <summary>Changes a job's schedule. Throws <see cref="FormatException"/> for an invalid cron expression.</summary>
+    Task UpdateCronExpressionAsync(string jobId, string cronExpression, CancellationToken ct = default);
+
+    /// <summary>Makes the job due now; the runner picks it up within seconds.</summary>
+    Task TriggerJobAsync(string jobId, CancellationToken ct = default);
+}
+
+/// <summary>
+/// A recurring background job. Register implementations in DI; <see cref="RecurringJobRunner"/>
+/// creates the schedule row on first start and runs the job when it is due.
+/// </summary>
+public interface IRecurringJobDefinition
+{
+    /// <summary>Stable key, stored as the schedule row's id.</summary>
+    string JobId { get; }
+
+    /// <summary>Schedule used when the job's row is first created.</summary>
+    string DefaultCron { get; }
+
+    Task ExecuteAsync(CancellationToken ct);
 }

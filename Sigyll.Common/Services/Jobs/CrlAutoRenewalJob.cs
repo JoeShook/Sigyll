@@ -16,10 +16,15 @@ namespace Sigyll.Common.Services.Jobs;
 
 /// <summary>
 /// Scans all non-archived CA certificates and regenerates CRLs that are approaching
-/// or past their NextUpdate. Intended to be invoked by Hangfire as a recurring job.
+/// or past their NextUpdate. Runs on the schedule stored in the RecurringJobs table (default hourly).
 /// </summary>
-public class CrlAutoRenewalJob
+public class CrlAutoRenewalJob : IRecurringJobDefinition
 {
+    public const string Id = "crl-auto-renewal";
+
+    public string JobId => Id;
+    public string DefaultCron => "0 * * * *";
+
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
     private readonly CrlGenerationService _crlGenerationService;
     private readonly ILogger<CrlAutoRenewalJob> _logger;

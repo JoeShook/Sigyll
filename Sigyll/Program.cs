@@ -22,10 +22,6 @@ using Microsoft.Extensions.Options;
 using Sigyll.Common.Data;
 using Sigyll.ServiceDefaults;
 using Sigyll.Common.Data.Entities;
-using Hangfire;
-using Hangfire.Dashboard;
-using Hangfire.PostgreSql;
-using Hangfire.Storage;
 using Sigyll.Common.Services;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
@@ -171,16 +167,12 @@ try
     });
     builder.Services.AddSingleton<SystemStatusService>();
 
-    // Hangfire
-    builder.Services.AddHangfire(config => config
-        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
-        .UseSimpleAssemblyNameTypeSerializer()
-        .UseRecommendedSerializerSettings()
-        .UsePostgreSqlStorage(options =>
-            options.UseNpgsqlConnection(builder.Configuration.GetConnectionString("SigyllDb")),
-            new PostgreSqlStorageOptions { SchemaName = "sigil" }));
-    builder.Services.AddHangfireServer();
-    builder.Services.AddSingleton<IRecurringJobScheduler, HangfireRecurringJobScheduler>();
+    // Recurring jobs: schedules live in the RecurringJobs table; RecurringJobHostedService runs them.
+    builder.Services.AddScoped<IRecurringJobDefinition>(sp => sp.GetRequiredService<CrlAutoRenewalJob>());
+    builder.Services.AddSingleton<RecurringJobSignal>();
+    builder.Services.AddSingleton<RecurringJobRunner>();
+    builder.Services.AddSingleton<IRecurringJobScheduler, RecurringJobScheduler>();
+    builder.Services.AddHostedService<RecurringJobHostedService>();
 
     // Blazor Server + Fluent UI
     builder.Services.AddRazorComponents()
@@ -220,33 +212,6 @@ try
             return Serilog.Events.LogEventLevel.Information;
         };
     });
-
-    // Hangfire dashboard — Admin role only
-    app.MapHangfireDashboard("/hangfire", new DashboardOptions
-    {
-        Authorization = [new AdminDashboardAuthorizationFilter()]
-    });
-
-    // Register the recurring CRL auto-renewal job when it is missing OR when the
-    // persisted definition can no longer be loaded (LoadException) — e.g. after an
-    // assembly/namespace rename the stored type name no longer resolves. The existing
-    // cron is preserved so schedules edited via the Jobs UI survive restarts.
-    using (var connection = JobStorage.Current.GetConnection())
-    {
-        var existing = connection.GetRecurringJobs()
-            .FirstOrDefault(j => j.Id == "crl-auto-renewal");
-
-        if (existing is null || existing.LoadException is not null)
-        {
-            var crlCron = existing?.Cron
-                ?? builder.Configuration["Hangfire:CrlRenewalCron"]
-                ?? Cron.Hourly();
-            RecurringJob.AddOrUpdate<CrlAutoRenewalJob>(
-                "crl-auto-renewal",
-                job => job.ExecuteAsync(CancellationToken.None),
-                crlCron);
-        }
-    }
 
     app.UseStaticFiles();
     app.MapStaticAssets();
@@ -742,18 +707,6 @@ static async Task SeedCredentialSchemasAsync(SigyllDbContext db)
     });
 
     await db.SaveChangesAsync();
-}
-
-/// <summary>
-/// Restricts the Hangfire dashboard to authenticated operators in the Admin role.
-/// </summary>
-class AdminDashboardAuthorizationFilter : IDashboardAuthorizationFilter
-{
-    public bool Authorize(DashboardContext context)
-    {
-        var user = context.GetHttpContext().User;
-        return user.Identity?.IsAuthenticated == true && user.IsInRole(SigyllRoles.Admin);
-    }
 }
 
 /// <summary>

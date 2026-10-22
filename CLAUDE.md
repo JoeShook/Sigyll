@@ -12,7 +12,7 @@ Guidance for Claude Code (claude.ai/code) when working in the **Sigyll** reposit
 
 ## Stack
 - .NET 10, Blazor Server (InteractiveServer), Microsoft FluentUI v4
-- PostgreSQL (Npgsql + EF Core), BouncyCastle, Serilog, Hangfire
+- PostgreSQL (Npgsql + EF Core), BouncyCastle, Serilog; recurring jobs via the built-in `RecurringJobRunner` (Cronos)
 - .NET Aspire orchestration (AppHost) + HashiCorp Vault (Transit signing)
 
 ## Solution layout (`Sigyll.slnx`)
@@ -63,7 +63,7 @@ The DB/user/schema name is lowercase **`sigil`** (see Conventions → case-sensi
   - Vault transit key names `sigil-rsa-4096`, `sigil-ecdsa-p384`
   - JS helper `window.sigilFreezeResizableGrids`, attribute `data-sigil-frozen`
 - **Vault (Aspire)**: persistent init state at `%LOCALAPPDATA%/Sigyll/vault-vault-init.json`; data in Docker volume **`vault-vault-data`** — never `docker volume rm` it. Stop the app via Ctrl+C / the Aspire dashboard so Aspire removes the `vault-vault` container cleanly; if it orphans, `docker rm -f vault-vault` (container only).
-- **Hangfire**: recurring/queued jobs persist fully-qualified type names in the DB, so renames break stored jobs. `Sigyll/Program.cs` re-registers the CRL job when its persisted definition has a `LoadException` (preserving cron) — keep this pattern.
+- **Recurring jobs** (Hangfire was removed 2026-10-22): a job is a DI-registered `IRecurringJobDefinition` (stable `JobId` + default cron); its schedule and last outcome live in the `RecurringJobs` table, keyed by `JobId`, so renaming the class is safe but changing `JobId` orphans the row. `RecurringJobHostedService` polls every 30 s (Run Now wakes it); a PostgreSQL advisory lock keeps multiple instances from running the same job.
 - **FluentUI v4 DataGrid**: resize handles on minmax/fr/auto tracks are dead until the first drag — `window.sigilFreezeResizableGrids()` (`Sigyll/Components/App.razor`) freezes tracks to px at init. Use `Class="multiline-text"` for wrapping cells. The v4 handle class is `.actual-resize-handle` (NOT v3's `.col-width-draghandle`).
 - **Line endings**: working tree is LF (global git `autocrlf=true`). Prefer the Edit tool / `perl -i` for in-place edits; avoid tools that strip line endings.
 - **Git identity / push**: commits are authored `Joe Shook <joeshook@gmail.com>`. Push via **GitHub Desktop** (the `JoeShook` GitHub account) — the machine's active `gh` account is a different org account without write access here.
