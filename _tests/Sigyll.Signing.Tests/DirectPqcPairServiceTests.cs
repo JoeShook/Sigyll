@@ -138,6 +138,70 @@ public class DirectPqcPairServiceTests
     }
 
     [Fact]
+    public async Task Rekey_ReplacesBothHalvesAsALinkedPair()
+    {
+        if (!MLKem.IsSupported || !MLDsa.IsSupported) return;
+        var seed = await SeedAsync();
+        var first = await _service.IssuePairAsync(Request(seed, DirectBinding.Address, "alice@direct.example.org"));
+        first.Success.ShouldBeTrue(first.Error);
+
+        // Either half finds the other through the RFC 9763 hash.
+        var pair = await _service.FindPairAsync(first.EncryptionCertificateId!.Value);
+        pair.ShouldNotBeNull();
+        (await _service.FindPairAsync(first.SigningCertificateId!.Value)).ShouldBe(pair);
+        pair!.Linked.ShouldBeTrue();
+        pair.Binding.ShouldBe(DirectBinding.Address);
+        pair.Identifier.ShouldBe("alice@direct.example.org");
+        pair.SigningCertificateId.ShouldBe(first.SigningCertificateId!.Value);
+        pair.EncryptionCertificateId.ShouldBe(first.EncryptionCertificateId!.Value);
+
+        var rekey = Request(seed, DirectBinding.Address, "alice@direct.example.org");
+        rekey.RenewalOfSigningId = pair.SigningCertificateId;
+        rekey.RenewalOfEncryptionId = pair.EncryptionCertificateId;
+        rekey.SigningName = "alice@direct.example.org (signing) (2)";
+        rekey.EncryptionName = "alice@direct.example.org (encryption) (2)";
+        var second = await _service.IssuePairAsync(rekey);
+        second.Success.ShouldBeTrue(second.Error);
+
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            var oldSigning = await db.IssuedCertificates.FindAsync(first.SigningCertificateId);
+            var signing = await db.IssuedCertificates.FindAsync(second.SigningCertificateId);
+            var encryption = await db.IssuedCertificates.FindAsync(second.EncryptionCertificateId);
+            signing!.RenewalOfId.ShouldBe(first.SigningCertificateId);
+            encryption!.RenewalOfId.ShouldBe(first.EncryptionCertificateId);
+            signing.Version.ShouldBe(2);
+            encryption.Version.ShouldBe(2);
+            signing.Name.ShouldBe("alice@direct.example.org (signing) (2)");
+
+            using var oldSigningCert = X509Certificate2.CreateFromPem(oldSigning!.X509CertificatePem);
+            using var signingCert = X509Certificate2.CreateFromPem(signing.X509CertificatePem);
+            using var encryptionCert = X509Certificate2.CreateFromPem(encryption.X509CertificatePem);
+            CertificateExtensionHelpers.IsRelatedTo(encryptionCert, signingCert.RawData).ShouldBeTrue();
+            CertificateExtensionHelpers.IsRelatedTo(encryptionCert, oldSigningCert.RawData).ShouldBeFalse();
+        }
+
+        // Each new half resolves to its new partner, not the old one.
+        (await _service.FindPairAsync(second.SigningCertificateId!.Value))!.EncryptionCertificateId.ShouldBe(second.EncryptionCertificateId!.Value);
+        (await _service.FindPairAsync(second.EncryptionCertificateId!.Value))!.SigningCertificateId.ShouldBe(second.SigningCertificateId!.Value);
+        (await _service.RunRoundTripAsync(second.SigningCertificateId!.Value, second.EncryptionCertificateId!.Value)).Passed.ShouldBeTrue();
+
+        // A half re-keyed on its own carries no link; it still finds the newest signing certificate for its identity.
+        var lone = await _issuance.IssueCertificateAsync(new CertificateIssuanceRequest
+        {
+            IssuingCaCertificateId = seed.CaId, ProfileId = seed.EncryptionProfileId, TrustDomainId = seed.TrustDomainId,
+            SubjectDn = "CN=alice@direct.example.org", CertificateName = "lone encryption",
+            SubjectAltNames = [new SanEntry(SanType.Email, "alice@direct.example.org")],
+            PfxPassword = Password, SigningProviderOverride = "local",
+        });
+        lone.Success.ShouldBeTrue(lone.Error);
+        var fallback = await _service.FindPairAsync(lone.EntityId!.Value);
+        fallback.ShouldNotBeNull();
+        fallback!.Linked.ShouldBeFalse();
+        fallback.SigningCertificateId.ShouldBe(second.SigningCertificateId!.Value);
+    }
+
+    [Fact]
     public void KemEnvelopedData_RejectsTheWrongRecipient()
     {
         if (!MLKem.IsSupported || !MLDsa.IsSupported) return;

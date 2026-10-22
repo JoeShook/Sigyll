@@ -37,6 +37,11 @@ public partial class CertificateExplorer
     private DirectPairResult? directPairResult;
     private DirectRoundTripResult? directRoundTrip;
 
+    // Re-key mode: the existing pair being replaced and the versioned names the new halves get.
+    private DirectPairInfo? directPairRekey;
+    private string? directPairSigningName;
+    private string? directPairEncryptionName;
+
     private string DirectPairBindingValue
     {
         get => directPairBinding.ToString();
@@ -51,6 +56,7 @@ public partial class CertificateExplorer
         directPairIdentifier = string.Empty;
         directPairResult = null;
         directRoundTrip = null;
+        directPairRekey = null;
         directPairPassword = PasswordCache.Get(PasswordCacheKey(caId)) ?? string.Empty;
 
         await using var db = await DbFactory.CreateDbContextAsync();
@@ -61,6 +67,25 @@ public partial class CertificateExplorer
         directEncryptionProfile = directEncryptionProfiles.FirstOrDefault(t => t.Name.StartsWith("Direct")) ?? directEncryptionProfiles.FirstOrDefault();
 
         directPairDialogHidden = false;
+    }
+
+    /// <summary>
+    /// Re-key on either half of a Direct pair re-keys both: the encryption certificate's RFC 9763
+    /// link is a hash of the signing certificate, so replacing one half alone would leave the pair
+    /// unlinked. Opens the pair dialog with the identity, profiles and versioned names prepared.
+    /// </summary>
+    private async Task ShowDirectPairRekeyDialogAsync(DirectPairInfo pair)
+    {
+        await ShowDirectPairDialog(pair.IssuingCaCertificateId, pair.IssuingCaName);
+        directPairRekey = pair;
+        directPairBinding = pair.Binding;
+        directPairIdentifier = pair.Identifier;
+        directSigningProfile = directSigningProfiles.FirstOrDefault(t => t.Id == pair.SigningProfileId) ?? directSigningProfile;
+        directEncryptionProfile = directEncryptionProfiles.FirstOrDefault(t => t.Id == pair.EncryptionProfileId) ?? directEncryptionProfile;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        directPairSigningName = await NextRenewalNameAsync(db, pair.SigningName, pair.SigningVersion);
+        directPairEncryptionName = await NextRenewalNameAsync(db, pair.EncryptionName, pair.EncryptionVersion);
     }
 
     private bool CanIssueDirectPair =>
@@ -90,11 +115,16 @@ public partial class CertificateExplorer
                     .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList(),
                 AiaUrls = validator.ExpandAiaTemplates(directSigningProfile, baseUrls, directPairCaName)
                     .Where(u => !u.Contains("{BaseUrl}", StringComparison.OrdinalIgnoreCase)).ToList(),
+                RenewalOfSigningId = directPairRekey?.SigningCertificateId,
+                RenewalOfEncryptionId = directPairRekey?.EncryptionCertificateId,
+                SigningName = directPairRekey != null ? directPairSigningName : null,
+                EncryptionName = directPairRekey != null ? directPairEncryptionName : null,
             });
 
             if (directPairResult.Success)
             {
-                ToastService.ShowSuccess($"Direct PQC pair issued for {directPairIdentifier.Trim()}");
+                ToastService.ShowSuccess(
+                    $"Direct PQC pair {(directPairRekey != null ? "re-keyed" : "issued")} for {directPairIdentifier.Trim()}");
                 await LoadTrustDomainTreeAsync(TrustDomainId);
             }
             else

@@ -86,12 +86,13 @@ public class DirectPqcPairService
         var san = new SanEntry(request.Binding == DirectBinding.Address ? SanType.Email : SanType.Dns, identifier);
         var subjectDn = string.IsNullOrWhiteSpace(request.SubjectDn) ? $"CN={identifier}" : request.SubjectDn.Trim();
 
-        var signingResult = await _issuance.IssueCertificateAsync(Request(request.SigningProfileId, $"{identifier} (signing)", null));
+        var signingResult = await _issuance.IssueCertificateAsync(Request(
+            request.SigningProfileId, request.SigningName ?? $"{identifier} (signing)", null, request.RenewalOfSigningId));
         if (!signingResult.Success)
             return DirectPairResult.Failure($"Signing certificate: {signingResult.Error}");
 
-        var encryptionResult = await _issuance.IssueCertificateAsync(
-            Request(request.EncryptionProfileId, $"{identifier} (encryption)", signingResult.EntityId));
+        var encryptionResult = await _issuance.IssueCertificateAsync(Request(
+            request.EncryptionProfileId, request.EncryptionName ?? $"{identifier} (encryption)", signingResult.EntityId, request.RenewalOfEncryptionId));
         if (!encryptionResult.Success)
         {
             // Never leave half a pair behind.
@@ -105,8 +106,8 @@ public class DirectPqcPairService
             return DirectPairResult.Failure($"Encryption certificate: {encryptionResult.Error}");
         }
 
-        _logger.LogInformation("Direct PQC pair issued for {Identifier}: signing {SigningId}, encryption {EncryptionId}",
-            identifier, signingResult.EntityId, encryptionResult.EntityId);
+        _logger.LogInformation("Direct PQC pair {Action} for {Identifier}: signing {SigningId}, encryption {EncryptionId}",
+            request.RenewalOfSigningId != null ? "re-keyed" : "issued", identifier, signingResult.EntityId, encryptionResult.EntityId);
 
         return new DirectPairResult
         {
@@ -115,7 +116,7 @@ public class DirectPqcPairService
             EncryptionCertificateId = encryptionResult.EntityId,
         };
 
-        CertificateIssuanceRequest Request(int profileId, string name, int? relatedId) => new()
+        CertificateIssuanceRequest Request(int profileId, string name, int? relatedId, int? renewalOfId) => new()
         {
             IssuingCaCertificateId = request.IssuingCaCertificateId,
             ProfileId = profileId,
@@ -128,7 +129,77 @@ public class DirectPqcPairService
             PfxPassword = request.PfxPassword,
             SigningProviderOverride = "local",
             RelatedCertificateId = relatedId,
+            RenewalOfCertificateId = renewalOfId,
         };
+    }
+
+    /// <summary>
+    /// Finds the other half of a Direct pair so the pair can be re-keyed as a unit. For an
+    /// encryption certificate the partner is the signing certificate its RFC 9763 hash points at;
+    /// for a signing certificate it is the newest encryption certificate that points at it. When no
+    /// link exists (a half re-keyed on its own), falls back to the newest certificate of the other
+    /// role for the same identity under the same CA. Null when the certificate is not a Direct half
+    /// or has no partner.
+    /// </summary>
+    public async Task<DirectPairInfo?> FindPairAsync(int issuedCertificateId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var row = await db.IssuedCertificates
+            .Include(i => i.Profile)
+            .Include(i => i.IssuingCaCertificate)
+            .FirstOrDefaultAsync(i => i.Id == issuedCertificateId, ct);
+        if (row?.Profile == null)
+            return null;
+
+        var isSigning = IsSigningProfile(row.Profile);
+        if (!isSigning && !IsEncryptionProfile(row.Profile))
+            return null;
+
+        using var cert = X509Certificate2.CreateFromPem(row.X509CertificatePem);
+        var sans = SanValues(cert);
+        var identifier = sans.FirstOrDefault();
+        if (identifier == null)
+            return null;
+
+        var candidates = await db.IssuedCertificates
+            .Include(i => i.Profile)
+            .Where(i => i.Id != row.Id && i.IssuingCaCertificateId == row.IssuingCaCertificateId
+                        && !i.IsRevoked && !i.IsArchived && i.Profile != null)
+            .OrderByDescending(i => i.Version).ThenByDescending(i => i.CreatedAt)
+            .ToListAsync(ct);
+        var superseded = candidates.Where(c => c.RenewalOfId != null).Select(c => c.RenewalOfId!.Value).ToHashSet();
+
+        IssuedCertificate? partner = null;
+        var linked = false;
+        var sameIdentity = new List<IssuedCertificate>();
+        foreach (var candidate in candidates)
+        {
+            if (isSigning ? !IsEncryptionProfile(candidate.Profile!) : !IsSigningProfile(candidate.Profile!))
+                continue;
+            using var candidateCert = X509Certificate2.CreateFromPem(candidate.X509CertificatePem);
+            if (!SanValues(candidateCert).SetEquals(sans))
+                continue;
+            if (isSigning ? CertificateExtensionHelpers.IsRelatedTo(candidateCert, cert.RawData)
+                          : CertificateExtensionHelpers.IsRelatedTo(cert, candidateCert.RawData))
+            {
+                partner = candidate;
+                linked = true;
+                break;
+            }
+            sameIdentity.Add(candidate);
+        }
+        partner ??= sameIdentity.FirstOrDefault(c => !superseded.Contains(c.Id)) ?? sameIdentity.FirstOrDefault();
+        if (partner == null)
+            return null;
+
+        var signing = isSigning ? row : partner;
+        var encryption = isSigning ? partner : row;
+        return new DirectPairInfo(
+            row.IssuingCaCertificate.TrustDomainId, row.IssuingCaCertificateId, row.IssuingCaCertificate.Name,
+            identifier.Contains('@') ? DirectBinding.Address : DirectBinding.Domain, identifier,
+            signing.Id, signing.Name, signing.Version, signing.ProfileId!.Value,
+            encryption.Id, encryption.Name, encryption.Version, encryption.ProfileId!.Value,
+            linked);
     }
 
     /// <summary>
@@ -338,7 +409,23 @@ public class DirectPairRequest
     public string PfxPassword { get; set; } = string.Empty;
     public List<string> CdpUrls { get; set; } = [];
     public List<string> AiaUrls { get; set; } = [];
+
+    /// <summary>Set both to re-key an existing pair: each new certificate records the old one as its predecessor.</summary>
+    public int? RenewalOfSigningId { get; set; }
+    public int? RenewalOfEncryptionId { get; set; }
+
+    /// <summary>Display names; default to "&lt;identifier&gt; (signing)" / "(encryption)". Renewals pass the versioned names.</summary>
+    public string? SigningName { get; set; }
+    public string? EncryptionName { get; set; }
 }
+
+/// <summary>Both halves of an existing Direct pair, as found from either one by <see cref="DirectPqcPairService.FindPairAsync"/>.</summary>
+public sealed record DirectPairInfo(
+    int TrustDomainId, int IssuingCaCertificateId, string IssuingCaName,
+    DirectBinding Binding, string Identifier,
+    int SigningCertificateId, string SigningName, int SigningVersion, int SigningProfileId,
+    int EncryptionCertificateId, string EncryptionName, int EncryptionVersion, int EncryptionProfileId,
+    bool Linked);
 
 public class DirectPairResult
 {

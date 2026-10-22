@@ -2580,6 +2580,14 @@ public partial class CertificateExplorer : IDisposable
     {
         if (selectedNode == null || selectedCert == null) return;
 
+        // A Direct pair is re-keyed as a unit (see ShowDirectPairRekeyDialogAsync).
+        if (selectedNode.CertificateRole == "EndEntity"
+            && await DirectPairService.FindPairAsync(selectedNode.Id) is { } pair)
+        {
+            await ShowDirectPairRekeyDialogAsync(pair);
+            return;
+        }
+
         renewalOriginalCdpUrls = ExtractExtensionUrls(selectedCert, "2.5.29.31");
         renewalOriginalAiaUrls = ExtractExtensionUrls(selectedCert, "1.3.6.1.5.5.7.1.1");
         urlChangeWarnings.Clear();
@@ -2662,10 +2670,10 @@ public partial class CertificateExplorer : IDisposable
     /// names in the trust domain so legacy families (pre-Version rows, " (renewed)" suffixes)
     /// don't collide.
     /// </summary>
-    private async Task<string> NextRenewalNameAsync(SigyllDbContext db, string currentName)
+    private async Task<string> NextRenewalNameAsync(SigyllDbContext db, string currentName, int? predecessorVersionOverride = null)
     {
-        var predecessorVersion = 1;
-        if (selectedNode != null)
+        var predecessorVersion = predecessorVersionOverride ?? 1;
+        if (predecessorVersionOverride == null && selectedNode != null)
         {
             predecessorVersion = selectedNode.EntityType == "CaCertificate"
                 ? (await db.CaCertificates.FindAsync(selectedNode.Id))?.Version ?? 1
