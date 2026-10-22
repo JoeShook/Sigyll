@@ -569,10 +569,16 @@
             @if (directPairRekey != null)
             {
                 <FluentMessageBar Id="direct-rekey-notice" Intent="@MessageIntent.Info" AllowDismiss="false" Title="Re-keying both halves">
-                    The link is a hash of the signing certificate, so the pair is replaced together:
-                    "@directPairRekey.SigningName" → "@directPairSigningName" and
-                    "@directPairRekey.EncryptionName" → "@directPairEncryptionName", with new keys and a new RFC 9763 link.
-                    The old pair stays valid until you revoke it.@(directPairRekey.Linked ? "" : " (The old pair carried no link.)")
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem;">
+                        <div>The RFC 9763 link is a hash of the signing certificate, so both certificates get new keys together.</div>
+                        <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.6rem;">
+                            <strong>Signing</strong>
+                            <span>@directPairRekey.SigningName → <strong>@directPairSigningName</strong></span>
+                            <strong>Encryption</strong>
+                            <span>@directPairRekey.EncryptionName → <strong>@directPairEncryptionName</strong></span>
+                        </div>
+                        <div>The old pair stays valid until you revoke it.@(directPairRekey.Linked ? "" : " It carried no RFC 9763 link.")</div>
+                    </div>
                 </FluentMessageBar>
                 var urlWarnings = DirectPairUrlWarnings;
                 @if (urlWarnings.Count > 0 && directPairResult?.Success != true)
