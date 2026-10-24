@@ -79,11 +79,13 @@
             <b>Full backup</b> adds a <i>Back up to Vault</i> button to the trust domain in the Certificate Explorer,
             which writes every certificate, the latest CRL of each CA and, for a KeyCustodian who asks, the .p12 files.
         </p>
-        <FluentDataGrid Items="@trustDomains.AsQueryable()">
+        <FluentDataGrid Items="@trustDomains.AsQueryable()" ResizableColumns="true"
+                        GridTemplateColumns="minmax(160px, 1fr) minmax(280px, 2fr) 110px minmax(160px, 1fr)">
             <PropertyColumn Property="@(n => n.TrustDomainName)" Title="Trust domain" />
             <TemplateColumn Title="Namespace">
-                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem;">
-                    <FluentTextField @bind-Value="@context.Editable" Placeholder="(not set)" Style="width: 200px; font-family: monospace;" />
+                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem; width: 100%;">
+                    <FluentTextField @bind-Value="@context.Editable" Placeholder="(not set)" title="@context.Editable"
+                                     Style="flex: 1; min-width: 0; width: 100%; font-family: monospace;" />
                     @if ((context.Editable ?? "") != (context.Original ?? ""))
                     {
                         <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveNamespaceAsync(context))">Save</FluentButton>

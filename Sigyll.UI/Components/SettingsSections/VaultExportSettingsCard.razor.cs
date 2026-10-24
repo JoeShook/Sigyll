@@ -10,6 +10,7 @@
 
 using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
+using Microsoft.JSInterop;
 using Sigyll.Common.Services.Export;
 
 namespace Sigyll.UI.Components.SettingsSections;
@@ -19,6 +20,7 @@ public partial class VaultExportSettingsCard
     [Inject] private VaultExportService VaultExport { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
     [Inject] private Services.TimeDisplayService TimeDisplay { get; set; } = null!;
+    [Inject] private IJSRuntime JS { get; set; } = null!;
 
     private bool isLoading = true;
     private bool enabled;
@@ -39,6 +41,16 @@ public partial class VaultExportSettingsCard
         updatedAt = settings.UpdatedAt;
         await LoadTrustDomainsAsync();
         isLoading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The grid appears when the card opens, after the layout's own pass: freeze its columns to pixel widths
+        // so the resize handles work (see sigilFreezeResizableGrids in App.razor; already-frozen grids are skipped).
+        if (IsOpen && !isLoading)
+        {
+            try { await JS.InvokeVoidAsync("sigilFreezeResizableGrids"); } catch (JSException) { }
+        }
     }
 
     private async Task LoadTrustDomainsAsync()
