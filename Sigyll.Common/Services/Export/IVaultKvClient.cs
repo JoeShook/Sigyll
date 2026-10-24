@@ -19,13 +19,16 @@ public interface IVaultKvClient
     /// <summary>The keys directly under <paramref name="path"/> (folders end in "/"); empty when there are none.</summary>
     Task<IReadOnlyList<string>> ListAsync(Uri address, string token, string mount, string path, CancellationToken ct = default);
 
+    /// <summary>The field names of the secret at <paramref name="path"/>; empty when it doesn't exist.</summary>
+    Task<IReadOnlyCollection<string>> ReadFieldNamesAsync(Uri address, string token, string mount, string path, CancellationToken ct = default);
+
     /// <summary>
-    /// Adds <paramref name="fields"/> to the secret at <paramref name="path"/>, keeping its other fields, and
-    /// returns the new KV version. Creates the secret when it doesn't exist.
+    /// Adds <paramref name="fields"/> to the secret at <paramref name="path"/>, keeping its other fields except
+    /// <paramref name="remove"/>, and returns the new KV version. Creates the secret when it doesn't exist.
     /// </summary>
     Task<int> MergeAsync(
         Uri address, string token, string mount, string path,
-        IReadOnlyDictionary<string, string> fields, CancellationToken ct = default);
+        IReadOnlyDictionary<string, string> fields, IReadOnlyCollection<string>? remove = null, CancellationToken ct = default);
 }
 
 /// <summary>Vault refused the token: it expired, or its policies don't cover the path.</summary>

@@ -480,6 +480,8 @@ public partial class CertificateExplorer : IDisposable
         subjectAltNames.Clear();
         isLoadingTree = false;
         pendingDragDropInit = true;
+
+        await RefreshPendingVaultUpdatesAsync(trustDomainId, prompt: true);
     }
 
 
@@ -939,6 +941,24 @@ public partial class CertificateExplorer : IDisposable
 
     private HashSet<int> vaultBackupTrustDomains = new();
     private Shared.VaultBackupDialog vaultBackupDialog = null!;
+    private Shared.VaultUpdateDialog vaultUpdateDialog = null!;
+    private IReadOnlyList<VaultPendingUpdate> pendingVaultUpdates = [];
+    private int pendingVaultTrustDomainId;
+
+    /// <summary>
+    /// Rechecks which certificates changed since they went to Vault. When <paramref name="prompt"/> and the count
+    /// grew while the operator stayed on this trust domain, they just renewed or rekeyed one here: ask for the
+    /// Vault token now rather than leave it to the banner.
+    /// </summary>
+    private async Task RefreshPendingVaultUpdatesAsync(int trustDomainId, bool prompt)
+    {
+        int? before = pendingVaultTrustDomainId == trustDomainId ? pendingVaultUpdates.Count : null;
+        pendingVaultUpdates = CanBackUpToVault ? await VaultExport.GetPendingUpdatesAsync(trustDomainId) : [];
+        pendingVaultTrustDomainId = trustDomainId;
+
+        if (prompt && before is int count && pendingVaultUpdates.Count > count && CanExportToVault)
+            await vaultUpdateDialog.ShowAsync(trustDomainId);
+    }
 
     /// <summary>An Admin turned on full backup for the selected trust domain in Settings.</summary>
     private bool CanBackUpToVault => vaultExportEnabled && vaultBackupTrustDomains.Contains(TrustDomainId);

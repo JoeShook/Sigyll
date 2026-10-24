@@ -52,6 +52,20 @@
     }
 </FluentStack>
 
+@if (TrustDomainId > 0 && pendingVaultUpdates.Count > 0)
+{
+    <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Style="margin-top: 0.75rem;">
+        @pendingVaultUpdates.Count @(pendingVaultUpdates.Count == 1 ? "certificate was" : "certificates were") renewed or
+        rekeyed since @(pendingVaultUpdates.Count == 1 ? "it was" : "they were") written to Vault:
+        @string.Join(", ", pendingVaultUpdates.Take(5).Select(p => p.Name))@(pendingVaultUpdates.Count > 5 ? ", …" : "").
+        <FluentButton Appearance="Appearance.Accent" Style="margin-left: 0.5rem;"
+                      Disabled="@(!CanExportToVault)" title="@VaultExportTitle"
+                      OnClick="@(() => vaultUpdateDialog.ShowAsync(TrustDomainId))">
+            Update Vault
+        </FluentButton>
+    </FluentMessageBar>
+}
+
 @* Drop zone for importing certificates *@
 @if (showDropZone && TrustDomainId > 0)
 {
@@ -215,7 +229,10 @@
 
 @* Export to Vault (when an Admin turned it on) *@
 <VaultExportDialog @ref="vaultExportDialog" />
-<VaultBackupDialog @ref="vaultBackupDialog" CanExportKeys="@Access.CanExportKeys" />
+<VaultBackupDialog @ref="vaultBackupDialog" CanExportKeys="@Access.CanExportKeys"
+                   OnBackedUp="@(() => RefreshPendingVaultUpdatesAsync(TrustDomainId, prompt: false))" />
+<VaultUpdateDialog @ref="vaultUpdateDialog" CanExportKeys="@Access.CanExportKeys"
+                   OnUpdated="@(() => RefreshPendingVaultUpdatesAsync(TrustDomainId, prompt: false))" />
 
 @* .p12 download options dialog *@
 <FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true"

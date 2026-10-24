@@ -1,0 +1,198 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@* Writes certificates that changed since they went to Vault (renewed or rekeyed) to their secrets, asking for the
+   operator's Vault token when this session doesn't hold one yet. *@
+
+@using Sigyll.Common.Services.Export
+@inject VaultExportService VaultExport
+@inject VaultTokenCache TokenCache
+@inject IToastService ToastService
+
+<FluentDialog @bind-Hidden="@hidden" Modal="true" TrapFocus="true" Style="min-width: 600px;">
+    <FluentDialogHeader>Update Vault</FluentDialogHeader>
+    <FluentDialogBody>
+        @if (pending == null)
+        {
+            @if (error != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@error</FluentMessageBar>
+            }
+            else
+            {
+                <FluentProgressRing />
+            }
+        }
+        else if (result != null)
+        {
+            <FluentMessageBar Intent="@(result.Failures.Count == 0 && result.Notes.Count == 0 ? MessageIntent.Success : MessageIntent.Warning)" AllowDismiss="false">
+                Updated @result.Updated.Count of @pending.Count secrets in <code>@result.Mount</code>.
+            </FluentMessageBar>
+            @if (result.Notes.Count + result.Failures.Count > 0)
+            {
+                <ul style="font-size: 0.8rem; margin-top: 0.75rem;">
+                    @foreach (var line in result.Notes.Concat(result.Failures))
+                    {
+                        <li style="word-break: break-all;">@line</li>
+                    }
+                </ul>
+            }
+        }
+        else if (pending.Count == 0)
+        {
+            <p style="font-size: 0.9rem; margin-top: 0;">Vault is up to date: nothing exported to it has changed since.</p>
+        }
+        else
+        {
+            <p style="font-size: 0.9rem; margin-top: 0;">
+                These certificates were renewed or rekeyed since they were written to Vault. Updating writes the new
+                generation to the same secret, with the same kinds of files it holds, and removes the earlier
+                generation's files.
+            </p>
+            <ul style="font-size: 0.85rem; margin: 0.5rem 0;">
+                @foreach (var item in pending)
+                {
+                    <li>
+                        <b>@item.Name</b>
+                        @if (item.PreviousName != null && item.PreviousName != item.Name)
+                        {
+                            <span style="opacity: 0.7;"> (was @item.PreviousName)</span>
+                        }
+                        <div style="opacity: 0.7; word-break: break-all;"><code>@item.RelativePath</code></div>
+                    </li>
+                }
+            </ul>
+            @if (!CanExportKeys)
+            {
+                <div style="font-size: 0.8rem; opacity: 0.7;">
+                    P12 files in these secrets need the KeyCustodian role to refresh; without it they keep the earlier key.
+                </div>
+            }
+
+            <div style="margin-top: 0.75rem;">
+                @if (TokenCache.Token == null)
+                {
+                    <FluentTextField @bind-Value="token" TextFieldType="TextFieldType.Password" Immediate="true"
+                                     Label="Vault token" Style="width: 100%;" />
+                    <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.25rem;">
+                        In the Vault UI, open the user menu and click <b>Copy token</b>. Sigyll keeps it in memory for
+                        this browser session only.
+                    </div>
+                }
+                else
+                {
+                    <span style="font-size: 0.85rem;">Using the Vault token you entered earlier in this session.</span>
+                    <FluentButton Appearance="Appearance.Lightweight" OnClick="TokenCache.Clear" Disabled="@isBusy">Forget it</FluentButton>
+                }
+            </div>
+
+            @if (isBusy)
+            {
+                <div style="margin-top: 0.75rem; font-size: 0.85rem;">
+                    <FluentProgress Min="0" Max="@pending.Count" Value="@done" />
+                    @done of @pending.Count secrets
+                </div>
+            }
+
+            @if (error != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false" Style="margin-top: 0.75rem;">@error</FluentMessageBar>
+            }
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        @if (pending is { Count: > 0 } && result == null)
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="UpdateAsync" Loading="@isBusy"
+                          Disabled="@(isBusy || string.IsNullOrWhiteSpace(EffectiveToken))">
+                Update
+            </FluentButton>
+        }
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => hidden = true)" Disabled="@isBusy">
+            @(result != null || pending is { Count: 0 } ? "Close" : "Later")
+        </FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
+@code {
+    private bool hidden = true;
+    private bool isBusy;
+    private int trustDomainId;
+    private IReadOnlyList<VaultPendingUpdate>? pending;
+    private VaultUpdateResult? result;
+    private string? token;
+    private string? error;
+    private int done;
+
+    /// <summary>Whether the operator may refresh P12 files (the KeyCustodian role).</summary>
+    [Parameter] public bool CanExportKeys { get; set; }
+
+    /// <summary>Raised after an update wrote at least one secret.</summary>
+    [Parameter] public EventCallback OnUpdated { get; set; }
+
+    private string? EffectiveToken => TokenCache.Token ?? token;
+
+    /// <summary>Opens the dialog for the trust domain <paramref name="id"/>'s changed certificates.</summary>
+    public async Task ShowAsync(int id)
+    {
+        trustDomainId = id;
+        pending = null;
+        result = null;
+        token = null;
+        error = null;
+        done = 0;
+        hidden = false;
+        StateHasChanged();
+
+        try
+        {
+            pending = await VaultExport.GetPendingUpdatesAsync(trustDomainId);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            error = ex.Message;
+        }
+        StateHasChanged();
+    }
+
+    private async Task UpdateAsync()
+    {
+        isBusy = true;
+        error = null;
+        done = 0;
+        try
+        {
+            var usedToken = EffectiveToken!;
+            // Progress<T> posts back to the circuit's context, so each report can re-render.
+            var progress = new Progress<int>(n =>
+            {
+                done = n;
+                StateHasChanged();
+            });
+            result = await VaultExport.UpdateAsync(trustDomainId, usedToken, progress);
+            TokenCache.Save(usedToken);
+            token = null;
+            if (result.Updated.Count > 0)
+            {
+                ToastService.ShowSuccess($"Updated {result.Updated.Count} secrets in Vault.");
+                await OnUpdated.InvokeAsync();
+            }
+        }
+        catch (VaultTokenRefusedException ex)
+        {
+            TokenCache.Clear();
+            token = null;
+            error = $"{ex.Message} Paste a new token, or ask for a policy that allows writing under the namespace.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+}

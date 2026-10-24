@@ -65,6 +65,8 @@ public class CaCertificate
     public bool AutoRenew { get; set; } = true;
     /// <summary>Left out of the full trust domain backup to Vault (set on every generation of a renewal lineage).</summary>
     public bool VaultBackupExcluded { get; set; }
+    /// <summary>When this certificate was last written to Vault (UTC); a renewal of one that was is offered as an update.</summary>
+    public DateTime? VaultExportedAt { get; set; }
     public bool IsArchived { get; set; }
     public DateTime? ArchivedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -49,14 +49,24 @@ public sealed class VaultKvClient : IVaultKvClient
             : [];
     }
 
+    public async Task<IReadOnlyCollection<string>> ReadFieldNamesAsync(
+        Uri address, string token, string mount, string path, CancellationToken ct = default)
+    {
+        using var http = _httpClientFactory.CreateClient(HttpClientName);
+        var (fields, _) = await ReadAsync(http, address, token, mount, path, ct);
+        return fields.Select(f => f.Key).ToList();
+    }
+
     public async Task<int> MergeAsync(
         Uri address, string token, string mount, string path,
-        IReadOnlyDictionary<string, string> fields, CancellationToken ct = default)
+        IReadOnlyDictionary<string, string> fields, IReadOnlyCollection<string>? remove = null, CancellationToken ct = default)
     {
         using var http = _httpClientFactory.CreateClient(HttpClientName);
         for (var attempt = 1; ; attempt++)
         {
             var (current, version) = await ReadAsync(http, address, token, mount, path, ct);
+            foreach (var name in remove ?? [])
+                current.Remove(name);
             foreach (var (name, value) in fields)
                 current[name] = value;
 

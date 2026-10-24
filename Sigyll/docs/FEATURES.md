@@ -215,6 +215,12 @@
   Last backup time and operator show in Settings (`TrustDomains.VaultBackupEnabled`, Flyway V5)
 - A CaOperator can leave a certificate out of the backup (Explorer details, *Vault Backup*). It covers the whole
   renewal lineage, which shares one secret; leaving out a CA keeps what it issued (`VaultBackupExcluded`, Flyway V6)
+- **Keeping Vault current**: Sigyll records when each certificate was written to Vault (`VaultExportedAt`, Flyway V7,
+  backfilled from each trust domain's last backup). When one is renewed or rekeyed (a renewal keeps its first
+  generation's path, even when renamed), the Explorer shows a banner and, right after a change made there, opens
+  **Update Vault**, asking for the token if the session has none. The update writes the new generation with the same
+  kinds of files the secret holds (P12, chain P12, CRL) and removes the earlier generation's; refreshing P12 files
+  needs KeyCustodian. Only for trust domains with full backup on, and not for certificates left out of it
 - Exporting P12 files is for development and lab CAs: in production, keys stay in an HSM and only certificates
   leave the CA (Settings says so too)
 

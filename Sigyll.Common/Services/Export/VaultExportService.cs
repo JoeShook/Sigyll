@@ -92,6 +92,15 @@ public record VaultBackupPlan(
     public int CrlCount => Secrets.Sum(s => s.Targets.Count(t => t.Artifact == VaultExportArtifact.Crl));
 }
 
+/// <summary>A certificate in Vault that was renewed or rekeyed since: its secret still holds an earlier generation.</summary>
+/// <param name="PreviousName">The name of the generation Vault last got.</param>
+public record VaultPendingUpdate(string RelativePath, string Name, string? PreviousName, string EntityType, int Id);
+
+/// <param name="Updated">The secrets written.</param>
+/// <param name="Notes">Secrets written with a caveat, e.g. P12 files left as they were.</param>
+/// <param name="Failures">Secrets that weren't written, with the reason.</param>
+public record VaultUpdateResult(string Address, string Mount, IReadOnlyList<string> Updated, IReadOnlyList<string> Notes, IReadOnlyList<string> Failures);
+
 /// <param name="Root">The trust domain's folder: <c>&lt;namespace&gt;/&lt;trust domain&gt;</c>.</param>
 /// <param name="Failures">Secrets that weren't written, with the reason.</param>
 public record VaultBackupResult(string Address, string Mount, string Root, int SecretsWritten, int SecretsPlanned, IReadOnlyList<string> Failures);
@@ -263,10 +272,11 @@ public partial class VaultExportService
 
         var fields = await BuildFieldsAsync(db, target, ct);
         var path = plan.PathFor(ns);
-        var version = await _vault.MergeAsync(new Uri(settings.Address!), token.Trim(), settings.Mount, path, fields, ct);
+        var version = await _vault.MergeAsync(new Uri(settings.Address!), token.Trim(), settings.Mount, path, fields, ct: ct);
 
         if (settingNamespace)
             await SaveFirstNamespaceAsync(db, plan.TrustDomainId, ns, identity.Name, ct);
+        await MarkExportedAsync(db, target, ct);
 
         _logger.LogInformation(
             "{Actor} exported {Fields} of {EntityType} {Id} to Vault {Address} {Mount}/{Path} (version {Version})",
@@ -323,9 +333,10 @@ public partial class VaultExportService
                 foreach (var (name, value) in await BuildFieldsAsync(db, target, ct))
                     fields[name] = value;
 
-                await _vault.MergeAsync(address, token.Trim(), settings.Mount, path, fields, ct);
+                await _vault.MergeAsync(address, token.Trim(), settings.Mount, path, fields, ct: ct);
                 if (written++ == 0 && settingNamespace)
                     await SaveFirstNamespaceAsync(db, plan.TrustDomainId, ns, identity.Name, ct);
+                await MarkExportedAsync(db, secret.Targets[0], ct);
             }
             catch (VaultTokenRefusedException) when (written == 0)
             {
@@ -418,6 +429,172 @@ public partial class VaultExportService
             foreach (var renewal in renewals[next]) pending.Push(renewal.Id);
         }
         return found.Values.ToList();
+    }
+
+    /// <summary>
+    /// Certificates in Vault that changed since: an earlier generation was exported, backed up or updated, but the
+    /// newest wasn't. Empty unless export to Vault and the trust domain's full backup are on.
+    /// </summary>
+    public async Task<IReadOnlyList<VaultPendingUpdate>> GetPendingUpdatesAsync(int trustDomainId, CancellationToken ct = default)
+    {
+        await _operator.DemandAsync(Permission.View);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var settings = await db.VaultExportSettings.AsNoTracking().SingleOrDefaultAsync(ct);
+        if (settings is not { Enabled: true, Address: not null })
+            return [];
+        var (trustDomain, groups, _) = await LoadSecretsAsync(db, trustDomainId, ct);
+        if (!trustDomain.VaultBackupEnabled || trustDomain.VaultNamespace == null)
+            return [];
+
+        return groups.Where(g => g.NeedsUpdate)
+            .Select(g => new VaultPendingUpdate(g.Path, g.Newest.Node.Name,
+                g.Generations.LastOrDefault(x => x.ExportedAt != null)?.Node.Name, g.Newest.EntityType, g.Newest.Node.Id))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Writes the newest generation of each <see cref="GetPendingUpdatesAsync">changed certificate</see> to its secret,
+    /// with the same kinds of files the secret holds: .cer, and P12, chain P12 and CRL where it has them. The earlier
+    /// generation's files are removed. Refreshing P12 files takes ExportKeys; without it they're left as they were.
+    /// </summary>
+    /// <param name="progress">Receives the number of secrets done so far.</param>
+    public async Task<VaultUpdateResult> UpdateAsync(
+        int trustDomainId, string token, IProgress<int>? progress = null, CancellationToken ct = default)
+    {
+        var identity = await _operator.DemandAsync(Permission.Operate, Permission.ExportKeys);
+
+        if (string.IsNullOrWhiteSpace(token))
+            throw new ArgumentException("Paste a Vault token to update Vault.");
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var settings = await RequireEnabledAsync(db, ct);
+        var (trustDomain, groups, latestCrls) = await LoadSecretsAsync(db, trustDomainId, ct);
+        if (!trustDomain.VaultBackupEnabled)
+            throw new InvalidOperationException(
+                $"Full backup to Vault is off for trust domain {trustDomain.Name}. An Admin can turn it on in Settings.");
+        var ns = trustDomain.VaultNamespace ?? throw new InvalidOperationException(
+            $"Trust domain {trustDomain.Name} has no Vault namespace yet; export a certificate to choose one.");
+
+        var address = new Uri(settings.Address!);
+        token = token.Trim();
+        var updated = new List<string>();
+        var notes = new List<string>();
+        var failures = new List<string>();
+        foreach (var group in groups.Where(g => g.NeedsUpdate))
+        {
+            var path = $"{ns}/{group.Path}";
+            try
+            {
+                var existing = await _vault.ReadFieldNamesAsync(address, token, settings.Mount, path, ct);
+                var (targets, keep, note) = UpdateTargets(group, existing, identity.Has(Permission.ExportKeys), latestCrls);
+
+                var fields = new Dictionary<string, string>();
+                foreach (var target in targets)
+                foreach (var (name, value) in await BuildFieldsAsync(db, target, ct))
+                    fields[name] = value;
+                var remove = existing
+                    .Where(f => (IsFileField(f) || f == PasswordField) && !fields.ContainsKey(f) && !keep.Contains(f))
+                    .ToList();
+
+                await _vault.MergeAsync(address, token, settings.Mount, path, fields, remove, ct);
+                await MarkExportedAsync(db, targets[0], ct);
+                updated.Add(path);
+                if (note != null)
+                    notes.Add($"{path}: {note}");
+            }
+            catch (VaultTokenRefusedException) when (updated.Count == 0 && failures.Count == 0)
+            {
+                throw;
+            }
+            catch (VaultTokenRefusedException ex)
+            {
+                failures.Add($"{path}: {ex.Message} The update stopped here.");
+                break;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                failures.Add($"{path}: {ex.Message}");
+            }
+            progress?.Report(updated.Count + failures.Count);
+        }
+
+        _logger.LogInformation(
+            "{Actor} updated {Count} changed certificates of trust domain {TrustDomain} in Vault {Address} {Mount}: {Paths}; {Failed} failed",
+            identity.Name, updated.Count, trustDomain.Name, settings.Address, settings.Mount, string.Join(", ", updated), failures.Count);
+
+        return new VaultUpdateResult(settings.Address!, settings.Mount, updated, notes, failures);
+    }
+
+    /// <summary>
+    /// What to write for the newest generation of <paramref name="group"/>, mirroring the files its secret holds;
+    /// <c>Keep</c> lists existing fields to leave in place rather than remove.
+    /// </summary>
+    private static (List<VaultExportTarget> Targets, HashSet<string> Keep, string? Note) UpdateTargets(
+        SecretGroup group, IReadOnlyCollection<string> existing, bool canExportKeys, Dictionary<int, int> latestCrls)
+    {
+        var newest = group.Newest;
+        var targets = new List<VaultExportTarget> { new(newest.EntityType, newest.Node.Id, VaultExportArtifact.Cer) };
+        var keep = new HashSet<string>();
+        string? note = null;
+
+        var hadChainP12 = existing.Any(f => f.EndsWith("-chain.p12", StringComparison.Ordinal));
+        var hadP12 = existing.Any(f => f.EndsWith(".p12", StringComparison.Ordinal) && !f.EndsWith("-chain.p12", StringComparison.Ordinal));
+        if (hadChainP12 || hadP12)
+        {
+            if (!newest.HasKey)
+                note = "Sigyll doesn't hold the new generation's key, so the earlier P12 files were removed.";
+            else if (!canExportKeys)
+            {
+                keep.UnionWith(existing.Where(f => f.EndsWith(".p12", StringComparison.Ordinal) || f == PasswordField));
+                note = "P12 files not refreshed (that needs the KeyCustodian role); they still hold the earlier key.";
+            }
+            else
+            {
+                // A root's chain is just itself.
+                if (hadChainP12 && newest.Node.ParentId != null)
+                    targets.Add(new(newest.EntityType, newest.Node.Id, VaultExportArtifact.P12WithChain));
+                if (hadP12 || newest.Node.ParentId == null)
+                    targets.Add(new(newest.EntityType, newest.Node.Id, VaultExportArtifact.P12));
+            }
+        }
+
+        var crlFields = existing.Where(f => f.EndsWith(".crl", StringComparison.Ordinal)).ToList();
+        if (newest.IsCa && crlFields.Count > 0)
+        {
+            if (latestCrls.TryGetValue(newest.Node.Id, out var crlId))
+                targets.Add(new("Crl", crlId, VaultExportArtifact.Crl));
+            else
+                keep.UnionWith(crlFields);
+        }
+
+        return (targets, keep, note);
+    }
+
+    private static bool IsFileField(string field) =>
+        field.EndsWith(".cer", StringComparison.Ordinal)
+        || field.EndsWith(".p12", StringComparison.Ordinal)
+        || field.EndsWith(".crl", StringComparison.Ordinal);
+
+    /// <summary>Records that the certificate was written to Vault, so a later renewal is offered as an update.</summary>
+    private static async Task MarkExportedAsync(SigyllDbContext db, VaultExportTarget target, CancellationToken ct)
+    {
+        var caId = target.EntityType switch
+        {
+            "CaCertificate" => target.Id,
+            "Crl" => await db.Crls.Where(c => c.Id == target.Id).Select(c => (int?)c.CaCertificateId).SingleOrDefaultAsync(ct),
+            _ => (int?)null,
+        };
+        if (caId is int id)
+        {
+            if (await db.CaCertificates.FindAsync([id], ct) is { } ca)
+                ca.VaultExportedAt = DateTime.UtcNow;
+        }
+        else if (await db.IssuedCertificates.FindAsync([target.Id], ct) is { } issued)
+        {
+            issued.VaultExportedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>
@@ -547,62 +724,31 @@ public partial class VaultExportService
     private async Task<VaultBackupPlan> BuildBackupPlanAsync(
         SigyllDbContext db, VaultExportSettings settings, int trustDomainId, VaultBackupOptions options, CancellationToken ct)
     {
-        var trustDomain = await db.TrustDomains.AsNoTracking().SingleOrDefaultAsync(t => t.Id == trustDomainId, ct)
-            ?? throw new ArgumentException("Trust domain not found.");
+        var (trustDomain, groups, latestCrls) = await LoadSecretsAsync(db, trustDomainId, ct);
         if (!trustDomain.VaultBackupEnabled)
             throw new InvalidOperationException(
                 $"Full backup to Vault is off for trust domain {trustDomain.Name}. An Admin can turn it on in Settings.");
-
-        var hierarchy = await Hierarchy.LoadAsync(db, ct);
-        var caKeys = await db.CaCertificates.AsNoTracking()
-            .Where(c => c.TrustDomainId == trustDomainId)
-            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null, c.VaultBackupExcluded })
-            .ToDictionaryAsync(c => c.Id, ct);
-        var caIds = caKeys.Keys.ToList();
-        var issuedKeys = await db.IssuedCertificates.AsNoTracking()
-            .Where(c => caIds.Contains(c.IssuingCaCertificateId))
-            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null, c.VaultBackupExcluded })
-            .ToDictionaryAsync(c => c.Id, ct);
-        var latestCrls = (await db.Crls.AsNoTracking()
-                .Where(c => caIds.Contains(c.CaCertificateId))
-                .Select(c => new { c.Id, c.CaCertificateId, c.CrlNumber })
-                .ToListAsync(ct))
-            .GroupBy(c => c.CaCertificateId)
-            .ToDictionary(g => g.Key, g => g.MaxBy(c => c.CrlNumber)!.Id);
-
-        // Every certificate with its secret's path; CAs root first, then what each CA issued.
-        var entries = new List<(string Path, Node Node, bool IsCa)>();
-        foreach (var ca in hierarchy.Cas.Values.Where(c => caKeys.ContainsKey(c.Id)).OrderBy(c => c.Id))
-        {
-            entries.Add((await hierarchy.RelativePathAsync(trustDomain.Name, ca, null, ct), ca, true));
-            foreach (var issued in await hierarchy.IssuedUnderAsync(ca.Id, ct))
-                entries.Add((await hierarchy.RelativePathAsync(trustDomain.Name, ca, issued, ct), issued, false));
-        }
 
         var secrets = new List<VaultBackupSecret>();
         var certificateOnly = new List<string>();
         var superseded = new List<string>();
         var excluded = new List<string>();
-        foreach (var group in entries.GroupBy(e => e.Path).OrderBy(g => g.Key, StringComparer.Ordinal))
+        foreach (var group in groups)
         {
             // A renewal shares its predecessor's secret: back up the newest generation.
-            var newest = group.MaxBy(e => e.Node.Id);
-
-            // Leaving out any generation leaves out the secret they share.
-            if (group.Any(e => e.IsCa ? caKeys[e.Node.Id].VaultBackupExcluded : issuedKeys[e.Node.Id].VaultBackupExcluded))
+            var newest = group.Newest;
+            if (group.Excluded)
             {
                 excluded.Add(newest.Node.Name);
                 continue;
             }
-            superseded.AddRange(group.Where(e => e != newest).Select(e => $"{e.Node.Name} ({group.Key})"));
+            superseded.AddRange(group.Generations.Where(g => g != newest).Select(g => $"{g.Node.Name} ({group.Path})"));
 
-            var (_, node, isCa) = newest;
-            var entityType = isCa ? "CaCertificate" : "IssuedCertificate";
+            var (node, isCa, entityType) = (newest.Node, newest.IsCa, newest.EntityType);
             var targets = new List<VaultExportTarget> { new(entityType, node.Id, VaultExportArtifact.Cer) };
             var fields = new List<string> { $"{node.Name}.cer" };
 
-            var hasKey = isCa ? caKeys[node.Id].HasKey : issuedKeys[node.Id].HasKey;
-            if (!hasKey)
+            if (!newest.HasKey)
                 certificateOnly.Add(node.Name);
             else if (options.IncludeKeys && options.ChainInP12 && node.ParentId != null)
             {
@@ -622,7 +768,7 @@ public partial class VaultExportService
                 fields.Add($"{node.Name}.crl");
             }
 
-            secrets.Add(new VaultBackupSecret(group.Key, node.Name, targets, fields));
+            secrets.Add(new VaultBackupSecret(group.Path, node.Name, targets, fields));
         }
 
         return new VaultBackupPlan(trustDomain.Id, trustDomain.Name, trustDomain.VaultNamespace,
@@ -630,6 +776,69 @@ public partial class VaultExportService
     }
 
     private sealed record Node(int Id, string Name, int? ParentId, int? RenewalOfId, string SerialNumber, int TrustDomainId);
+
+    private sealed record Generation(Node Node, bool IsCa, bool HasKey, bool Excluded, DateTime? ExportedAt)
+    {
+        public string EntityType => IsCa ? "CaCertificate" : "IssuedCertificate";
+    }
+
+    /// <summary>One secret of a trust domain: the renewal generations that share its path, oldest first.</summary>
+    private sealed record SecretGroup(string Path, IReadOnlyList<Generation> Generations)
+    {
+        public Generation Newest => Generations[^1];
+
+        /// <summary>Leaving out any generation leaves out the secret they share.</summary>
+        public bool Excluded => Generations.Any(g => g.Excluded);
+
+        /// <summary>An earlier generation went to Vault, but the newest hasn't.</summary>
+        public bool NeedsUpdate => !Excluded && Newest.ExportedAt == null && Generations.Any(g => g.ExportedAt != null);
+    }
+
+    /// <summary>The trust domain's secrets, in path order, and the latest CRL of each of its CAs.</summary>
+    private static async Task<(TrustDomain TrustDomain, List<SecretGroup> Groups, Dictionary<int, int> LatestCrls)> LoadSecretsAsync(
+        SigyllDbContext db, int trustDomainId, CancellationToken ct)
+    {
+        var trustDomain = await db.TrustDomains.AsNoTracking().SingleOrDefaultAsync(t => t.Id == trustDomainId, ct)
+            ?? throw new ArgumentException("Trust domain not found.");
+
+        var hierarchy = await Hierarchy.LoadAsync(db, ct);
+        var cas = await db.CaCertificates.AsNoTracking()
+            .Where(c => c.TrustDomainId == trustDomainId)
+            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null, c.VaultBackupExcluded, c.VaultExportedAt })
+            .ToDictionaryAsync(c => c.Id, ct);
+        var caIds = cas.Keys.ToList();
+        var issued = await db.IssuedCertificates.AsNoTracking()
+            .Where(c => caIds.Contains(c.IssuingCaCertificateId))
+            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null, c.VaultBackupExcluded, c.VaultExportedAt })
+            .ToDictionaryAsync(c => c.Id, ct);
+        var latestCrls = (await db.Crls.AsNoTracking()
+                .Where(c => caIds.Contains(c.CaCertificateId))
+                .Select(c => new { c.Id, c.CaCertificateId, c.CrlNumber })
+                .ToListAsync(ct))
+            .GroupBy(c => c.CaCertificateId)
+            .ToDictionary(g => g.Key, g => g.MaxBy(c => c.CrlNumber)!.Id);
+
+        // Every certificate with its secret's path; CAs root first, then what each CA issued.
+        var entries = new List<(string Path, Generation Generation)>();
+        foreach (var ca in hierarchy.Cas.Values.Where(c => cas.ContainsKey(c.Id)).OrderBy(c => c.Id))
+        {
+            var row = cas[ca.Id];
+            entries.Add((await hierarchy.RelativePathAsync(trustDomain.Name, ca, null, ct),
+                new Generation(ca, true, row.HasKey, row.VaultBackupExcluded, row.VaultExportedAt)));
+            foreach (var node in await hierarchy.IssuedUnderAsync(ca.Id, ct))
+            {
+                var cert = issued[node.Id];
+                entries.Add((await hierarchy.RelativePathAsync(trustDomain.Name, ca, node, ct),
+                    new Generation(node, false, cert.HasKey, cert.VaultBackupExcluded, cert.VaultExportedAt)));
+            }
+        }
+
+        var groups = entries.GroupBy(e => e.Path)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => new SecretGroup(g.Key, g.Select(e => e.Generation).OrderBy(x => x.Node.Id).ToList()))
+            .ToList();
+        return (trustDomain, groups, latestCrls);
+    }
 
     /// <summary>All CAs, and the certificates each issued as they're asked for, to work out secret paths.</summary>
     private sealed class Hierarchy
@@ -688,9 +897,10 @@ public partial class VaultExportService
     }
 
     /// <summary>
-    /// The path segment for one certificate: its name made path-safe. A renewal keeps its predecessor's segment,
-    /// so consumers read the newest generation at the same path. When an unrelated sibling has the same name,
-    /// every lineage but the oldest adds the end of its first serial number.
+    /// The path segment for one certificate: the name of its first generation made path-safe, so a renewal keeps
+    /// its predecessor's segment even when renamed and consumers read the newest generation at the same path. When
+    /// an unrelated sibling lineage has the same name, every lineage but the oldest adds the end of its first serial
+    /// number.
     /// </summary>
     private static string Segment(Node node, bool isCa, IEnumerable<Node> caSiblings, List<Node> issuedSiblings, Dictionary<int, Node> cas)
     {
@@ -704,14 +914,14 @@ public partial class VaultExportService
             return n;
         }
 
-        var slug = Slug(node.Name);
         var mine = Lineage(node, isCa);
+        var slug = Slug(mine.Name);
 
-        // The lineages (CAs before issued certificates, oldest first) with a certificate of this name.
-        var lineages = caSiblings.Select(c => (Ca: true, Name: c.Name, Root: Lineage(c, true).Id))
-            .Concat(issuedSiblings.Select(c => (Ca: false, Name: c.Name, Root: Lineage(c, false).Id)))
-            .Where(s => Slug(s.Name) == slug)
-            .Select(s => (s.Ca, s.Root))
+        // The lineages (CAs before issued certificates, oldest first) whose first generation has this name.
+        var lineages = caSiblings.Select(c => (Ca: true, Root: Lineage(c, true)))
+            .Concat(issuedSiblings.Select(c => (Ca: false, Root: Lineage(c, false))))
+            .Where(s => Slug(s.Root.Name) == slug)
+            .Select(s => (s.Ca, Root: s.Root.Id))
             .Distinct()
             .OrderBy(s => s.Ca ? 0 : 1).ThenBy(s => s.Root)
             .ToList();

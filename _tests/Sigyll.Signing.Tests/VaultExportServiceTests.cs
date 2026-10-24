@@ -33,13 +33,20 @@ public class VaultExportServiceTests
     private readonly TestDbContextFactory _dbFactory = new();
     private readonly IVaultKvClient _vault = Substitute.For<IVaultKvClient>();
     private readonly List<(string Path, IReadOnlyDictionary<string, string> Fields)> _writes = new();
+    private readonly List<(string Path, IReadOnlyCollection<string> Removed)> _removes = new();
+
+    /// <summary>The field names each secret already has in Vault, by path.</summary>
+    private readonly Dictionary<string, string[]> _existing = new();
 
     public VaultExportServiceTests()
     {
-        _vault.MergeAsync(default!, default!, default!, default!, default!, default)
+        _vault.ReadFieldNamesAsync(default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs(call => (IReadOnlyCollection<string>)(call.ArgAt<string>(3) is { } path ? _existing.GetValueOrDefault(path, []) : []));
+        _vault.MergeAsync(default!, default!, default!, default!, default!, default, default)
             .ReturnsForAnyArgs(call =>
             {
                 _writes.Add((call.ArgAt<string>(3), call.ArgAt<IReadOnlyDictionary<string, string>>(4)));
+                _removes.Add((call.ArgAt<string>(3), call.ArgAt<IReadOnlyCollection<string>?>(5) ?? []));
                 return _writes.Count;
             });
     }
@@ -63,7 +70,7 @@ public class VaultExportServiceTests
         _writes[0].Fields["payer server.cer"].ShouldStartWith("-----BEGIN CERTIFICATE-----");
         _writes[1].Path.ShouldBe("team-a/team-a-certs/root-ca/issuing-ca-1");
         await _vault.Received(2).MergeAsync(VaultAddress, Token, "secret", Arg.Any<string>(),
-            Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<CancellationToken>());
+            Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<IReadOnlyCollection<string>?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -98,7 +105,7 @@ public class VaultExportServiceTests
         await EnableAsync();
         var td = await AddTrustDomainAsync("Lab", ns: null);
         var root = await AddCaAsync(td, "Root");
-        _vault.MergeAsync(default!, default!, default!, default!, default!, default)
+        _vault.MergeAsync(default!, default!, default!, default!, default!, default, default)
             .ReturnsForAnyArgs<int>(_ => throw new VaultTokenRefusedException("team-b/lab/root", 403));
 
         await Should.ThrowAsync<VaultTokenRefusedException>(() => Service(CaOperator)
@@ -186,12 +193,14 @@ public class VaultExportServiceTests
         var first = await AddIssuedAsync(root, "Server", serial: "0A0B0C0D0E0F1011");
         var other = await AddIssuedAsync(root, "server", serial: "AABBCCDDEEFF0011");
         var renewal = await AddIssuedAsync(root, "Server", serial: "1234", renewalOf: first.Id);
+        var renamed = await AddIssuedAsync(root, "Server (renewed)", serial: "5678", renewalOf: renewal.Id);
 
         async Task<string> PathOf(int id) =>
             (await Service(CaOperator).PlanAsync(new("IssuedCertificate", id, VaultExportArtifact.Cer))).RelativePath;
 
         (await PathOf(first.Id)).ShouldBe("lab/root/server");
         (await PathOf(renewal.Id)).ShouldBe("lab/root/server");
+        (await PathOf(renamed.Id)).ShouldBe("lab/root/server");
         (await PathOf(other.Id)).ShouldBe("lab/root/server-eeff0011");
     }
 
@@ -204,7 +213,7 @@ public class VaultExportServiceTests
 
         await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).PlanAsync(target));
         await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).ExportAsync(target, Token));
-        await _vault.DidNotReceiveWithAnyArgs().MergeAsync(default!, default!, default!, default!, default!, default);
+        await _vault.DidNotReceiveWithAnyArgs().MergeAsync(default!, default!, default!, default!, default!, default, default);
     }
 
     [Fact]
@@ -340,6 +349,106 @@ public class VaultExportServiceTests
     }
 
     [Fact]
+    public async Task ARenewalOfAnExportedCertificate_IsPending_UntilVaultIsUpdated()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var first = await AddIssuedAsync(root, "server");
+        await AddIssuedAsync(root, "never exported");
+
+        await Service(CaOperator).ExportAsync(new("IssuedCertificate", first.Id, VaultExportArtifact.Cer), Token);
+        (await Service(Auditor).GetPendingUpdatesAsync(td)).ShouldBeEmpty();
+
+        var renewal = await AddIssuedAsync(root, "server (renewed)", renewalOf: first.Id);
+        var pending = (await Service(Auditor).GetPendingUpdatesAsync(td)).Single();
+        pending.ShouldBe(new VaultPendingUpdate("lab/root/server", "server (renewed)", "server", "IssuedCertificate", renewal.Id));
+
+        _existing["team-a/lab/root/server"] = ["server.cer", "note"];
+        var result = await Service(CaOperator).UpdateAsync(td, Token);
+
+        result.Updated.ShouldBe(["team-a/lab/root/server"]);
+        _writes[^1].Fields.Keys.ShouldBe(["server (renewed).cer"]);
+        _removes[^1].Removed.ShouldBe(["server.cer"]);
+        (await Service(Auditor).GetPendingUpdatesAsync(td)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_RefreshesTheP12KindsTheSecretHolds_ForAKeyCustodian()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var issuing = await AddCaAsync(td, "Issuing", root);
+        var first = await AddIssuedAsync(issuing, "client", withKey: true);
+        await Service(KeyCustodian).ExportAsync(new("IssuedCertificate", first.Id, VaultExportArtifact.P12WithChain), Token);
+        await AddIssuedAsync(issuing, "client", withKey: true, renewalOf: first.Id);
+        _existing["team-a/lab/root/issuing/client"] = ["client.cer", "client-chain.p12", "password"];
+
+        var result = await Service(KeyCustodian).UpdateAsync(td, Token);
+
+        result.Notes.ShouldBeEmpty();
+        _writes[^1].Fields.Keys.ShouldBe(["client.cer", "client-chain.p12", "password"], ignoreOrder: true);
+        _removes[^1].Removed.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Update_WithoutExportKeys_LeavesTheP12FilesAndSaysSo()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var first = await AddIssuedAsync(root, "client", withKey: true);
+        await Service(KeyCustodian).ExportAsync(new("IssuedCertificate", first.Id, VaultExportArtifact.P12), Token);
+        await AddIssuedAsync(root, "client v2", withKey: true, renewalOf: first.Id);
+        _existing["team-a/lab/root/client"] = ["client.cer", "client.p12", "password"];
+
+        var result = await Service(CaOperator).UpdateAsync(td, Token);
+
+        result.Notes.Single().ShouldContain("KeyCustodian");
+        _writes[^1].Fields.Keys.ShouldBe(["client v2.cer"]);
+        _removes[^1].Removed.ShouldBe(["client.cer"]);
+    }
+
+    [Fact]
+    public async Task NothingIsPending_WhenBackupIsOff_OrTheCertificateIsLeftOut()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var first = await AddIssuedAsync(root, "server");
+        await Service(CaOperator).ExportAsync(new("IssuedCertificate", first.Id, VaultExportArtifact.Cer), Token);
+        await AddIssuedAsync(root, "server", renewalOf: first.Id);
+        (await Service(Auditor).GetPendingUpdatesAsync(td)).Count.ShouldBe(1);
+
+        await Service(CaOperator).SetBackupExcludedAsync("IssuedCertificate", first.Id, true);
+        (await Service(Auditor).GetPendingUpdatesAsync(td)).ShouldBeEmpty();
+
+        await Service(CaOperator).SetBackupExcludedAsync("IssuedCertificate", first.Id, false);
+        await Service(Admin).SetTrustDomainBackupAsync(td, false);
+        (await Service(Auditor).GetPendingUpdatesAsync(td)).ShouldBeEmpty();
+        await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).UpdateAsync(td, Token));
+    }
+
+    [Fact]
+    public async Task ABackupCountsAsAnExport_ForLaterRenewals()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var first = await AddIssuedAsync(root, "server");
+
+        await Service(CaOperator).BackupAsync(td, Token, new());
+        await AddIssuedAsync(root, "server", renewalOf: first.Id);
+
+        (await Service(Auditor).GetPendingUpdatesAsync(td)).Single().Name.ShouldBe("server");
+        _vault.ReadFieldNamesAsync(default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs<IReadOnlyCollection<string>>(_ => throw new VaultTokenRefusedException("x", 403));
+        await Should.ThrowAsync<VaultTokenRefusedException>(() => Service(CaOperator).UpdateAsync(td, Token));
+        (await Service(Auditor).GetPendingUpdatesAsync(td)).Count.ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Backup_WithoutKeys_IsOpenToCaOperators_ButKeysNeedAKeyCustodian()
     {
         await EnableAsync();
@@ -397,7 +506,7 @@ public class VaultExportServiceTests
         var root = await AddCaAsync(td, "Root");
         await AddIssuedAsync(root, "a");
         await AddIssuedAsync(root, "b");
-        _vault.MergeAsync(default!, default!, default!, default!, default!, default)
+        _vault.MergeAsync(default!, default!, default!, default!, default!, default, default)
             .ReturnsForAnyArgs(call =>
             {
                 var path = call.ArgAt<string>(3);
@@ -420,7 +529,7 @@ public class VaultExportServiceTests
         await EnableAsync();
         var td = await AddTrustDomainAsync("Lab", ns: null, backup: true);
         await AddCaAsync(td, "Root");
-        _vault.MergeAsync(default!, default!, default!, default!, default!, default)
+        _vault.MergeAsync(default!, default!, default!, default!, default!, default, default)
             .ReturnsForAnyArgs<int>(_ => throw new VaultTokenRefusedException("team-b/lab/root", 403));
 
         await Should.ThrowAsync<VaultTokenRefusedException>(() => Service(CaOperator).BackupAsync(td, Token, new(), "team-b"));

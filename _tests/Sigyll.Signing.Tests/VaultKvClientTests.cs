@@ -72,6 +72,25 @@ public class VaultKvClientTests
         retry["data"]!["y"]!.GetValue<string>().ShouldBe("2");
     }
 
+    [Fact]
+    public async Task Merge_RemovesTheFieldsAskedFor_AndReadFieldNamesListsThem()
+    {
+        var vault = new FakeVault();
+        const string current = """{"data":{"data":{"old.cer":"A","old.p12":"B","password":"p","note":"kept"},"metadata":{"version":2}}}""";
+        vault.Respond(HttpMethod.Get, "/v1/secret/data/a/b", HttpStatusCode.OK, current);
+        vault.Respond(HttpMethod.Get, "/v1/secret/data/a/b", HttpStatusCode.OK, current);
+        vault.Respond(HttpMethod.Post, "/v1/secret/data/a/b", HttpStatusCode.OK, """{"data":{"version":3}}""");
+        var client = Client(vault);
+
+        (await client.ReadFieldNamesAsync(Address, "t", "secret", "a/b"))
+            .ShouldBe(["old.cer", "old.p12", "password", "note"], ignoreOrder: true);
+        await client.MergeAsync(Address, "t", "secret", "a/b",
+            new Dictionary<string, string> { ["new.cer"] = "C" }, remove: ["old.cer", "old.p12", "password"]);
+
+        var data = vault.Bodies.Single()["data"]!.AsObject();
+        data.Select(f => f.Key).ShouldBe(["note", "new.cer"], ignoreOrder: true);
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.Forbidden)]
     [InlineData(HttpStatusCode.Unauthorized)]
