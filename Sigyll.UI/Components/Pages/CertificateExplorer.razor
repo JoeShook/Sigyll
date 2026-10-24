@@ -30,6 +30,15 @@
     <FluentSpacer />
     @if (TrustDomainId > 0)
     {
+        @if (CanBackUpToVault)
+        {
+            <FluentButton Appearance="Appearance.Outline"
+                          IconStart="@(new Icons.Regular.Size16.CloudArrowUp())"
+                          OnClick="@(() => vaultBackupDialog.ShowAsync(TrustDomainId))" Disabled="@(!CanExportToVault)"
+                          title="@VaultBackupTitle">
+                Back up to Vault
+            </FluentButton>
+        }
         <FluentButton Appearance="Appearance.Accent"
                       IconStart="@(new Icons.Regular.Size16.ArrowImport())"
                       OnClick="@(() => showDropZone = !showDropZone)" Disabled="@(!Access.CanOperate)">
@@ -206,6 +215,7 @@
 
 @* Export to Vault (when an Admin turned it on) *@
 <VaultExportDialog @ref="vaultExportDialog" />
+<VaultBackupDialog @ref="vaultBackupDialog" CanExportKeys="@Access.CanExportKeys" />
 
 @* .p12 download options dialog *@
 <FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true"

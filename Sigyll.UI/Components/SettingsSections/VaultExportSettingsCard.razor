@@ -1,0 +1,91 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@* Settings section: the Vault server certificates can be exported to, and each trust domain's namespace and
+   full-backup switch. *@
+
+@if (isLoading)
+{
+    <FluentProgressRing Style="margin: 2rem auto; display: block;" />
+}
+else
+{
+    <FluentCard>
+        <FluentLabel Typo="Typography.Subject">Export to Vault</FluentLabel>
+        <p class="vault-settings-note">
+            Lets operators send certificate files (.cer, .p12, .crl) to a HashiCorp Vault KV v2 mount instead of
+            downloading them, and back up a whole trust domain at once. Each export uses the operator's own Vault
+            token, so Vault's policies decide what they can write. Secrets land at
+            <code>&lt;mount&gt;/&lt;namespace&gt;/&lt;trust domain&gt;/&lt;root CA&gt;/…/&lt;certificate&gt;</code>.
+        </p>
+        <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Style="margin-bottom: 1rem;">
+            Exporting private keys (.p12) is for development and lab CAs. In production, keep CA and server keys in an
+            HSM (or Vault Transit / cloud KMS): Sigyll never holds those keys, so there's nothing to export, and only
+            certificates leave the CA, such as an end-entity certificate a customer requested with a CSR.
+        </FluentMessageBar>
+
+        <h4 class="vault-settings-heading">Vault server</h4>
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
+            <FluentSwitch @bind-Value="enabled" Label="Offer Vault on the export buttons" />
+            <FluentTextField @bind-Value="address" Label="Vault address" Placeholder="https://vault.example.org:8200"
+                             Style="width: 100%;" />
+            <FluentTextField @bind-Value="mount" Label="KV v2 mount" Placeholder="secret" Style="width: 240px;" />
+            @if (settingsError != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@settingsError</FluentMessageBar>
+            }
+            <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1rem;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="SaveSettingsAsync">Save</FluentButton>
+                @if (updatedBy != null)
+                {
+                    <span style="font-size: 0.8rem; opacity: 0.6;">Last changed by @updatedBy, @TimeDisplay.Format(updatedAt)</span>
+                }
+            </FluentStack>
+        </FluentStack>
+
+        <h4 class="vault-settings-heading">Trust domains</h4>
+        <p class="vault-settings-note">
+            <b>Namespace</b> is the folder under the mount each trust domain exports to. The first export to Vault sets
+            it; only an Admin can change it here. Clear it to have the next export ask again.
+            <b>Full backup</b> adds a <i>Back up to Vault</i> button to the trust domain in the Certificate Explorer,
+            which writes every certificate, the latest CRL of each CA and, for a KeyCustodian who asks, the .p12 files.
+        </p>
+        <FluentDataGrid Items="@trustDomains.AsQueryable()">
+            <PropertyColumn Property="@(n => n.TrustDomainName)" Title="Trust domain" />
+            <TemplateColumn Title="Namespace">
+                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem;">
+                    <FluentTextField @bind-Value="@context.Editable" Placeholder="(not set)" Style="width: 200px; font-family: monospace;" />
+                    @if ((context.Editable ?? "") != (context.Original ?? ""))
+                    {
+                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveNamespaceAsync(context))">Save</FluentButton>
+                    }
+                </FluentStack>
+                @if (context.Error != null)
+                {
+                    <div style="color: var(--error); font-size: 0.8rem; margin-top: 0.25rem; white-space: normal;">@context.Error</div>
+                }
+            </TemplateColumn>
+            <TemplateColumn Title="Full backup">
+                <FluentSwitch Value="@context.BackupEnabled" ValueChanged="@((bool v) => SetBackupAsync(context, v))"
+                              aria-label="@($"Full backup of {context.TrustDomainName}")" />
+            </TemplateColumn>
+            <TemplateColumn Title="Last backup" Class="multiline-text">
+                @if (context.LastBackupAt is DateTime at)
+                {
+                    <span style="font-size: 0.85rem;">@TimeDisplay.Format(at) by @context.LastBackupBy</span>
+                }
+                else
+                {
+                    <span style="font-size: 0.85rem; opacity: 0.6;">Never</span>
+                }
+            </TemplateColumn>
+        </FluentDataGrid>
+    </FluentCard>
+}
+
+<style>
+    .vault-settings-note { font-size: 0.9rem; opacity: 0.8; margin: 0.5rem 0 1rem; }
+    .vault-settings-heading { margin: 1.25rem 0 0.5rem; font-size: 0.95rem; font-weight: 600; }
+</style>

@@ -104,7 +104,7 @@ public class VaultExportServiceTests
         await Should.ThrowAsync<VaultTokenRefusedException>(() => Service(CaOperator)
             .ExportAsync(new("CaCertificate", root, VaultExportArtifact.Cer), Token, firstNamespace: "team-b"));
 
-        (await Service(CaOperator).GetTrustDomainNamespacesAsync()).Single().Namespace.ShouldBeNull();
+        (await Service(CaOperator).GetTrustDomainVaultSettingsAsync()).Single().Namespace.ShouldBeNull();
     }
 
     [Fact]
@@ -237,6 +237,137 @@ public class VaultExportServiceTests
         (await Service(CaOperator).ListNamespacesAsync(Token)).ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task Backup_WritesEveryCertificate_WithItsLatestCrl_AndKeysWhenAsked()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root", withKey: true);
+        var issuing = await AddCaAsync(td, "Issuing", root);
+        await AddIssuedAsync(issuing, "client", withKey: true);
+        await AddIssuedAsync(issuing, "from csr");
+        await AddCrlAsync(root, 1, [1]);
+        await AddCrlAsync(root, 2, [2]);
+        var other = await AddTrustDomainAsync("Other", "team-a", backup: true);
+        await AddCaAsync(other, "Elsewhere");
+
+        var plan = await Service(KeyCustodian).PlanBackupAsync(td, includeKeys: true);
+        plan.CertificateCount.ShouldBe(4);
+        plan.KeyCount.ShouldBe(2);
+        plan.CrlCount.ShouldBe(1);
+        plan.CertificateOnly.ShouldBe(["Issuing", "from csr"], ignoreOrder: true);
+
+        var progress = new List<int>();
+        var result = await Service(KeyCustodian).BackupAsync(td, Token, includeKeys: true, progress: new SyncProgress(progress));
+
+        result.SecretsWritten.ShouldBe(4);
+        result.Failures.ShouldBeEmpty();
+        result.Root.ShouldBe("team-a/lab");
+        progress.ShouldBe([1, 2, 3, 4]);
+        var writes = _writes.ToDictionary(w => w.Path, w => w.Fields);
+        writes.Keys.ShouldBe(["team-a/lab/root", "team-a/lab/root/issuing", "team-a/lab/root/issuing/client", "team-a/lab/root/issuing/from-csr"], ignoreOrder: true);
+        writes["team-a/lab/root"].Keys.ShouldBe(["Root.cer", "Root.p12", "password", "Root.crl"], ignoreOrder: true);
+        writes["team-a/lab/root"]["Root.crl"].ShouldBe(Convert.ToBase64String([2]));
+        writes["team-a/lab/root"]["password"].ShouldBe("ca-pass");
+        writes["team-a/lab/root/issuing/client"].Keys.ShouldBe(["client.cer", "client.p12", "password"], ignoreOrder: true);
+        writes["team-a/lab/root/issuing/from-csr"].Keys.ShouldBe(["from csr.cer"]);
+
+        var saved = (await Service(Auditor).GetTrustDomainVaultSettingsAsync()).Single(t => t.TrustDomainId == td);
+        saved.LastBackupBy.ShouldNotBeNull();
+        saved.LastBackupAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Backup_WithoutKeys_IsOpenToCaOperators_ButKeysNeedAKeyCustodian()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root", withKey: true);
+        await AddIssuedAsync(root, "client", withKey: true);
+
+        await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(CaOperator).BackupAsync(td, Token, includeKeys: true));
+        await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(Auditor).BackupAsync(td, Token, includeKeys: false));
+        _writes.ShouldBeEmpty();
+
+        var result = await Service(CaOperator).BackupAsync(td, Token, includeKeys: false);
+
+        result.SecretsWritten.ShouldBe(2);
+        _writes.SelectMany(w => w.Fields.Keys).ShouldBe(["Root.cer", "client.cer"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Backup_IsRefusedUntilAnAdminTurnsItOnForTheTrustDomain()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a");
+        await AddCaAsync(td, "Root");
+
+        await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).PlanBackupAsync(td, false));
+        await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).BackupAsync(td, Token, false));
+        await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(CaOperator).SetTrustDomainBackupAsync(td, true));
+
+        await Service(Admin).SetTrustDomainBackupAsync(td, true);
+
+        (await Service(CaOperator).BackupAsync(td, Token, false)).SecretsWritten.ShouldBe(1);
+        (await Service(Auditor).GetTrustDomainVaultSettingsAsync()).Single().BackupEnabled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Backup_WritesTheNewestGenerationOfARenewal()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var first = await AddIssuedAsync(root, "server");
+        var renewal = await AddIssuedAsync(root, "server", renewalOf: first.Id);
+
+        var plan = await Service(CaOperator).PlanBackupAsync(td, false);
+
+        plan.Secrets.Single(s => s.RelativePath == "lab/root/server").Targets.Single().Id.ShouldBe(renewal.Id);
+        plan.Superseded.ShouldBe(["server (lab/root/server)"]);
+    }
+
+    [Fact]
+    public async Task Backup_SetsTheFirstNamespace_ReportsAFailedSecret_AndCarriesOn()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", ns: null, backup: true);
+        var root = await AddCaAsync(td, "Root");
+        await AddIssuedAsync(root, "a");
+        await AddIssuedAsync(root, "b");
+        _vault.MergeAsync(default!, default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs(call =>
+            {
+                var path = call.ArgAt<string>(3);
+                if (path.EndsWith("/a")) throw new HttpRequestException("Vault answered HTTP 500");
+                _writes.Add((path, call.ArgAt<IReadOnlyDictionary<string, string>>(4)));
+                return 1;
+            });
+
+        await Should.ThrowAsync<ArgumentException>(() => Service(CaOperator).BackupAsync(td, Token, false));
+        var result = await Service(CaOperator).BackupAsync(td, Token, false, firstNamespace: "team-b");
+
+        result.SecretsWritten.ShouldBe(2);
+        result.Failures.Single().ShouldStartWith("team-b/lab/root/a:");
+        (await Service(Auditor).GetTrustDomainVaultSettingsAsync()).Single().Namespace.ShouldBe("team-b");
+    }
+
+    [Fact]
+    public async Task Backup_StopsWhenVaultRefusesTheToken()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", ns: null, backup: true);
+        await AddCaAsync(td, "Root");
+        _vault.MergeAsync(default!, default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs<int>(_ => throw new VaultTokenRefusedException("team-b/lab/root", 403));
+
+        await Should.ThrowAsync<VaultTokenRefusedException>(() => Service(CaOperator).BackupAsync(td, Token, false, "team-b"));
+
+        var saved = (await Service(Auditor).GetTrustDomainVaultSettingsAsync()).Single();
+        saved.Namespace.ShouldBeNull();
+        saved.LastBackupAt.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("Issuing CA / 2026", "issuing-ca-2026")]
     [InlineData("  ACME Server.example.org ", "acme-server.example.org")]
@@ -255,16 +386,16 @@ public class VaultExportServiceTests
         await db.SaveChangesAsync();
     }
 
-    private async Task<int> AddTrustDomainAsync(string name, string? ns)
+    private async Task<int> AddTrustDomainAsync(string name, string? ns, bool backup = false)
     {
         await using var db = _dbFactory.CreateDbContext();
-        var td = new TrustDomain { Name = name, VaultNamespace = ns };
+        var td = new TrustDomain { Name = name, VaultNamespace = ns, VaultBackupEnabled = backup };
         db.TrustDomains.Add(td);
         await db.SaveChangesAsync();
         return td.Id;
     }
 
-    private async Task<int> AddCaAsync(int trustDomainId, string name, int? parentId = null)
+    private async Task<int> AddCaAsync(int trustDomainId, string name, int? parentId = null, bool withKey = false)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         using var cert = new CertificateRequest($"CN={name}", key, HashAlgorithmName.SHA256)
@@ -278,6 +409,8 @@ public class VaultExportServiceTests
             Name = name,
             Subject = $"CN={name}",
             X509CertificatePem = cert.ExportCertificatePem(),
+            EncryptedPfxBytes = withKey ? cert.Export(X509ContentType.Pkcs12, "ca-pass") : null,
+            PfxPassword = withKey ? "ca-pass" : null,
             Thumbprint = Guid.NewGuid().ToString("N"),
             SerialNumber = Guid.NewGuid().ToString("N"),
         };
@@ -311,5 +444,18 @@ public class VaultExportServiceTests
         db.IssuedCertificates.Add(issued);
         await db.SaveChangesAsync();
         return issued;
+    }
+
+    private async Task AddCrlAsync(int caId, long number, byte[] bytes)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        db.Crls.Add(new Crl { CaCertificateId = caId, CrlNumber = number, RawBytes = bytes, FileName = $"crl-{number}.crl" });
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>Reports synchronously, unlike <see cref="Progress{T}"/>, so the test sees every value.</summary>
+    private sealed class SyncProgress(List<int> values) : IProgress<int>
+    {
+        public void Report(int value) => values.Add(value);
     }
 }

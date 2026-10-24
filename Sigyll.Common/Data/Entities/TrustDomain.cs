@@ -27,6 +27,13 @@ public class TrustDomain
     /// </summary>
     public string? VaultNamespace { get; set; }
 
+    /// <summary>Whether operators can back up the whole trust domain to its Vault namespace in one go.</summary>
+    public bool VaultBackupEnabled { get; set; }
+
+    /// <summary>When the last full backup to Vault wrote at least one secret (UTC), and who ran it.</summary>
+    public DateTime? VaultLastBackupAt { get; set; }
+    public string? VaultLastBackupBy { get; set; }
+
     public ICollection<TrustDomainBaseUrl> BaseUrls { get; set; } = new List<TrustDomainBaseUrl>();
     public ICollection<CaCertificate> CaCertificates { get; set; } = new List<CaCertificate>();
     public ICollection<DidDocument> DidDocuments { get; set; } = new List<DidDocument>();

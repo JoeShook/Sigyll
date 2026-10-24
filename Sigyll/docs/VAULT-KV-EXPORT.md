@@ -2,7 +2,8 @@
 
 Status: proposed (2026-10-23). **Per-file export shipped first** (2026-10-24): each `.cer`/`.p12`/`.crl` button can
 export to Vault KV, one secret per certificate at `<mount>/<namespace>/<trust domain>/<root>/…/<certificate>`, with
-the operator's own token (see FEATURES.md, "Export to Vault KV"). Export sets below are not started; they should
+the operator's own token (see FEATURES.md, "Export to Vault KV"). **Full backup of a trust domain** shipped next
+(every certificate, latest CRLs and optionally `.p12`s, to those same paths). Export sets below are not started; they should
 reuse `IVaultKvClient`, the Settings page's Vault address and mount, and the per-trust-domain namespace.
 
 ## Goal

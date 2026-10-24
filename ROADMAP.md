@@ -48,6 +48,7 @@
 - [ ] Google Cloud KMS provider
 - [ ] HashiCorp Vault provider (Transit secrets engine for signing, PKI engine for issuance)
 - [x] Export to Vault KV, per file: the `.cer`/`.p12`/`.crl` buttons write to a KV v2 secret that mirrors the trust domain hierarchy
+- [x] Back up a whole trust domain to Vault KV (per-trust-domain switch in Settings; `.p12`s only for a KeyCustodian who asks)
 - [ ] Export to Vault KV: saved export sets a key custodian sends to a KV v2 secret (design: Sigyll/docs/VAULT-KV-EXPORT.md)
 - [ ] Azure Key Vault provider
 - [ ] AWS CloudHSM / KMS provider

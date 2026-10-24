@@ -10,88 +10,31 @@
 
 using Microsoft.AspNetCore.Components;
 using Microsoft.FluentUI.AspNetCore.Components;
-using Sigyll.Common.Services.Export;
+using Sigyll.UI.Components.SettingsSections;
+using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons;
 
 namespace Sigyll.UI.Components.Pages;
 
+/// <summary>
+/// Sigyll-wide settings, one section per feature area. Each section is a self-contained component (usually one card)
+/// in <c>Components/SettingsSections</c> that loads and saves its own settings; add one by listing it in
+/// <see cref="Sections"/>. Sections are addressed as <c>/admin/settings/&lt;id&gt;</c>.
+/// </summary>
 public partial class Settings
 {
-    [Inject] private VaultExportService VaultExport { get; set; } = null!;
-    [Inject] private IToastService ToastService { get; set; } = null!;
-    [Inject] private Services.TimeDisplayService TimeDisplay { get; set; } = null!;
+    public sealed record SettingsSection(string Id, string Title, Icon Icon, string Summary, Type Component);
 
-    private bool isLoading = true;
-    private bool enabled;
-    private string? address;
-    private string? mount;
-    private string? updatedBy;
-    private DateTime updatedAt;
-    private string? settingsError;
-    private List<NamespaceRow> namespaces = new();
+    public static readonly IReadOnlyList<SettingsSection> Sections =
+    [
+        new("vault", "Export to Vault", new Icons.Regular.Size20.CloudArrowUp(),
+            "Send certificate files to HashiCorp Vault KV, and back up whole trust domains",
+            typeof(VaultExportSettingsCard)),
+    ];
 
-    protected override async Task OnInitializedAsync()
-    {
-        var settings = await VaultExport.GetSettingsAsync();
-        enabled = settings.Enabled;
-        address = settings.Address;
-        mount = settings.Mount;
-        updatedBy = settings.UpdatedBy;
-        updatedAt = settings.UpdatedAt;
-        await LoadNamespacesAsync();
-        isLoading = false;
-    }
+    /// <summary>The section id from the URL; the first section when there's none.</summary>
+    [Parameter] public string? Section { get; set; }
 
-    private async Task LoadNamespacesAsync()
-    {
-        namespaces = (await VaultExport.GetTrustDomainNamespacesAsync())
-            .Select(n => new NamespaceRow
-            {
-                TrustDomainId = n.TrustDomainId,
-                TrustDomainName = n.TrustDomainName,
-                Original = n.Namespace,
-                Editable = n.Namespace,
-            })
-            .ToList();
-    }
-
-    private async Task SaveSettingsAsync()
-    {
-        try
-        {
-            var saved = await VaultExport.SaveSettingsAsync(enabled, address, mount);
-            address = saved.Address;
-            mount = saved.Mount;
-            updatedBy = saved.UpdatedBy;
-            updatedAt = saved.UpdatedAt;
-            settingsError = null;
-            ToastService.ShowSuccess(enabled ? "Export to Vault is on." : "Export to Vault is off.");
-        }
-        catch (ArgumentException ex)
-        {
-            settingsError = ex.Message;
-        }
-    }
-
-    private async Task SaveNamespaceAsync(NamespaceRow row)
-    {
-        try
-        {
-            await VaultExport.SetTrustDomainNamespaceAsync(row.TrustDomainId, row.Editable);
-            ToastService.ShowSuccess($"Trust domain {row.TrustDomainName} now exports to {(string.IsNullOrWhiteSpace(row.Editable) ? "a namespace chosen on its next export" : row.Editable)}.");
-            await LoadNamespacesAsync();
-        }
-        catch (ArgumentException ex)
-        {
-            row.Error = ex.Message;
-        }
-    }
-
-    private class NamespaceRow
-    {
-        public int TrustDomainId { get; init; }
-        public string TrustDomainName { get; init; } = "";
-        public string? Original { get; init; }
-        public string? Editable { get; set; }
-        public string? Error { get; set; }
-    }
+    private SettingsSection? Current => string.IsNullOrEmpty(Section)
+        ? Sections[0]
+        : Sections.FirstOrDefault(s => string.Equals(s.Id, Section, StringComparison.OrdinalIgnoreCase));
 }

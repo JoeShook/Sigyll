@@ -51,7 +51,42 @@ public record VaultExportPlan(
 
 public record VaultExportResult(string Address, string Mount, string Path, int Version, IReadOnlyList<string> Fields);
 
-public record TrustDomainVaultNamespace(int TrustDomainId, string TrustDomainName, string? Namespace);
+public record TrustDomainVaultSettings(
+    int TrustDomainId,
+    string TrustDomainName,
+    string? Namespace,
+    bool BackupEnabled,
+    DateTime? LastBackupAt,
+    string? LastBackupBy);
+
+/// <summary>One secret a full backup writes: a certificate's files, at the path a single export would use.</summary>
+/// <param name="Name">The certificate's name.</param>
+public record VaultBackupSecret(string RelativePath, string Name, IReadOnlyList<VaultExportTarget> Targets, IReadOnlyList<string> Fields);
+
+/// <summary>What a full backup of a trust domain would write, shown before the operator runs it.</summary>
+/// <param name="CertificateOnly">Certificates whose private key Sigyll doesn't hold (an HSM, Vault Transit or KMS key,
+/// or a certificate issued from a CSR): only their .cer is backed up.</param>
+/// <param name="Superseded">Earlier generations of renewed certificates. They share their renewal's secret, which holds
+/// the newest generation; Vault's version history keeps what earlier exports wrote.</param>
+public record VaultBackupPlan(
+    int TrustDomainId,
+    string TrustDomainName,
+    string? Namespace,
+    string Address,
+    string Mount,
+    bool IncludeKeys,
+    IReadOnlyList<VaultBackupSecret> Secrets,
+    IReadOnlyList<string> CertificateOnly,
+    IReadOnlyList<string> Superseded)
+{
+    public int CertificateCount => Secrets.Count;
+    public int KeyCount => Secrets.Sum(s => s.Targets.Count(t => t.Artifact == VaultExportArtifact.P12));
+    public int CrlCount => Secrets.Sum(s => s.Targets.Count(t => t.Artifact == VaultExportArtifact.Crl));
+}
+
+/// <param name="Root">The trust domain's folder: <c>&lt;namespace&gt;/&lt;trust domain&gt;</c>.</param>
+/// <param name="Failures">Secrets that weren't written, with the reason.</param>
+public record VaultBackupResult(string Address, string Mount, string Root, int SecretsWritten, int SecretsPlanned, IReadOnlyList<string> Failures);
 
 /// <summary>
 /// Exports certificate files to a HashiCorp Vault KV v2 mount instead of (or as well as) downloading them. The
@@ -120,15 +155,31 @@ public partial class VaultExportService
         return settings;
     }
 
-    public async Task<List<TrustDomainVaultNamespace>> GetTrustDomainNamespacesAsync(CancellationToken ct = default)
+    public async Task<List<TrustDomainVaultSettings>> GetTrustDomainVaultSettingsAsync(CancellationToken ct = default)
     {
         await _operator.DemandAsync(Permission.View);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.TrustDomains
             .OrderBy(t => t.Name)
-            .Select(t => new TrustDomainVaultNamespace(t.Id, t.Name, t.VaultNamespace))
+            .Select(t => new TrustDomainVaultSettings(t.Id, t.Name, t.VaultNamespace, t.VaultBackupEnabled, t.VaultLastBackupAt, t.VaultLastBackupBy))
             .ToListAsync(ct);
+    }
+
+    /// <summary>Turns full backup to Vault on or off for a trust domain.</summary>
+    public async Task SetTrustDomainBackupAsync(int trustDomainId, bool enabled, CancellationToken ct = default)
+    {
+        var identity = await _operator.DemandAsync(Permission.Administer);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var trustDomain = await db.TrustDomains.FindAsync([trustDomainId], ct)
+            ?? throw new ArgumentException("Trust domain not found.");
+        if (trustDomain.VaultBackupEnabled == enabled) return;
+
+        trustDomain.VaultBackupEnabled = enabled;
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("{Actor} turned full backup to Vault {State} for trust domain {TrustDomain}",
+            identity.Name, enabled ? "on" : "off", trustDomain.Name);
     }
 
     /// <summary>Changes (or clears) a trust domain's namespace. Only an Admin can redirect where keys go.</summary>
@@ -200,41 +251,132 @@ public partial class VaultExportService
         var settings = await RequireEnabledAsync(db, ct);
         var plan = await BuildPlanAsync(db, settings, target, ct);
 
-        var ns = plan.Namespace;
-        var settingNamespace = false;
-        if (ns == null)
-        {
-            ns = NormalizeFolder(firstNamespace)
-                ?? throw new ArgumentException($"Choose the Vault namespace for trust domain {plan.TrustDomainName}. {InvalidNamespaceMessage}");
-            settingNamespace = true;
-        }
-        else if (!string.IsNullOrWhiteSpace(firstNamespace) && NormalizeFolder(firstNamespace) != ns)
-        {
-            throw new InvalidOperationException(
-                $"Trust domain {plan.TrustDomainName} already exports to namespace {ns}; only an Admin can change it.");
-        }
+        var (ns, settingNamespace) = ResolveNamespace(plan.TrustDomainName, plan.Namespace, firstNamespace);
 
         var fields = await BuildFieldsAsync(db, target, ct);
         var path = plan.PathFor(ns);
         var version = await _vault.MergeAsync(new Uri(settings.Address!), token.Trim(), settings.Mount, path, fields, ct);
 
         if (settingNamespace)
-        {
-            var trustDomain = await db.TrustDomains.FindAsync([plan.TrustDomainId], ct);
-            if (trustDomain is { VaultNamespace: null })
-            {
-                trustDomain.VaultNamespace = ns;
-                await db.SaveChangesAsync(ct);
-                _logger.LogInformation("{Actor} set the Vault namespace of trust domain {TrustDomain} to {Namespace}",
-                    identity.Name, plan.TrustDomainName, ns);
-            }
-        }
+            await SaveFirstNamespaceAsync(db, plan.TrustDomainId, ns, identity.Name, ct);
 
         _logger.LogInformation(
             "{Actor} exported {Fields} of {EntityType} {Id} to Vault {Address} {Mount}/{Path} (version {Version})",
             identity.Name, string.Join(", ", fields.Keys), target.EntityType, target.Id, settings.Address, settings.Mount, path, version);
 
         return new VaultExportResult(settings.Address!, settings.Mount, path, version, fields.Keys.ToList());
+    }
+
+    /// <summary>
+    /// What a full backup of the trust domain would write: one secret per certificate (the newest generation of a
+    /// renewed one), with its .cer, its CA's latest CRL and, when <paramref name="includeKeys"/>, its .p12.
+    /// </summary>
+    public async Task<VaultBackupPlan> PlanBackupAsync(int trustDomainId, bool includeKeys, CancellationToken ct = default)
+    {
+        await _operator.DemandAsync(Permission.View);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var settings = await RequireEnabledAsync(db, ct);
+        return await BuildBackupPlanAsync(db, settings, trustDomainId, includeKeys, ct);
+    }
+
+    /// <summary>
+    /// Writes every secret of <see cref="PlanBackupAsync"/> with the operator's <paramref name="token"/>. A secret that
+    /// fails is reported and the backup carries on; a refused token stops it. Backing up keys takes the ExportKeys
+    /// permission, like downloading one.
+    /// </summary>
+    /// <param name="progress">Receives the number of secrets done so far.</param>
+    public async Task<VaultBackupResult> BackupAsync(
+        int trustDomainId, string token, bool includeKeys, string? firstNamespace = null,
+        IProgress<int>? progress = null, CancellationToken ct = default)
+    {
+        var identity = await _operator.DemandAsync(Permission.Operate, Permission.ExportKeys);
+        if (includeKeys)
+            await _operator.DemandAsync(Permission.ExportKeys);
+
+        if (string.IsNullOrWhiteSpace(token))
+            throw new ArgumentException("Paste a Vault token to back up.");
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var settings = await RequireEnabledAsync(db, ct);
+        var plan = await BuildBackupPlanAsync(db, settings, trustDomainId, includeKeys, ct);
+        var (ns, settingNamespace) = ResolveNamespace(plan.TrustDomainName, plan.Namespace, firstNamespace);
+
+        var address = new Uri(settings.Address!);
+        var written = 0;
+        var failures = new List<string>();
+        foreach (var secret in plan.Secrets)
+        {
+            var path = $"{ns}/{secret.RelativePath}";
+            try
+            {
+                var fields = new Dictionary<string, string>();
+                foreach (var target in secret.Targets)
+                foreach (var (name, value) in await BuildFieldsAsync(db, target, ct))
+                    fields[name] = value;
+
+                await _vault.MergeAsync(address, token.Trim(), settings.Mount, path, fields, ct);
+                if (written++ == 0 && settingNamespace)
+                    await SaveFirstNamespaceAsync(db, plan.TrustDomainId, ns, identity.Name, ct);
+            }
+            catch (VaultTokenRefusedException) when (written == 0)
+            {
+                throw;
+            }
+            catch (VaultTokenRefusedException ex)
+            {
+                failures.Add($"{path}: {ex.Message} The backup stopped here.");
+                break;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                failures.Add($"{path}: {ex.Message}");
+            }
+            progress?.Report(written + failures.Count);
+        }
+
+        if (written > 0)
+        {
+            var trustDomain = await db.TrustDomains.FindAsync([plan.TrustDomainId], ct);
+            trustDomain!.VaultLastBackupAt = DateTime.UtcNow;
+            trustDomain.VaultLastBackupBy = identity.Name;
+            await db.SaveChangesAsync(ct);
+        }
+
+        var root = $"{ns}/{Slug(plan.TrustDomainName)}";
+        _logger.LogInformation(
+            "{Actor} backed up trust domain {TrustDomain} to Vault {Address} {Mount}/{Root}: {Written} of {Planned} secrets, keys {Keys}, {Failed} failed",
+            identity.Name, plan.TrustDomainName, settings.Address, settings.Mount, root, written, plan.Secrets.Count,
+            includeKeys ? "included" : "left out", failures.Count);
+
+        return new VaultBackupResult(settings.Address!, settings.Mount, root, written, plan.Secrets.Count, failures);
+    }
+
+    /// <summary>
+    /// The namespace an export writes to: the trust domain's, or <paramref name="firstNamespace"/> when it has none
+    /// yet (then <c>Setting</c> is true). Naming a different one for a mapped trust domain is refused.
+    /// </summary>
+    private static (string Namespace, bool Setting) ResolveNamespace(string trustDomainName, string? current, string? firstNamespace)
+    {
+        if (current == null)
+            return (NormalizeFolder(firstNamespace)
+                ?? throw new ArgumentException($"Choose the Vault namespace for trust domain {trustDomainName}. {InvalidNamespaceMessage}"), true);
+        if (!string.IsNullOrWhiteSpace(firstNamespace) && NormalizeFolder(firstNamespace) != current)
+            throw new InvalidOperationException(
+                $"Trust domain {trustDomainName} already exports to namespace {current}; only an Admin can change it.");
+        return (current, false);
+    }
+
+    /// <summary>Records the namespace the first export chose, once Vault has accepted a write to it.</summary>
+    private async Task SaveFirstNamespaceAsync(SigyllDbContext db, int trustDomainId, string ns, string actor, CancellationToken ct)
+    {
+        var trustDomain = await db.TrustDomains.FindAsync([trustDomainId], ct);
+        if (trustDomain is not { VaultNamespace: null }) return;
+
+        trustDomain.VaultNamespace = ns;
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("{Actor} set the Vault namespace of trust domain {TrustDomain} to {Namespace}",
+            actor, trustDomain.Name, ns);
     }
 
     private const string InvalidNamespaceMessage =
@@ -274,36 +416,15 @@ public partial class VaultExportService
                 throw new ArgumentException($"Unknown entity type {target.EntityType}.");
         }
 
-        var cas = await db.CaCertificates.AsNoTracking()
-            .Select(c => new Node(c.Id, c.Name, c.ParentId, c.RenewalOfId, c.SerialNumber, c.TrustDomainId))
-            .ToDictionaryAsync(c => c.Id, ct);
-        if (!cas.TryGetValue(caId, out var ca))
+        var hierarchy = await Hierarchy.LoadAsync(db, ct);
+        if (!hierarchy.Cas.TryGetValue(caId, out var ca))
             throw new ArgumentException("Certificate not found.");
 
-        // Root first.
-        var chain = new List<Node>();
-        var visited = new HashSet<int>();
-        for (Node? n = ca; n != null && visited.Add(n.Id); n = n.ParentId is int p ? cas.GetValueOrDefault(p) : null)
-            chain.Insert(0, n);
-
-        var segments = new List<string>();
-        foreach (var node in chain)
-        {
-            var issuedSiblings = node.ParentId is int parent ? await IssuedUnderAsync(db, parent, ct) : [];
-            var caSiblings = cas.Values.Where(c => c.ParentId == node.ParentId && (node.ParentId != null || c.TrustDomainId == node.TrustDomainId));
-            segments.Add(Segment(node, isCa: true, caSiblings, issuedSiblings, cas));
-        }
-
-        if (issued != null)
-        {
-            var node = new Node(issued.Id, issued.Name, issued.IssuingCaCertificateId, issued.RenewalOfId, issued.SerialNumber, ca.TrustDomainId);
-            var issuedSiblings = await IssuedUnderAsync(db, issued.IssuingCaCertificateId, ct);
-            var caSiblings = cas.Values.Where(c => c.ParentId == issued.IssuingCaCertificateId);
-            segments.Add(Segment(node, isCa: false, caSiblings, issuedSiblings, cas));
-        }
-
         var trustDomain = await db.TrustDomains.AsNoTracking().SingleAsync(t => t.Id == ca.TrustDomainId, ct);
-        var relativePath = string.Join('/', segments.Prepend(Slug(trustDomain.Name)));
+        var issuedNode = issued == null
+            ? null
+            : new Node(issued.Id, issued.Name, issued.IssuingCaCertificateId, issued.RenewalOfId, issued.SerialNumber, ca.TrustDomainId);
+        var relativePath = await hierarchy.RelativePathAsync(trustDomain.Name, ca, issuedNode, ct);
 
         var name = issued?.Name ?? ca.Name;
         IReadOnlyList<string> fields = target.Artifact switch
@@ -355,13 +476,134 @@ public partial class VaultExportService
         }
     }
 
+    private async Task<VaultBackupPlan> BuildBackupPlanAsync(
+        SigyllDbContext db, VaultExportSettings settings, int trustDomainId, bool includeKeys, CancellationToken ct)
+    {
+        var trustDomain = await db.TrustDomains.AsNoTracking().SingleOrDefaultAsync(t => t.Id == trustDomainId, ct)
+            ?? throw new ArgumentException("Trust domain not found.");
+        if (!trustDomain.VaultBackupEnabled)
+            throw new InvalidOperationException(
+                $"Full backup to Vault is off for trust domain {trustDomain.Name}. An Admin can turn it on in Settings.");
+
+        var hierarchy = await Hierarchy.LoadAsync(db, ct);
+        var caKeys = await db.CaCertificates.AsNoTracking()
+            .Where(c => c.TrustDomainId == trustDomainId)
+            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null })
+            .ToDictionaryAsync(c => c.Id, c => c.HasKey, ct);
+        var caIds = caKeys.Keys.ToList();
+        var issuedKeys = await db.IssuedCertificates.AsNoTracking()
+            .Where(c => caIds.Contains(c.IssuingCaCertificateId))
+            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null })
+            .ToDictionaryAsync(c => c.Id, c => c.HasKey, ct);
+        var latestCrls = (await db.Crls.AsNoTracking()
+                .Where(c => caIds.Contains(c.CaCertificateId))
+                .Select(c => new { c.Id, c.CaCertificateId, c.CrlNumber })
+                .ToListAsync(ct))
+            .GroupBy(c => c.CaCertificateId)
+            .ToDictionary(g => g.Key, g => g.MaxBy(c => c.CrlNumber)!.Id);
+
+        // Every certificate with its secret's path; CAs root first, then what each CA issued.
+        var entries = new List<(string Path, Node Node, bool IsCa)>();
+        foreach (var ca in hierarchy.Cas.Values.Where(c => caKeys.ContainsKey(c.Id)).OrderBy(c => c.Id))
+        {
+            entries.Add((await hierarchy.RelativePathAsync(trustDomain.Name, ca, null, ct), ca, true));
+            foreach (var issued in await hierarchy.IssuedUnderAsync(ca.Id, ct))
+                entries.Add((await hierarchy.RelativePathAsync(trustDomain.Name, ca, issued, ct), issued, false));
+        }
+
+        var secrets = new List<VaultBackupSecret>();
+        var certificateOnly = new List<string>();
+        var superseded = new List<string>();
+        foreach (var group in entries.GroupBy(e => e.Path).OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            // A renewal shares its predecessor's secret: back up the newest generation.
+            var newest = group.MaxBy(e => e.Node.Id);
+            superseded.AddRange(group.Where(e => e != newest).Select(e => $"{e.Node.Name} ({group.Key})"));
+
+            var (_, node, isCa) = newest;
+            var entityType = isCa ? "CaCertificate" : "IssuedCertificate";
+            var targets = new List<VaultExportTarget> { new(entityType, node.Id, VaultExportArtifact.Cer) };
+            var fields = new List<string> { $"{node.Name}.cer" };
+
+            var hasKey = isCa ? caKeys[node.Id] : issuedKeys.GetValueOrDefault(node.Id);
+            if (!hasKey)
+                certificateOnly.Add(node.Name);
+            else if (includeKeys)
+            {
+                targets.Add(new(entityType, node.Id, VaultExportArtifact.P12));
+                fields.AddRange([$"{node.Name}.p12", PasswordField]);
+            }
+
+            if (isCa && latestCrls.TryGetValue(node.Id, out var crlId))
+            {
+                targets.Add(new("Crl", crlId, VaultExportArtifact.Crl));
+                fields.Add($"{node.Name}.crl");
+            }
+
+            secrets.Add(new VaultBackupSecret(group.Key, node.Name, targets, fields));
+        }
+
+        return new VaultBackupPlan(trustDomain.Id, trustDomain.Name, trustDomain.VaultNamespace,
+            settings.Address!, settings.Mount, includeKeys, secrets, certificateOnly, superseded);
+    }
+
     private sealed record Node(int Id, string Name, int? ParentId, int? RenewalOfId, string SerialNumber, int TrustDomainId);
 
-    private static async Task<List<Node>> IssuedUnderAsync(SigyllDbContext db, int caId, CancellationToken ct) =>
-        await db.IssuedCertificates.AsNoTracking()
-            .Where(c => c.IssuingCaCertificateId == caId)
-            .Select(c => new Node(c.Id, c.Name, c.IssuingCaCertificateId, c.RenewalOfId, c.SerialNumber, 0))
-            .ToListAsync(ct);
+    /// <summary>All CAs, and the certificates each issued as they're asked for, to work out secret paths.</summary>
+    private sealed class Hierarchy
+    {
+        private readonly SigyllDbContext _db;
+        private readonly Dictionary<int, List<Node>> _issuedByCa = new();
+
+        private Hierarchy(SigyllDbContext db, Dictionary<int, Node> cas)
+        {
+            _db = db;
+            Cas = cas;
+        }
+
+        public Dictionary<int, Node> Cas { get; }
+
+        public static async Task<Hierarchy> LoadAsync(SigyllDbContext db, CancellationToken ct) =>
+            new(db, await db.CaCertificates.AsNoTracking()
+                .Select(c => new Node(c.Id, c.Name, c.ParentId, c.RenewalOfId, c.SerialNumber, c.TrustDomainId))
+                .ToDictionaryAsync(c => c.Id, ct));
+
+        public async Task<List<Node>> IssuedUnderAsync(int caId, CancellationToken ct)
+        {
+            if (!_issuedByCa.TryGetValue(caId, out var issued))
+                _issuedByCa[caId] = issued = await _db.IssuedCertificates.AsNoTracking()
+                    .Where(c => c.IssuingCaCertificateId == caId)
+                    .Select(c => new Node(c.Id, c.Name, c.IssuingCaCertificateId, c.RenewalOfId, c.SerialNumber, 0))
+                    .ToListAsync(ct);
+            return issued;
+        }
+
+        /// <summary>The secret's path below the namespace for <paramref name="ca"/>, or for <paramref name="issued"/> under it.</summary>
+        public async Task<string> RelativePathAsync(string trustDomainName, Node ca, Node? issued, CancellationToken ct)
+        {
+            // Root first.
+            var chain = new List<Node>();
+            var visited = new HashSet<int>();
+            for (Node? n = ca; n != null && visited.Add(n.Id); n = n.ParentId is int p ? Cas.GetValueOrDefault(p) : null)
+                chain.Insert(0, n);
+
+            var segments = new List<string> { Slug(trustDomainName) };
+            foreach (var node in chain)
+            {
+                var issuedSiblings = node.ParentId is int parent ? await IssuedUnderAsync(parent, ct) : [];
+                var caSiblings = Cas.Values.Where(c => c.ParentId == node.ParentId && (node.ParentId != null || c.TrustDomainId == node.TrustDomainId));
+                segments.Add(Segment(node, isCa: true, caSiblings, issuedSiblings, Cas));
+            }
+
+            if (issued != null)
+            {
+                var caSiblings = Cas.Values.Where(c => c.ParentId == issued.ParentId);
+                segments.Add(Segment(issued, isCa: false, caSiblings, await IssuedUnderAsync(issued.ParentId!.Value, ct), Cas));
+            }
+
+            return string.Join('/', segments);
+        }
+    }
 
     /// <summary>
     /// The path segment for one certificate: its name made path-safe. A renewal keeps its predecessor's segment,

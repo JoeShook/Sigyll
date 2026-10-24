@@ -234,6 +234,9 @@ public partial class CertificateExplorer : IDisposable
     {
         await Access.LoadAsync();
         vaultExportEnabled = (await VaultExport.GetSettingsAsync()).Enabled;
+        if (vaultExportEnabled)
+            vaultBackupTrustDomains = (await VaultExport.GetTrustDomainVaultSettingsAsync())
+                .Where(t => t.BackupEnabled).Select(t => t.TrustDomainId).ToHashSet();
         TimeDisplay.OnChanged += StateHasChanged;
 
         availableKeyStorageProviders = SigningOptions.Value.AvailableProviders;
@@ -929,6 +932,16 @@ public partial class CertificateExplorer : IDisposable
 
     private Task ExportToVaultAsync(string entityType, int id, VaultExportArtifact artifact, string name) =>
         vaultExportDialog.ShowAsync(new VaultExportTarget(entityType, id, artifact), name);
+
+    private HashSet<int> vaultBackupTrustDomains = new();
+    private Shared.VaultBackupDialog vaultBackupDialog = null!;
+
+    /// <summary>An Admin turned on full backup for the selected trust domain in Settings.</summary>
+    private bool CanBackUpToVault => vaultExportEnabled && vaultBackupTrustDomains.Contains(TrustDomainId);
+
+    private string VaultBackupTitle => CanExportToVault
+        ? "Write every certificate and CRL of this trust domain (and, for a KeyCustodian, its .p12 files) to Vault"
+        : "Backing up to Vault requires the CaOperator or KeyCustodian role.";
 
     // --- .p12 download dialog ---
 

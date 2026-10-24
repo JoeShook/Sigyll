@@ -95,6 +95,7 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(e => e.Name).IsUnique();
             entity.Property(e => e.VaultNamespace).HasMaxLength(200);
+            entity.Property(e => e.VaultLastBackupBy).HasMaxLength(256);
         });
 
         // VaultExportSettings — the one row saying where certificates can be exported in Vault

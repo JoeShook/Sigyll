@@ -1,0 +1,291 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@* Backs up a whole trust domain to Vault KV: every certificate's .cer, each CA's latest CRL and, when a
+   KeyCustodian asks, the .p12 files, at the same paths single exports use. *@
+
+@using Sigyll.Common.Services.Export
+@inject VaultExportService VaultExport
+@inject VaultTokenCache TokenCache
+@inject IToastService ToastService
+
+<FluentDialog @bind-Hidden="@hidden" Modal="true" TrapFocus="true" Style="min-width: 600px;">
+    <FluentDialogHeader>Back up to Vault</FluentDialogHeader>
+    <FluentDialogBody>
+        @if (plan == null)
+        {
+            @if (error != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@error</FluentMessageBar>
+            }
+            else
+            {
+                <FluentProgressRing />
+            }
+        }
+        else if (result != null)
+        {
+            <FluentMessageBar Intent="@(result.Failures.Count == 0 ? MessageIntent.Success : MessageIntent.Warning)" AllowDismiss="false">
+                Wrote @result.SecretsWritten of @result.SecretsPlanned secrets under <code>@result.Mount/@result.Root</code>.
+            </FluentMessageBar>
+            @if (result.Failures.Count > 0)
+            {
+                <ul style="font-size: 0.8rem; margin-top: 0.75rem;">
+                    @foreach (var failure in result.Failures)
+                    {
+                        <li style="word-break: break-all;">@failure</li>
+                    }
+                </ul>
+            }
+            <p style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.75rem;">
+                Browse it with <code>vault kv list -mount=@result.Mount @result.Root</code>.
+            </p>
+        }
+        else
+        {
+            <p style="font-size: 0.9rem; margin-top: 0;">
+                Back up trust domain <b>@plan.TrustDomainName</b> to <code>@plan.Address</code>, one secret per
+                certificate, mirroring its hierarchy. Each secret keeps any fields it already has.
+            </p>
+
+            <FluentCheckbox Value="@includeKeys" ValueChanged="@((bool v) => SetIncludeKeysAsync(v))"
+                            Disabled="@(!CanExportKeys || isBusy)"
+                            Label="Include private keys (.p12, with their passwords)" />
+            <div style="font-size: 0.8rem; opacity: 0.7; margin: 0.25rem 0 0 1.75rem;">
+                @if (CanExportKeys)
+                {
+                    <span>For development and lab CAs. Keys held in an HSM, Vault Transit or KMS can't be exported.</span>
+                }
+                else
+                {
+                    <span>Needs the KeyCustodian role.</span>
+                }
+            </div>
+
+            <div style="margin-top: 0.75rem; font-size: 0.85rem;">
+                <div style="opacity: 0.7;">Destination</div>
+                <code style="word-break: break-all;">@plan.Mount/@(plan.Namespace ?? (string.IsNullOrWhiteSpace(chosenNamespace) ? "<namespace>" : chosenNamespace.Trim().Trim('/')))/@VaultExportService.Slug(plan.TrustDomainName)/…</code>
+                <div style="margin-top: 0.25rem;">
+                    @plan.CertificateCount certificates, @plan.CrlCount CRLs@(plan.IncludeKeys ? $", {plan.KeyCount} key files" : "")
+                </div>
+                @if (plan.IncludeKeys && plan.CertificateOnly.Count > 0)
+                {
+                    <details style="margin-top: 0.25rem;">
+                        <summary>@plan.CertificateOnly.Count without a key Sigyll holds (certificate only)</summary>
+                        <div style="opacity: 0.8;">@string.Join(", ", plan.CertificateOnly)</div>
+                    </details>
+                }
+                @if (plan.Superseded.Count > 0)
+                {
+                    <details style="margin-top: 0.25rem;">
+                        <summary>@plan.Superseded.Count earlier generations of renewed certificates left out</summary>
+                        <div style="opacity: 0.8;">
+                            A renewal shares its predecessor's secret, so the newest generation is written; Vault's
+                            version history keeps what earlier exports wrote. @string.Join(", ", plan.Superseded)
+                        </div>
+                    </details>
+                }
+            </div>
+
+            @if (plan.Namespace == null)
+            {
+                <div style="margin-top: 0.75rem;">
+                    <FluentLabel Weight="FontWeight.Bold">Namespace for trust domain @plan.TrustDomainName</FluentLabel>
+                    <p style="font-size: 0.8rem; opacity: 0.7; margin: 0.25rem 0 0.5rem;">
+                        This is the first export to Vault for this trust domain. Its certificates will go under this
+                        folder of the <code>@plan.Mount</code> mount from now on; only an Admin can change it later.
+                    </p>
+                    <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem;">
+                        <FluentTextField @bind-Value="chosenNamespace" Immediate="true"
+                                         Placeholder="e.g. team-a" Style="width: 240px; font-family: monospace;" />
+                        <FluentButton Appearance="Appearance.Outline" OnClick="ListNamespacesAsync"
+                                      Disabled="@(isBusy || string.IsNullOrWhiteSpace(EffectiveToken))"
+                                      title="List the folders your token can see at the top of the mount">
+                            List namespaces
+                        </FluentButton>
+                    </FluentStack>
+                    @if (listedNamespaces != null)
+                    {
+                        <FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 0.25rem; margin-top: 0.5rem;">
+                            @if (listedNamespaces.Count == 0)
+                            {
+                                <span style="font-size: 0.8rem; opacity: 0.7;">Your token can't list the mount; type the namespace.</span>
+                            }
+                            @foreach (var ns in listedNamespaces)
+                            {
+                                <FluentButton Appearance="@(ns == chosenNamespace ? Appearance.Accent : Appearance.Lightweight)"
+                                              OnClick="@(() => chosenNamespace = ns)">@ns</FluentButton>
+                            }
+                        </FluentStack>
+                    }
+                </div>
+            }
+
+            <div style="margin-top: 0.75rem;">
+                @if (TokenCache.Token == null)
+                {
+                    <FluentTextField @bind-Value="token" TextFieldType="TextFieldType.Password" Immediate="true"
+                                     Label="Vault token" Style="width: 100%;" />
+                    <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.25rem;">
+                        In the Vault UI, open the user menu and click <b>Copy token</b>. Sigyll keeps it in memory for
+                        this browser session only.
+                    </div>
+                }
+                else
+                {
+                    <span style="font-size: 0.85rem;">Using the Vault token you entered earlier in this session.</span>
+                    <FluentButton Appearance="Appearance.Lightweight" OnClick="ForgetToken" Disabled="@isBusy">Forget it</FluentButton>
+                }
+            </div>
+
+            @if (isBusy)
+            {
+                <div style="margin-top: 0.75rem; font-size: 0.85rem;">
+                    <FluentProgress Min="0" Max="@plan.Secrets.Count" Value="@done" />
+                    @done of @plan.Secrets.Count secrets
+                </div>
+            }
+
+            @if (error != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false" Style="margin-top: 0.75rem;">@error</FluentMessageBar>
+            }
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        @if (plan != null && result == null)
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="BackupAsync" Loading="@isBusy"
+                          Disabled="@(isBusy || plan.Secrets.Count == 0 || string.IsNullOrWhiteSpace(EffectiveToken) || (plan.Namespace == null && string.IsNullOrWhiteSpace(chosenNamespace)))">
+                Back up
+            </FluentButton>
+        }
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => hidden = true)" Disabled="@isBusy">@(result != null ? "Close" : "Cancel")</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
+@code {
+    private bool hidden = true;
+    private bool isBusy;
+    private int trustDomainId;
+    private bool includeKeys;
+    private VaultBackupPlan? plan;
+    private VaultBackupResult? result;
+    private string? chosenNamespace;
+    private List<string>? listedNamespaces;
+    private string? token;
+    private string? error;
+    private int done;
+
+    /// <summary>Whether the operator may include .p12 files (the KeyCustodian role).</summary>
+    [Parameter] public bool CanExportKeys { get; set; }
+
+    /// <summary>Raised after a backup wrote at least one secret.</summary>
+    [Parameter] public EventCallback OnBackedUp { get; set; }
+
+    private string? EffectiveToken => TokenCache.Token ?? token;
+
+    /// <summary>Opens the dialog for the trust domain <paramref name="id"/>.</summary>
+    public async Task ShowAsync(int id)
+    {
+        trustDomainId = id;
+        includeKeys = false;
+        plan = null;
+        result = null;
+        chosenNamespace = null;
+        listedNamespaces = null;
+        token = null;
+        error = null;
+        done = 0;
+        hidden = false;
+        StateHasChanged();
+        await LoadPlanAsync();
+    }
+
+    private async Task LoadPlanAsync()
+    {
+        try
+        {
+            plan = await VaultExport.PlanBackupAsync(trustDomainId, includeKeys);
+            error = null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            plan = null;
+            error = ex.Message;
+        }
+        StateHasChanged();
+    }
+
+    private async Task SetIncludeKeysAsync(bool value)
+    {
+        includeKeys = value;
+        await LoadPlanAsync();
+    }
+
+    private async Task ListNamespacesAsync()
+    {
+        isBusy = true;
+        try
+        {
+            listedNamespaces = (await VaultExport.ListNamespacesAsync(EffectiveToken!)).ToList();
+            error = null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
+        {
+            error = $"Couldn't reach Vault: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task BackupAsync()
+    {
+        isBusy = true;
+        error = null;
+        done = 0;
+        try
+        {
+            var usedToken = EffectiveToken!;
+            // Progress<T> posts back to the circuit's context, so each report can re-render.
+            var progress = new Progress<int>(n =>
+            {
+                done = n;
+                StateHasChanged();
+            });
+            result = await VaultExport.BackupAsync(trustDomainId, usedToken, includeKeys,
+                plan!.Namespace == null ? chosenNamespace : null, progress);
+            TokenCache.Save(usedToken);
+            token = null;
+            if (result.SecretsWritten > 0)
+            {
+                ToastService.ShowSuccess($"Backed up {plan.TrustDomainName} to Vault {result.Mount}/{result.Root} ({result.SecretsWritten} secrets).");
+                await OnBackedUp.InvokeAsync();
+            }
+        }
+        catch (VaultTokenRefusedException ex)
+        {
+            TokenCache.Clear();
+            token = null;
+            error = $"{ex.Message} Paste a new token, or ask for a policy that allows writing under the namespace.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void ForgetToken()
+    {
+        TokenCache.Clear();
+        listedNamespaces = null;
+    }
+}

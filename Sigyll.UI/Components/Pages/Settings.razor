@@ -4,68 +4,46 @@
    See LICENSE in the project root for license information. *@
 
 @page "/admin/settings"
+@page "/admin/settings/{Section}"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = SigyllRoles.Admin)]
-@using Sigyll.Common.Services.Export
 
 <PageTitle>Sigyll - Settings</PageTitle>
 
 <FluentLabel Typo="Typography.PageTitle">Settings</FluentLabel>
 
-@if (isLoading)
-{
-    <FluentProgressRing Style="margin: 2rem auto; display: block;" />
-}
-else
-{
-    <FluentCard Style="margin-top: 1rem; max-width: 760px;">
-        <FluentLabel Typo="Typography.Subject">Export to Vault</FluentLabel>
-        <p style="font-size: 0.9rem; opacity: 0.8; margin: 0.5rem 0 1rem;">
-            Lets operators send certificate files (.cer, .p12, .crl) to a HashiCorp Vault KV v2 mount instead of
-            downloading them. Each export uses the operator's own Vault token, so Vault's policies decide what they
-            can write. Secrets land at
-            <code>&lt;mount&gt;/&lt;namespace&gt;/&lt;trust domain&gt;/&lt;root CA&gt;/…/&lt;certificate&gt;</code>.
-        </p>
+<div class="settings-layout">
+    <nav class="settings-nav" aria-label="Settings sections">
+        @foreach (var section in Sections)
+        {
+            <FluentAnchor Href="@($"/admin/settings/{section.Id}")"
+                          Appearance="@(section == Current ? Appearance.Accent : Appearance.Stealth)"
+                          IconStart="@section.Icon"
+                          title="@section.Summary">
+                @section.Title
+            </FluentAnchor>
+        }
+    </nav>
+    <div class="settings-content">
+        @if (Current == null)
+        {
+            <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">
+                There's no settings section called "@Section".
+            </FluentMessageBar>
+        }
+        else
+        {
+            <DynamicComponent Type="@Current.Component" @key="Current.Id" />
+        }
+    </div>
+</div>
 
-        <FluentStack Orientation="Orientation.Vertical" Style="gap: 0.75rem;">
-            <FluentSwitch @bind-Value="enabled" Label="Offer Vault on the export buttons" />
-            <FluentTextField @bind-Value="address" Label="Vault address" Placeholder="https://vault.example.org:8200"
-                             Style="width: 100%;" />
-            <FluentTextField @bind-Value="mount" Label="KV v2 mount" Placeholder="secret" Style="width: 240px;" />
-            @if (settingsError != null)
-            {
-                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@settingsError</FluentMessageBar>
-            }
-            <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 1rem;">
-                <FluentButton Appearance="Appearance.Accent" OnClick="SaveSettingsAsync">Save</FluentButton>
-                @if (updatedBy != null)
-                {
-                    <span style="font-size: 0.8rem; opacity: 0.6;">Last changed by @updatedBy, @TimeDisplay.Format(updatedAt)</span>
-                }
-            </FluentStack>
-        </FluentStack>
-    </FluentCard>
-
-    <FluentCard Style="margin-top: 1rem; max-width: 760px;">
-        <FluentLabel Typo="Typography.Subject">Vault namespace per trust domain</FluentLabel>
-        <p style="font-size: 0.9rem; opacity: 0.8; margin: 0.5rem 0 1rem;">
-            The folder under the mount each trust domain exports to. The first export to Vault sets it; only an
-            Admin can change it here. Clear it to have the next export ask again.
-        </p>
-        <FluentDataGrid Items="@namespaces.AsQueryable()">
-            <PropertyColumn Property="@(n => n.TrustDomainName)" Title="Trust domain" />
-            <TemplateColumn Title="Namespace">
-                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem;">
-                    <FluentTextField @bind-Value="@context.Editable" Placeholder="(not set)" Style="width: 240px; font-family: monospace;" />
-                    @if ((context.Editable ?? "") != (context.Original ?? ""))
-                    {
-                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => SaveNamespaceAsync(context))">Save</FluentButton>
-                    }
-                </FluentStack>
-                @if (context.Error != null)
-                {
-                    <div style="color: var(--error); font-size: 0.8rem; margin-top: 0.25rem; white-space: normal;">@context.Error</div>
-                }
-            </TemplateColumn>
-        </FluentDataGrid>
-    </FluentCard>
-}
+<style>
+    .settings-layout { display: flex; gap: 1.5rem; margin-top: 1rem; align-items: flex-start; }
+    .settings-nav { display: flex; flex-direction: column; gap: 0.25rem; min-width: 200px; position: sticky; top: 0; }
+    .settings-nav fluent-anchor::part(control) { justify-content: flex-start; width: 100%; }
+    .settings-content { flex: 1; min-width: 0; max-width: 900px; }
+    @@media (max-width: 760px) {
+        .settings-layout { flex-direction: column; }
+        .settings-nav { flex-direction: row; flex-wrap: wrap; position: static; }
+    }
+</style>

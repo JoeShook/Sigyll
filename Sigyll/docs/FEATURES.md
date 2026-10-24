@@ -191,7 +191,7 @@
 - Security level enforcement: keys stored in HSM/Cloud KMS (`CertSecurityLevel != Software`) cannot be exported
 
 ### Export to Vault KV
-- An Admin turns it on in **Settings** (`/admin/settings`): Vault address and KV v2 mount (default `secret`)
+- An Admin turns it on in **Settings** → Export to Vault (`/admin/settings/vault`): Vault address and KV v2 mount (default `secret`)
 - Once on, the `.cer`, `.p12` and `.crl` buttons open a menu: **Download file** or **Export to Vault**
 - Each trust domain exports under its own folder of the mount, its *namespace* (e.g. `team-a`). The first export
   asks for it (listing the folders the operator's token can see); after that only an Admin can change it in Settings
@@ -206,6 +206,14 @@
 - Same rules as a download: `.p12` needs KeyCustodian; `.cer`/`.crl` need CaOperator or KeyCustodian
 - `VaultExportService` (Sigyll.Common) + `VaultKvClient` (Sigyll.Vault); settings in `VaultExportSettings` and
   `TrustDomains.VaultNamespace` (Flyway V4)
+- **Full backup of a trust domain**: an Admin turns it on per trust domain in Settings; the Certificate Explorer then
+  shows **Back up to Vault** for it. One run writes every certificate's `.cer` and each CA's latest CRL to the same
+  secrets single exports use, plus the `.p12` files when a KeyCustodian ticks *Include private keys*. Certificates
+  whose key Sigyll doesn't hold (HSM, Vault Transit, KMS, CSR-issued) are backed up as `.cer` only; a renewal
+  writes its newest generation. A failed secret is reported and the run carries on; a refused token stops it.
+  Last backup time and operator show in Settings (`TrustDomains.VaultBackupEnabled`, Flyway V5)
+- Exporting `.p12` files is for development and lab CAs: in production, keys stay in an HSM and only certificates
+  leave the CA (Settings says so too)
 
 ### Renewal Validation
 - **CDP/AIA URL change warning**: When renewing a certificate, if the selected profile would change CDP or AIA URLs compared to the original certificate, a warning banner appears in the issuance dialog listing each added/removed URL
