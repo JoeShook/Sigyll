@@ -77,7 +77,7 @@
             <b>Namespace</b> is the folder under the mount each trust domain exports to. The first export to Vault sets
             it; only an Admin can change it here. Clear it to have the next export ask again.
             <b>Full backup</b> adds a <i>Back up to Vault</i> button to the trust domain in the Certificate Explorer,
-            which writes every certificate, the latest CRL of each CA and, for a KeyCustodian who asks, the P12 files.
+            which writes every certificate and, when asked, each CA's latest CRL and (for a KeyCustodian) the P12 files.
         </p>
         <FluentDataGrid Items="@trustDomains.AsQueryable()" ResizableColumns="true"
                         GridTemplateColumns="minmax(160px, 1fr) minmax(280px, 2fr) 110px minmax(160px, 1fr)">

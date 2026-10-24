@@ -260,14 +260,15 @@ public class VaultExportServiceTests
         var other = await AddTrustDomainAsync("Other", "team-a", backup: true);
         await AddCaAsync(other, "Elsewhere");
 
-        var plan = await Service(KeyCustodian).PlanBackupAsync(td, new(IncludeKeys: true));
+        (await Service(KeyCustodian).PlanBackupAsync(td, new(IncludeKeys: true))).CrlCount.ShouldBe(0);
+        var plan = await Service(KeyCustodian).PlanBackupAsync(td, new(IncludeKeys: true, IncludeCrls: true));
         plan.CertificateCount.ShouldBe(4);
         plan.KeyCount.ShouldBe(2);
         plan.CrlCount.ShouldBe(1);
         plan.CertificateOnly.ShouldBe(["Issuing", "from csr"], ignoreOrder: true);
 
         var progress = new List<int>();
-        var result = await Service(KeyCustodian).BackupAsync(td, Token, new(IncludeKeys: true), progress: new SyncProgress(progress));
+        var result = await Service(KeyCustodian).BackupAsync(td, Token, new(IncludeKeys: true, IncludeCrls: true), progress: new SyncProgress(progress));
 
         result.SecretsWritten.ShouldBe(4);
         result.Failures.ShouldBeEmpty();

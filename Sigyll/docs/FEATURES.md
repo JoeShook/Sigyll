@@ -207,9 +207,10 @@
 - `VaultExportService` (Sigyll.Common) + `VaultKvClient` (Sigyll.Vault); settings in `VaultExportSettings` and
   `TrustDomains.VaultNamespace` (Flyway V4)
 - **Full backup of a trust domain**: an Admin turns it on per trust domain in Settings; the Certificate Explorer then
-  shows **Back up to Vault** for it. One run writes every certificate's `.cer` and each CA's latest CRL to the same
-  secrets single exports use, plus the P12 files when a KeyCustodian ticks *Include private keys* (optionally with
-  the chain, as `name-chain.p12` below each root). Certificates
+  shows **Back up to Vault** for it. One run writes every certificate's `.cer` to the same secrets single exports
+  use, plus each CA's latest CRL when *Include each CA's latest CRL* is ticked (off by default), and the P12 files
+  when a KeyCustodian ticks *Include private keys* (optionally with the chain, as `name-chain.p12` below each root).
+  Certificates
   whose key Sigyll doesn't hold (HSM, Vault Transit, KMS, CSR-issued) are backed up as `.cer` only; a renewal
   writes its newest generation. A failed secret is reported and the run carries on; a refused token stops it.
   Last backup time and operator show in Settings (`TrustDomains.VaultBackupEnabled`, Flyway V5)

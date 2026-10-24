@@ -33,11 +33,12 @@ public enum VaultExportArtifact
 /// <param name="EntityType">"CaCertificate", "IssuedCertificate" or "Crl".</param>
 public record VaultExportTarget(string EntityType, int Id, VaultExportArtifact Artifact);
 
-/// <summary>What a full backup adds besides each certificate's .cer and each CA's latest CRL.</summary>
+/// <summary>What a full backup adds besides each certificate's .cer.</summary>
 /// <param name="IncludeKeys">The P12 files (and their password) of certificates whose key Sigyll holds.</param>
 /// <param name="ChainInP12">Write each P12 below a root with its issuing CA certificates, as <c>name-chain.p12</c>,
 /// instead of <c>name.p12</c>.</param>
-public record VaultBackupOptions(bool IncludeKeys = false, bool ChainInP12 = false);
+/// <param name="IncludeCrls">Each CA's latest CRL, in the CA's secret.</param>
+public record VaultBackupOptions(bool IncludeKeys = false, bool ChainInP12 = false, bool IncludeCrls = false);
 
 /// <summary>Where an export would go, shown to the operator before they confirm it.</summary>
 /// <param name="Namespace">The trust domain's folder under the mount; null until the first export sets it.</param>
@@ -287,7 +288,7 @@ public partial class VaultExportService
 
     /// <summary>
     /// What a full backup of the trust domain would write: one secret per certificate (the newest generation of a
-    /// renewed one), with its .cer, its CA's latest CRL and what <paramref name="options"/> add.
+    /// renewed one), with its .cer and what <paramref name="options"/> add.
     /// </summary>
     public async Task<VaultBackupPlan> PlanBackupAsync(int trustDomainId, VaultBackupOptions options, CancellationToken ct = default)
     {
@@ -364,9 +365,10 @@ public partial class VaultExportService
 
         var root = $"{ns}/{Slug(plan.TrustDomainName)}";
         _logger.LogInformation(
-            "{Actor} backed up trust domain {TrustDomain} to Vault {Address} {Mount}/{Root}: {Written} of {Planned} secrets, keys {Keys}, {Failed} failed",
+            "{Actor} backed up trust domain {TrustDomain} to Vault {Address} {Mount}/{Root}: {Written} of {Planned} secrets, keys {Keys}, CRLs {Crls}, {Failed} failed",
             identity.Name, plan.TrustDomainName, settings.Address, settings.Mount, root, written, plan.Secrets.Count,
-            options.IncludeKeys ? (options.ChainInP12 ? "included with chains" : "included") : "left out", failures.Count);
+            options.IncludeKeys ? (options.ChainInP12 ? "included with chains" : "included") : "left out",
+            options.IncludeCrls ? "included" : "left out", failures.Count);
 
         return new VaultBackupResult(settings.Address!, settings.Mount, root, written, plan.Secrets.Count, failures);
     }
@@ -762,7 +764,7 @@ public partial class VaultExportService
                 fields.AddRange([$"{node.Name}.p12", PasswordField]);
             }
 
-            if (isCa && latestCrls.TryGetValue(node.Id, out var crlId))
+            if (options.IncludeCrls && isCa && latestCrls.TryGetValue(node.Id, out var crlId))
             {
                 targets.Add(new("Crl", crlId, VaultExportArtifact.Crl));
                 fields.Add($"{node.Name}.crl");
