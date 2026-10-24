@@ -34,9 +34,9 @@ public enum VaultExportArtifact
 public record VaultExportTarget(string EntityType, int Id, VaultExportArtifact Artifact);
 
 /// <summary>What a full backup adds besides each certificate's .cer and each CA's latest CRL.</summary>
-/// <param name="IncludeKeys">The .p12 files (and their password) of certificates whose key Sigyll holds.</param>
-/// <param name="ChainInP12">Write each .p12 below a root with its issuing CA certificates, as <c>name-chain.p12</c>
-/// (what mTLS clients and servers load), instead of <c>name.p12</c>.</param>
+/// <param name="IncludeKeys">The P12 files (and their password) of certificates whose key Sigyll holds.</param>
+/// <param name="ChainInP12">Write each P12 below a root with its issuing CA certificates, as <c>name-chain.p12</c>,
+/// instead of <c>name.p12</c>.</param>
 public record VaultBackupOptions(bool IncludeKeys = false, bool ChainInP12 = false);
 
 /// <summary>Where an export would go, shown to the operator before they confirm it.</summary>
@@ -445,7 +445,7 @@ public partial class VaultExportService
             settings.Address!, settings.Mount, relativePath, fields);
     }
 
-    /// <summary>The field holding the password of the secret's .p12 files (the certificate's stored key password).</summary>
+    /// <summary>The field holding the password of the secret's P12 files (the certificate's stored key password).</summary>
     public const string PasswordField = "password";
 
     private async Task<Dictionary<string, string>> BuildFieldsAsync(SigyllDbContext db, VaultExportTarget target, CancellationToken ct)

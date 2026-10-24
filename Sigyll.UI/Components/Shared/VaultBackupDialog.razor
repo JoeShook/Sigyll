@@ -4,7 +4,7 @@
    See LICENSE in the project root for license information. *@
 
 @* Backs up a whole trust domain to Vault KV: every certificate's .cer, each CA's latest CRL and, when a
-   KeyCustodian asks, the .p12 files, at the same paths single exports use. *@
+   KeyCustodian asks, the P12 files, at the same paths single exports use. *@
 
 @using Sigyll.Common.Services.Export
 @inject VaultExportService VaultExport
@@ -52,7 +52,7 @@
 
             <FluentCheckbox Value="@options.IncludeKeys" ValueChanged="@((bool v) => SetOptionsAsync(options with { IncludeKeys = v }))"
                             Disabled="@(!CanExportKeys || isBusy)"
-                            Label="Include private keys (.p12, with their passwords)" />
+                            Label="Include private keys (P12 files, with their passwords)" />
             <div style="font-size: 0.8rem; opacity: 0.7; margin: 0.25rem 0 0 1.75rem;">
                 @if (CanExportKeys)
                 {
@@ -67,7 +67,7 @@
             {
                 <FluentCheckbox Value="@options.ChainInP12" ValueChanged="@((bool v) => SetOptionsAsync(options with { ChainInP12 = v }))"
                                 Disabled="@isBusy" Style="margin: 0.5rem 0 0 1.75rem;"
-                                Label="Include the certificate chain in each .p12 (name-chain.p12), e.g. for mTLS" />
+                                Label="Include the certificate chain in each P12 (name-chain.p12)" />
             }
 
             <div style="margin-top: 0.75rem; font-size: 0.85rem;">
@@ -185,7 +185,7 @@
     private string? error;
     private int done;
 
-    /// <summary>Whether the operator may include .p12 files (the KeyCustodian role).</summary>
+    /// <summary>Whether the operator may include P12 files (the KeyCustodian role).</summary>
     [Parameter] public bool CanExportKeys { get; set; }
 
     /// <summary>Raised after a backup wrote at least one secret.</summary>

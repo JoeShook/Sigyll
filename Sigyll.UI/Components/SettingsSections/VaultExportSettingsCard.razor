@@ -33,7 +33,7 @@
             }
             else
             {
-                <span>Send .cer, .p12 and .crl files to HashiCorp Vault KV. No server set. </span>
+                <span>Send certificates, P12 files and CRLs to HashiCorp Vault KV. No server set. </span>
             }
             @trustDomains.Count(t => t.Original != null) of @trustDomains.Count trust domains mapped,
             @trustDomains.Count(t => t.BackupEnabled) with full backup.
@@ -42,13 +42,13 @@
     else
     {
         <p class="vault-settings-note">
-            Lets operators send certificate files (.cer, .p12, .crl) to a HashiCorp Vault KV v2 mount instead of
+            Lets operators send certificates, P12 files and CRLs to a HashiCorp Vault KV v2 mount instead of
             downloading them, and back up a whole trust domain at once. Each export uses the operator's own Vault
             token, so Vault's policies decide what they can write. Secrets land at
             <code>&lt;mount&gt;/&lt;namespace&gt;/&lt;trust domain&gt;/&lt;root CA&gt;/…/&lt;certificate&gt;</code>.
         </p>
         <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Style="margin-bottom: 1rem;">
-            Exporting private keys (.p12) is for development and lab CAs. In production, keep CA and server keys in an
+            Exporting private keys as P12 (PKCS #12, RFC 7292) is for development and lab CAs. In production, keep CA and server keys in an
             HSM (or Vault Transit / cloud KMS): Sigyll never holds those keys, so there's nothing to export, and only
             certificates leave the CA, such as an end-entity certificate a customer requested with a CSR.
         </FluentMessageBar>
@@ -77,7 +77,7 @@
             <b>Namespace</b> is the folder under the mount each trust domain exports to. The first export to Vault sets
             it; only an Admin can change it here. Clear it to have the next export ask again.
             <b>Full backup</b> adds a <i>Back up to Vault</i> button to the trust domain in the Certificate Explorer,
-            which writes every certificate, the latest CRL of each CA and, for a KeyCustodian who asks, the .p12 files.
+            which writes every certificate, the latest CRL of each CA and, for a KeyCustodian who asks, the P12 files.
         </p>
         <FluentDataGrid Items="@trustDomains.AsQueryable()" ResizableColumns="true"
                         GridTemplateColumns="minmax(160px, 1fr) minmax(280px, 2fr) 110px minmax(160px, 1fr)">

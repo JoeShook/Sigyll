@@ -198,22 +198,22 @@
 - The secret path mirrors the hierarchy, one secret per certificate:
   `<mount>/<namespace>/<trust domain>/<root CA>/…/<certificate>`. Names are made path-safe; an unrelated sibling
   with the same name gets the end of its serial number; a renewal keeps its predecessor's path
-- Fields are named like the downloaded files (`name.cer`, `name.p12`, `name-chain.p12`, `CA name.crl`); a `.p12`
-  is base64 with its key password beside it in `password`. Each export merges into the secret with check-and-set,
-  so exporting the `.cer` keeps an earlier `.p12`, and KV versions keep history
+- Fields are named like the downloaded files (`name.cer`, `name.p12`, `name-chain.p12`, `CA name.crl`); a P12
+  (PKCS #12, RFC 7292) is base64 with its key password beside it in `password`. Each export merges into the secret with check-and-set,
+  so exporting the `.cer` keeps an earlier P12, and KV versions keep history
 - The operator pastes their own Vault token (Vault UI → user menu → Copy token), so Vault's policies decide what
   they can write. Sigyll keeps it in memory for the browser session only and asks again when Vault refuses it
-- Same rules as a download: `.p12` needs KeyCustodian; `.cer`/`.crl` need CaOperator or KeyCustodian
+- Same rules as a download: P12 needs KeyCustodian; `.cer`/`.crl` need CaOperator or KeyCustodian
 - `VaultExportService` (Sigyll.Common) + `VaultKvClient` (Sigyll.Vault); settings in `VaultExportSettings` and
   `TrustDomains.VaultNamespace` (Flyway V4)
 - **Full backup of a trust domain**: an Admin turns it on per trust domain in Settings; the Certificate Explorer then
   shows **Back up to Vault** for it. One run writes every certificate's `.cer` and each CA's latest CRL to the same
-  secrets single exports use, plus the `.p12` files when a KeyCustodian ticks *Include private keys* (optionally with
-  the chain, as `name-chain.p12` below each root, e.g. for mTLS). Certificates
+  secrets single exports use, plus the P12 files when a KeyCustodian ticks *Include private keys* (optionally with
+  the chain, as `name-chain.p12` below each root). Certificates
   whose key Sigyll doesn't hold (HSM, Vault Transit, KMS, CSR-issued) are backed up as `.cer` only; a renewal
   writes its newest generation. A failed secret is reported and the run carries on; a refused token stops it.
   Last backup time and operator show in Settings (`TrustDomains.VaultBackupEnabled`, Flyway V5)
-- Exporting `.p12` files is for development and lab CAs: in production, keys stay in an HSM and only certificates
+- Exporting P12 files is for development and lab CAs: in production, keys stay in an HSM and only certificates
   leave the CA (Settings says so too)
 
 ### Renewal Validation
