@@ -83,6 +83,13 @@
                         <div style="opacity: 0.8;">@string.Join(", ", plan.CertificateOnly)</div>
                     </details>
                 }
+                @if (plan.Excluded.Count > 0)
+                {
+                    <details style="margin-top: 0.25rem;">
+                        <summary>@plan.Excluded.Count left out by an operator</summary>
+                        <div style="opacity: 0.8;">@string.Join(", ", plan.Excluded)</div>
+                    </details>
+                }
                 @if (plan.Superseded.Count > 0)
                 {
                     <details style="margin-top: 0.25rem;">

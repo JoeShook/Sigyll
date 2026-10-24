@@ -1271,6 +1271,17 @@ else if (treeNodes.Count > 0)
                                                     Disabled="@(!Access.CanOperate)"
                                                     Label="@(selectedNodeAutoRenew ? "Enabled" : "Disabled")" />
                                 </span>
+                                @if (CanBackUpToVault)
+                                {
+                                    <strong>Vault Backup</strong>
+                                    <span>
+                                        <FluentCheckbox Value="@(!selectedNodeBackupExcluded)"
+                                                        ValueChanged="@(v => ToggleBackupExcludedAsync(!v))"
+                                                        Disabled="@(!Access.CanOperate)"
+                                                        title="Applies to every generation of this certificate's renewals, which share one secret"
+                                                        Label="@(selectedNodeBackupExcluded ? "Left out of the trust domain backup" : "Included in the trust domain backup")" />
+                                    </span>
+                                }
                                 <strong>Version</strong>
                                 <span>@selectedNodeVersion</span>
                                 @if (selectedNodeRenewalOfName != null)

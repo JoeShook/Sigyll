@@ -99,6 +99,7 @@ public partial class CertificateExplorer : IDisposable
     private bool selectedNodeHasRemoteKey;
     private bool selectedNodeCanSign => selectedNodeHasPrivateKey || selectedNodeHasRemoteKey;
     private bool selectedNodeAutoRenew = true;
+    private bool selectedNodeBackupExcluded;
     private bool isGeneratingCrl;
     private bool isPublishingAia;
     private bool crlOverrideDialogHidden = true;
@@ -504,6 +505,7 @@ public partial class CertificateExplorer : IDisposable
         selectedNodeHasPrivateKey = false;
         selectedNodeHasRemoteKey = false;
         selectedNodeAutoRenew = true;
+        selectedNodeBackupExcluded = false;
         selectedNodeVersion = 1;
         selectedNodeRenewalOfName = null;
         chainValidation = null;
@@ -559,6 +561,8 @@ public partial class CertificateExplorer : IDisposable
         selectedNodeHasPrivateKey = details.HasPrivateKey;
         selectedNodeHasRemoteKey = details.HasRemoteKey;
         selectedNodeAutoRenew = details.AutoRenew;
+        if (CanBackUpToVault)
+            selectedNodeBackupExcluded = await VaultExport.IsBackupExcludedAsync(node.EntityType, node.Id);
         selectedNodeVersion = details.Version;
         selectedNodeRenewalOfName = details.RenewalOfName;
 
@@ -1286,6 +1290,16 @@ public partial class CertificateExplorer : IDisposable
 
         await ManagementService.SetAutoRenewAsync(selectedNode.Id, selectedNode.EntityType, enabled);
         selectedNodeAutoRenew = enabled;
+    }
+
+    // --- Vault backup opt-out ---
+
+    private async Task ToggleBackupExcludedAsync(bool excluded)
+    {
+        if (selectedNode == null) return;
+
+        await VaultExport.SetBackupExcludedAsync(selectedNode.EntityType, selectedNode.Id, excluded);
+        selectedNodeBackupExcluded = excluded;
     }
 
     // --- Delete & Move ---

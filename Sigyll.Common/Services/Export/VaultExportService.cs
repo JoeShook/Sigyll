@@ -74,6 +74,7 @@ public record VaultBackupSecret(string RelativePath, string Name, IReadOnlyList<
 /// or a certificate issued from a CSR): only their .cer is backed up.</param>
 /// <param name="Superseded">Earlier generations of renewed certificates. They share their renewal's secret, which holds
 /// the newest generation; Vault's version history keeps what earlier exports wrote.</param>
+/// <param name="Excluded">Certificates an operator left out of the backup.</param>
 public record VaultBackupPlan(
     int TrustDomainId,
     string TrustDomainName,
@@ -83,7 +84,8 @@ public record VaultBackupPlan(
     VaultBackupOptions Options,
     IReadOnlyList<VaultBackupSecret> Secrets,
     IReadOnlyList<string> CertificateOnly,
-    IReadOnlyList<string> Superseded)
+    IReadOnlyList<string> Superseded,
+    IReadOnlyList<string> Excluded)
 {
     public int CertificateCount => Secrets.Count;
     public int KeyCount => Secrets.Sum(s => s.Targets.Count(t => t.Artifact is VaultExportArtifact.P12 or VaultExportArtifact.P12WithChain));
@@ -359,6 +361,66 @@ public partial class VaultExportService
     }
 
     /// <summary>
+    /// Whether the full backup leaves the certificate out. The setting covers its whole renewal lineage, since every
+    /// generation shares one secret.
+    /// </summary>
+    public async Task<bool> IsBackupExcludedAsync(string entityType, int id, CancellationToken ct = default)
+    {
+        await _operator.DemandAsync(Permission.View);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        return (await LineageAsync(db, entityType, id, ct)).Any(n => n.Excluded);
+    }
+
+    /// <summary>Leaves the certificate, and every generation of its renewal lineage, out of the full backup (or not).</summary>
+    public async Task SetBackupExcludedAsync(string entityType, int id, bool excluded, CancellationToken ct = default)
+    {
+        var identity = await _operator.DemandAsync(Permission.Operate);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var ids = (await LineageAsync(db, entityType, id, ct)).Select(n => n.Id).ToList();
+        if (entityType == "CaCertificate")
+            foreach (var ca in await db.CaCertificates.Where(c => ids.Contains(c.Id)).ToListAsync(ct))
+                ca.VaultBackupExcluded = excluded;
+        else
+            foreach (var issued in await db.IssuedCertificates.Where(c => ids.Contains(c.Id)).ToListAsync(ct))
+                issued.VaultBackupExcluded = excluded;
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("{Actor} {Action} the full backup to Vault: {EntityType} {Ids}",
+            identity.Name, excluded ? "left out of" : "put back into", entityType, string.Join(", ", ids));
+    }
+
+    private sealed record LineageNode(int Id, int? RenewalOfId, bool Excluded);
+
+    /// <summary>The certificate and every certificate linked to it by renewal, in either direction.</summary>
+    private static async Task<List<LineageNode>> LineageAsync(SigyllDbContext db, string entityType, int id, CancellationToken ct)
+    {
+        var all = entityType switch
+        {
+            "CaCertificate" => await db.CaCertificates.AsNoTracking()
+                .Select(c => new LineageNode(c.Id, c.RenewalOfId, c.VaultBackupExcluded)).ToListAsync(ct),
+            "IssuedCertificate" => await db.IssuedCertificates.AsNoTracking()
+                .Select(c => new LineageNode(c.Id, c.RenewalOfId, c.VaultBackupExcluded)).ToListAsync(ct),
+            _ => throw new ArgumentException($"Unknown entity type {entityType}."),
+        };
+        if (all.All(n => n.Id != id))
+            throw new ArgumentException("Certificate not found.");
+
+        var renewals = all.Where(n => n.RenewalOfId != null).ToLookup(n => n.RenewalOfId!.Value);
+        var byId = all.ToDictionary(n => n.Id);
+        var found = new Dictionary<int, LineageNode>();
+        var pending = new Stack<int>([id]);
+        while (pending.TryPop(out var next))
+        {
+            if (!byId.TryGetValue(next, out var node) || !found.TryAdd(next, node)) continue;
+            if (node.RenewalOfId is int previous) pending.Push(previous);
+            foreach (var renewal in renewals[next]) pending.Push(renewal.Id);
+        }
+        return found.Values.ToList();
+    }
+
+    /// <summary>
     /// The namespace an export writes to: the trust domain's, or <paramref name="firstNamespace"/> when it has none
     /// yet (then <c>Setting</c> is true). Naming a different one for a mapped trust domain is refused.
     /// </summary>
@@ -494,13 +556,13 @@ public partial class VaultExportService
         var hierarchy = await Hierarchy.LoadAsync(db, ct);
         var caKeys = await db.CaCertificates.AsNoTracking()
             .Where(c => c.TrustDomainId == trustDomainId)
-            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null })
-            .ToDictionaryAsync(c => c.Id, c => c.HasKey, ct);
+            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null, c.VaultBackupExcluded })
+            .ToDictionaryAsync(c => c.Id, ct);
         var caIds = caKeys.Keys.ToList();
         var issuedKeys = await db.IssuedCertificates.AsNoTracking()
             .Where(c => caIds.Contains(c.IssuingCaCertificateId))
-            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null })
-            .ToDictionaryAsync(c => c.Id, c => c.HasKey, ct);
+            .Select(c => new { c.Id, HasKey = c.EncryptedPfxBytes != null, c.VaultBackupExcluded })
+            .ToDictionaryAsync(c => c.Id, ct);
         var latestCrls = (await db.Crls.AsNoTracking()
                 .Where(c => caIds.Contains(c.CaCertificateId))
                 .Select(c => new { c.Id, c.CaCertificateId, c.CrlNumber })
@@ -520,10 +582,18 @@ public partial class VaultExportService
         var secrets = new List<VaultBackupSecret>();
         var certificateOnly = new List<string>();
         var superseded = new List<string>();
+        var excluded = new List<string>();
         foreach (var group in entries.GroupBy(e => e.Path).OrderBy(g => g.Key, StringComparer.Ordinal))
         {
             // A renewal shares its predecessor's secret: back up the newest generation.
             var newest = group.MaxBy(e => e.Node.Id);
+
+            // Leaving out any generation leaves out the secret they share.
+            if (group.Any(e => e.IsCa ? caKeys[e.Node.Id].VaultBackupExcluded : issuedKeys[e.Node.Id].VaultBackupExcluded))
+            {
+                excluded.Add(newest.Node.Name);
+                continue;
+            }
             superseded.AddRange(group.Where(e => e != newest).Select(e => $"{e.Node.Name} ({group.Key})"));
 
             var (_, node, isCa) = newest;
@@ -531,7 +601,7 @@ public partial class VaultExportService
             var targets = new List<VaultExportTarget> { new(entityType, node.Id, VaultExportArtifact.Cer) };
             var fields = new List<string> { $"{node.Name}.cer" };
 
-            var hasKey = isCa ? caKeys[node.Id] : issuedKeys.GetValueOrDefault(node.Id);
+            var hasKey = isCa ? caKeys[node.Id].HasKey : issuedKeys[node.Id].HasKey;
             if (!hasKey)
                 certificateOnly.Add(node.Name);
             else if (options.IncludeKeys && options.ChainInP12 && node.ParentId != null)
@@ -556,7 +626,7 @@ public partial class VaultExportService
         }
 
         return new VaultBackupPlan(trustDomain.Id, trustDomain.Name, trustDomain.VaultNamespace,
-            settings.Address!, settings.Mount, options, secrets, certificateOnly, superseded);
+            settings.Address!, settings.Mount, options, secrets, certificateOnly, superseded, excluded);
     }
 
     private sealed record Node(int Id, string Name, int? ParentId, int? RenewalOfId, string SerialNumber, int TrustDomainId);

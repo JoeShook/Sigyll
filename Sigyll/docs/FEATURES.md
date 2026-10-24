@@ -213,6 +213,8 @@
   whose key Sigyll doesn't hold (HSM, Vault Transit, KMS, CSR-issued) are backed up as `.cer` only; a renewal
   writes its newest generation. A failed secret is reported and the run carries on; a refused token stops it.
   Last backup time and operator show in Settings (`TrustDomains.VaultBackupEnabled`, Flyway V5)
+- A CaOperator can leave a certificate out of the backup (Explorer details, *Vault Backup*). It covers the whole
+  renewal lineage, which shares one secret; leaving out a CA keeps what it issued (`VaultBackupExcluded`, Flyway V6)
 - Exporting P12 files is for development and lab CAs: in production, keys stay in an HSM and only certificates
   leave the CA (Settings says so too)
 

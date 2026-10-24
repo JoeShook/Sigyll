@@ -297,6 +297,49 @@ public class VaultExportServiceTests
     }
 
     [Fact]
+    public async Task Backup_LeavesOutExcludedCertificates_AndTheirWholeRenewalLineage()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var first = await AddIssuedAsync(root, "server");
+        var renewal = await AddIssuedAsync(root, "server", renewalOf: first.Id);
+        await AddIssuedAsync(root, "client");
+
+        await Should.ThrowAsync<OperatorAccessDeniedException>(
+            () => Service(Auditor).SetBackupExcludedAsync("IssuedCertificate", first.Id, true));
+        await Service(CaOperator).SetBackupExcludedAsync("IssuedCertificate", first.Id, true);
+
+        // The renewal is excluded with it, and so is a later renewal.
+        (await Service(Auditor).IsBackupExcludedAsync("IssuedCertificate", renewal.Id)).ShouldBeTrue();
+        var third = await AddIssuedAsync(root, "server", renewalOf: renewal.Id);
+        (await Service(Auditor).IsBackupExcludedAsync("IssuedCertificate", third.Id)).ShouldBeTrue();
+
+        var plan = await Service(CaOperator).PlanBackupAsync(td, new());
+        plan.Excluded.ShouldBe(["server"]);
+        plan.Superseded.ShouldBeEmpty();
+        plan.Secrets.Select(s => s.RelativePath).ShouldBe(["lab/root", "lab/root/client"], ignoreOrder: true);
+
+        await Service(CaOperator).SetBackupExcludedAsync("IssuedCertificate", third.Id, false);
+        (await Service(CaOperator).PlanBackupAsync(td, new())).Excluded.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Backup_ExcludingACa_LeavesItsOwnSecretOut_ButKeepsWhatItIssued()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        var issuing = await AddCaAsync(td, "Issuing", root);
+        await AddIssuedAsync(issuing, "client");
+
+        await Service(CaOperator).SetBackupExcludedAsync("CaCertificate", issuing, true);
+        await Service(CaOperator).BackupAsync(td, Token, new());
+
+        _writes.Select(w => w.Path).ShouldBe(["team-a/lab/root", "team-a/lab/root/issuing/client"], ignoreOrder: true);
+    }
+
+    [Fact]
     public async Task Backup_WithoutKeys_IsOpenToCaOperators_ButKeysNeedAKeyCustodian()
     {
         await EnableAsync();

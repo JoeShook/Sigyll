@@ -52,6 +52,8 @@ public class IssuedCertificate
     public string? StoreProviderHint { get; set; }
     public bool Enabled { get; set; } = true;
     public bool AutoRenew { get; set; } = true;
+    /// <summary>Left out of the full trust domain backup to Vault (set on every generation of a renewal lineage).</summary>
+    public bool VaultBackupExcluded { get; set; }
     public bool IsArchived { get; set; }
     public DateTime? ArchivedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
