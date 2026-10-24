@@ -35,6 +35,7 @@ public class SigyllDbContext : DbContext
     public DbSet<CredentialSchema> CredentialSchemas => Set<CredentialSchema>();
     public DbSet<IssuedCredential> IssuedCredentials => Set<IssuedCredential>();
     public DbSet<ExternalCertificateRequest> ExternalCertificateRequests => Set<ExternalCertificateRequest>();
+    public DbSet<VaultExportSettings> VaultExportSettings => Set<VaultExportSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -93,6 +94,17 @@ public class SigyllDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(e => e.Name).IsUnique();
+            entity.Property(e => e.VaultNamespace).HasMaxLength(200);
+        });
+
+        // VaultExportSettings — the one row saying where certificates can be exported in Vault
+        modelBuilder.Entity<VaultExportSettings>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.Address).HasMaxLength(500);
+            entity.Property(e => e.Mount).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.UpdatedBy).HasMaxLength(256);
         });
 
         // TrustDomainBaseUrl

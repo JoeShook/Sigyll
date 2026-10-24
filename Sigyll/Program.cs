@@ -24,6 +24,7 @@ using Sigyll.ServiceDefaults;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
 using Sigyll.Common.Services;
+using Sigyll.Common.Services.Export;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
@@ -148,6 +149,11 @@ try
     builder.Services.AddScoped<CertificateIssuanceService>();
     builder.Services.AddSingleton<IRemoteKeyStore, RemoteKeyStore>();
 
+    // Export to Vault KV with the operator's own token (settings in the database, set on the Settings page)
+    builder.Services.AddHttpClient(VaultKvClient.HttpClientName);
+    builder.Services.AddSingleton<IVaultKvClient, VaultKvClient>();
+    builder.Services.AddScoped<VaultExportService>();
+
     // DID + VC services (Phase A + D)
     builder.Services.AddScoped<DidTemplateService>();
     builder.Services.AddScoped<DidIssuanceService>();
@@ -164,6 +170,7 @@ try
     builder.Services.AddScoped<CrlAutoRenewalJob>();
     builder.Services.AddScoped<Sigyll.UI.Services.TimeDisplayService>();
     builder.Services.AddScoped<Sigyll.UI.Services.IssuancePasswordCache>();
+    builder.Services.AddScoped<Sigyll.UI.Services.VaultTokenCache>();
 
     // System status — populate from existing options sections
     builder.Services.AddOptions<SystemStatusOptions>().Configure<

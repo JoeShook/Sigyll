@@ -1,0 +1,235 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@* Exports one certificate file to Vault KV: shows where it goes, asks for the trust domain's namespace on its
+   first export, and for the operator's Vault token when this session doesn't hold one yet. *@
+
+@using Sigyll.Common.Services.Export
+@inject VaultExportService VaultExport
+@inject VaultTokenCache TokenCache
+@inject IToastService ToastService
+
+<FluentDialog @bind-Hidden="@hidden" Modal="true" TrapFocus="true" Style="min-width: 560px;">
+    <FluentDialogHeader>Export to Vault</FluentDialogHeader>
+    <FluentDialogBody>
+        @if (plan == null)
+        {
+            @if (error != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@error</FluentMessageBar>
+            }
+            else
+            {
+                <FluentProgressRing />
+            }
+        }
+        else if (result != null)
+        {
+            <FluentMessageBar Intent="MessageIntent.Success" AllowDismiss="false">
+                Wrote version @result.Version of <code>@result.Mount/@result.Path</code>.
+            </FluentMessageBar>
+            <p style="font-size: 0.85rem; margin-top: 0.75rem;">Fields: @string.Join(", ", result.Fields)</p>
+            <p style="font-size: 0.8rem; opacity: 0.7;">
+                Read it with <code>vault kv get -mount=@result.Mount @result.Path</code>.
+            </p>
+        }
+        else
+        {
+            <p style="font-size: 0.9rem;">
+                Export <code>@displayName</code> to <code>@plan.Address</code>.
+                @if (IsP12)
+                {
+                    <span>The .p12 keeps the certificate's key password, written beside it as <code>@VaultExportService.PasswordField</code>.</span>
+                }
+            </p>
+
+            @if (IsP12)
+            {
+                <FluentCheckbox Value="@includeChain" ValueChanged="@((bool v) => SetIncludeChainAsync(v))"
+                                Label="Include certificate chain (issuing CA public certs)" />
+            }
+
+            @if (plan.Namespace == null)
+            {
+                <div style="margin-top: 0.75rem;">
+                    <FluentLabel Weight="FontWeight.Bold">Namespace for trust domain @plan.TrustDomainName</FluentLabel>
+                    <p style="font-size: 0.8rem; opacity: 0.7; margin: 0.25rem 0 0.5rem;">
+                        This is the first export to Vault for this trust domain. Its certificates will go under this
+                        folder of the <code>@plan.Mount</code> mount from now on; only an Admin can change it later.
+                    </p>
+                    <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem;">
+                        <FluentTextField @bind-Value="chosenNamespace" Immediate="true"
+                                         Placeholder="e.g. team-a" Style="width: 240px; font-family: monospace;" />
+                        <FluentButton Appearance="Appearance.Outline" OnClick="ListNamespacesAsync"
+                                      Disabled="@(isBusy || string.IsNullOrWhiteSpace(EffectiveToken))"
+                                      title="List the folders your token can see at the top of the mount">
+                            List namespaces
+                        </FluentButton>
+                    </FluentStack>
+                    @if (listedNamespaces != null)
+                    {
+                        <FluentStack Orientation="Orientation.Horizontal" Wrap="true" Style="gap: 0.25rem; margin-top: 0.5rem;">
+                            @if (listedNamespaces.Count == 0)
+                            {
+                                <span style="font-size: 0.8rem; opacity: 0.7;">Your token can't list the mount; type the namespace.</span>
+                            }
+                            @foreach (var ns in listedNamespaces)
+                            {
+                                <FluentButton Appearance="@(ns == chosenNamespace ? Appearance.Accent : Appearance.Lightweight)"
+                                              OnClick="@(() => chosenNamespace = ns)">@ns</FluentButton>
+                            }
+                        </FluentStack>
+                    }
+                </div>
+            }
+
+            <div style="margin-top: 0.75rem; font-size: 0.85rem;">
+                <div style="opacity: 0.7;">Secret</div>
+                <code style="word-break: break-all;">@plan.Mount/@(plan.Namespace ?? (string.IsNullOrWhiteSpace(chosenNamespace) ? "<namespace>" : chosenNamespace.Trim().Trim('/')))/@plan.RelativePath</code>
+                <div style="opacity: 0.7; margin-top: 0.25rem;">Fields: @string.Join(", ", plan.Fields)</div>
+            </div>
+
+            <div style="margin-top: 0.75rem;">
+                @if (TokenCache.Token == null)
+                {
+                    <FluentTextField @bind-Value="token" TextFieldType="TextFieldType.Password" Immediate="true"
+                                     Label="Vault token" Style="width: 100%;" />
+                    <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.25rem;">
+                        In the Vault UI, open the user menu and click <b>Copy token</b>. Sigyll keeps it in memory for
+                        this browser session only.
+                    </div>
+                }
+                else
+                {
+                    <span style="font-size: 0.85rem;">Using the Vault token you entered earlier in this session.</span>
+                    <FluentButton Appearance="Appearance.Lightweight" OnClick="ForgetToken">Forget it</FluentButton>
+                }
+            </div>
+
+            @if (error != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false" Style="margin-top: 0.75rem;">@error</FluentMessageBar>
+            }
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        @if (plan != null && result == null)
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="ExportAsync" Loading="@isBusy"
+                          Disabled="@(isBusy || string.IsNullOrWhiteSpace(EffectiveToken) || (plan.Namespace == null && string.IsNullOrWhiteSpace(chosenNamespace)))">
+                Export
+            </FluentButton>
+        }
+        <FluentButton Appearance="Appearance.Outline" OnClick="@(() => hidden = true)">@(result != null ? "Close" : "Cancel")</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
+
+@code {
+    private bool hidden = true;
+    private bool isBusy;
+    private VaultExportTarget? target;
+    private string displayName = "";
+    private VaultExportPlan? plan;
+    private VaultExportResult? result;
+    private bool includeChain;
+    private string? chosenNamespace;
+    private List<string>? listedNamespaces;
+    private string? token;
+    private string? error;
+
+    private bool IsP12 => target?.Artifact is VaultExportArtifact.P12 or VaultExportArtifact.P12WithChain;
+    private string? EffectiveToken => TokenCache.Token ?? token;
+
+    /// <summary>Opens the dialog for <paramref name="exportTarget"/>.</summary>
+    public async Task ShowAsync(VaultExportTarget exportTarget, string name)
+    {
+        target = exportTarget;
+        displayName = name;
+        includeChain = exportTarget.Artifact == VaultExportArtifact.P12WithChain;
+        plan = null;
+        result = null;
+        chosenNamespace = null;
+        listedNamespaces = null;
+        token = null;
+        error = null;
+        hidden = false;
+        StateHasChanged();
+        await LoadPlanAsync();
+    }
+
+    private async Task LoadPlanAsync()
+    {
+        try
+        {
+            plan = await VaultExport.PlanAsync(target!);
+            error = null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            plan = null;
+            error = ex.Message;
+        }
+        StateHasChanged();
+    }
+
+    private async Task SetIncludeChainAsync(bool value)
+    {
+        includeChain = value;
+        target = target! with { Artifact = value ? VaultExportArtifact.P12WithChain : VaultExportArtifact.P12 };
+        await LoadPlanAsync();
+    }
+
+    private async Task ListNamespacesAsync()
+    {
+        isBusy = true;
+        try
+        {
+            listedNamespaces = (await VaultExport.ListNamespacesAsync(EffectiveToken!)).ToList();
+            error = null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
+        {
+            error = $"Couldn't reach Vault: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        isBusy = true;
+        error = null;
+        try
+        {
+            var usedToken = EffectiveToken!;
+            result = await VaultExport.ExportAsync(target!, usedToken, plan!.Namespace == null ? chosenNamespace : null);
+            TokenCache.Save(usedToken);
+            token = null;
+            ToastService.ShowSuccess($"Exported {displayName} to Vault {result.Mount}/{result.Path} (version {result.Version}).");
+        }
+        catch (VaultTokenRefusedException ex)
+        {
+            TokenCache.Clear();
+            token = null;
+            error = $"{ex.Message} Paste a new token, or ask for a policy that allows writing it.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void ForgetToken()
+    {
+        TokenCache.Clear();
+        listedNamespaces = null;
+    }
+}

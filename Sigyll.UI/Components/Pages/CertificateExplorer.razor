@@ -7,6 +7,7 @@
 @page "/explorer/{TrustDomainId:int}"
 @using Sigyll.Common.ViewModels
 @using Sigyll.Common.Services
+@using Sigyll.Common.Services.Export
 @using Sigyll.UI.Components.Shared
 @using System.Security.Cryptography.X509Certificates
 
@@ -202,6 +203,9 @@
         <FluentButton Appearance="Appearance.Outline" OnClick="CancelConfirmDialog">Cancel</FluentButton>
     </FluentDialogFooter>
 </FluentDialog>
+
+@* Export to Vault (when an Admin turned it on) *@
+<VaultExportDialog @ref="vaultExportDialog" />
 
 @* .p12 download options dialog *@
 <FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true"
@@ -968,12 +972,12 @@ else if (treeNodes.Count > 0)
                     </FluentStack>
 
                     <FluentStack Orientation="Orientation.Horizontal" Style="margin-top: 0.5rem; gap: 0.5rem;" Wrap="true">
-                        <FluentAnchor Href="@($"/api/crl/{selectedCrl.Id}/download")"
-                                      Appearance="Appearance.Outline"
-                                      title="Download .crl">
-                            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
+                        <ExportButton Title="Download .crl" VaultEnabled="@vaultExportEnabled"
+                                      VaultDisabled="@(!CanExportToVault)" VaultTitle="@VaultExportTitle"
+                                      OnFile="@(() => DownloadAsync($"/api/crl/{selectedCrl.Id}/download"))"
+                                      OnVault="@(() => ExportToVaultAsync("Crl", selectedCrl.Id, VaultExportArtifact.Crl, selectedCrl.FileName ?? $"CRL #{selectedCrl.CrlNumber}"))">
                             .crl
-                        </FluentAnchor>
+                        </ExportButton>
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.Archive())"
                                       OnClick="ArchiveSelectedAsync" Disabled="@(!Access.CanOperate)"
@@ -1084,12 +1088,12 @@ else if (treeNodes.Count > 0)
                     </FluentStack>
 
                     <FluentStack Orientation="Orientation.Horizontal" Style="margin-top: 0.5rem; gap: 0.5rem;" Wrap="true">
-                        <FluentAnchor Href="@GetCerDownloadUrl()"
-                                      Appearance="Appearance.Outline"
-                                      title="Download public certificate (.cer PEM)">
-                            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
+                        <ExportButton Title="Download public certificate (.cer PEM)" VaultEnabled="@vaultExportEnabled"
+                                      VaultDisabled="@(!CanExportToVault)" VaultTitle="@VaultExportTitle"
+                                      OnFile="@(() => DownloadAsync(GetCerDownloadUrl()))"
+                                      OnVault="@(() => ExportSelectedToVaultAsync(VaultExportArtifact.Cer))">
                             .cer
-                        </FluentAnchor>
+                        </ExportButton>
                         <FluentButton Appearance="Appearance.Outline"
                                       IconStart="@(new Icons.Regular.Size16.Certificate())"
                                       OnClick="CopyCertBase64Async"
@@ -1098,12 +1102,12 @@ else if (treeNodes.Count > 0)
                         </FluentButton>
                         @if (selectedNodeHasPrivateKey)
                         {
-                            <FluentButton Appearance="Appearance.Outline"
-                                          IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
-                                          OnClick="ShowP12DownloadDialog" Disabled="@(!Access.CanExportKeys)"
-                                          title="@(Access.CanExportKeys ? "Download certificate + private key (.p12)" : OperatorAccess.ExportKeysHint)">
+                            <ExportButton Disabled="@(!Access.CanExportKeys)" VaultEnabled="@vaultExportEnabled"
+                                          Title="@(Access.CanExportKeys ? "Download certificate + private key (.p12)" : OperatorAccess.ExportKeysHint)"
+                                          OnFile="ShowP12DownloadDialog"
+                                          OnVault="@(() => ExportSelectedToVaultAsync(VaultExportArtifact.P12))">
                                 .p12
-                            </FluentButton>
+                            </ExportButton>
                             @if (selectedNode?.EntityType != "CaCertificate")
                             {
                                 <FluentButton Appearance="Appearance.Outline"
@@ -1201,12 +1205,13 @@ else if (treeNodes.Count > 0)
                             </FluentButton>
                             @if (GetLatestCrlNode() is { } latestCrlNode)
                             {
-                                <FluentAnchor Href="@($"/api/crl/{latestCrlNode.Id}/download")"
-                                              Appearance="Appearance.Outline"
-                                              title="@($"Download the latest CRL ({latestCrlNode.Name}) to hand to an external CA or CDP host")">
-                                    <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
+                                <ExportButton Title="@($"Download the latest CRL ({latestCrlNode.Name}) to hand to an external CA or CDP host")"
+                                              VaultEnabled="@vaultExportEnabled"
+                                              VaultDisabled="@(!CanExportToVault)" VaultTitle="@VaultExportTitle"
+                                              OnFile="@(() => DownloadAsync($"/api/crl/{latestCrlNode.Id}/download"))"
+                                              OnVault="@(() => ExportToVaultAsync("Crl", latestCrlNode.Id, VaultExportArtifact.Crl, latestCrlNode.Name))">
                                     Download CRL
-                                </FluentAnchor>
+                                </ExportButton>
                             }
                             <FluentButton Appearance="Appearance.Outline"
                                           IconStart="@(new Icons.Regular.Size16.Certificate())"

@@ -33,10 +33,13 @@ public class PfxExportResult
     public bool Success { get; set; }
     public byte[]? PfxBytes { get; set; }
     public string? FileName { get; set; }
+
+    /// <summary>The password protecting <see cref="PfxBytes"/>: the certificate's stored key password.</summary>
+    public string? Password { get; set; }
     public string? Error { get; set; }
 
-    public static PfxExportResult Ok(byte[] pfxBytes, string fileName) =>
-        new() { Success = true, PfxBytes = pfxBytes, FileName = fileName };
+    public static PfxExportResult Ok(byte[] pfxBytes, string fileName, string password) =>
+        new() { Success = true, PfxBytes = pfxBytes, FileName = fileName, Password = password };
     public static PfxExportResult Failure(string error) => new() { Success = false, Error = error };
 }
 
@@ -174,7 +177,7 @@ public class CertificateExportService
         {
             // Always re-encrypt: rows written before Pkcs12Writer hold 3DES/SHA-1 files.
             if (!includeChain || issuerCaId == null)
-                return PfxExportResult.Ok(Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty), $"{name}.p12");
+                return PfxExportResult.Ok(Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty), $"{name}.p12", pfxPassword ?? string.Empty);
 
             var visited = new HashSet<int>();
             var nextId = issuerCaId;
@@ -187,7 +190,7 @@ public class CertificateExportService
             }
 
             var bytes = Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty, extraCerts: chainCerts);
-            return PfxExportResult.Ok(bytes, $"{name}-chain.p12");
+            return PfxExportResult.Ok(bytes, $"{name}-chain.p12", pfxPassword ?? string.Empty);
         }
         catch (Exception ex)
         {

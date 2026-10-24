@@ -190,6 +190,23 @@
 - Both operations delegated to `CertificateExportService` in `Sigyll.Common`
 - Security level enforcement: keys stored in HSM/Cloud KMS (`CertSecurityLevel != Software`) cannot be exported
 
+### Export to Vault KV
+- An Admin turns it on in **Settings** (`/admin/settings`): Vault address and KV v2 mount (default `secret`)
+- Once on, the `.cer`, `.p12` and `.crl` buttons open a menu: **Download file** or **Export to Vault**
+- Each trust domain exports under its own folder of the mount, its *namespace* (e.g. `team-a`). The first export
+  asks for it (listing the folders the operator's token can see); after that only an Admin can change it in Settings
+- The secret path mirrors the hierarchy, one secret per certificate:
+  `<mount>/<namespace>/<trust domain>/<root CA>/…/<certificate>`. Names are made path-safe; an unrelated sibling
+  with the same name gets the end of its serial number; a renewal keeps its predecessor's path
+- Fields are named like the downloaded files (`name.cer`, `name.p12`, `name-chain.p12`, `CA name.crl`); a `.p12`
+  is base64 with its key password beside it in `password`. Each export merges into the secret with check-and-set,
+  so exporting the `.cer` keeps an earlier `.p12`, and KV versions keep history
+- The operator pastes their own Vault token (Vault UI → user menu → Copy token), so Vault's policies decide what
+  they can write. Sigyll keeps it in memory for the browser session only and asks again when Vault refuses it
+- Same rules as a download: `.p12` needs KeyCustodian; `.cer`/`.crl` need CaOperator or KeyCustodian
+- `VaultExportService` (Sigyll.Common) + `VaultKvClient` (Sigyll.Vault); settings in `VaultExportSettings` and
+  `TrustDomains.VaultNamespace` (Flyway V4)
+
 ### Renewal Validation
 - **CDP/AIA URL change warning**: When renewing a certificate, if the selected profile would change CDP or AIA URLs compared to the original certificate, a warning banner appears in the issuance dialog listing each added/removed URL
 - Business logic in `IssuanceValidator` (injected into `CertificateIssuanceService`), not in UI code-behind

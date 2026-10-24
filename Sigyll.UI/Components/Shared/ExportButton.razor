@@ -1,0 +1,50 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@* A download button that, once an Admin turns on export to Vault, opens a menu of destinations: the file, or
+   Vault. Without Vault it downloads straight away, as before. *@
+
+<FluentButton Id="@anchorId" Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+              OnClick="OnClickAsync" Disabled="@Disabled" title="@Title">
+    @ChildContent
+</FluentButton>
+@if (VaultEnabled)
+{
+    <FluentMenu Anchor="@anchorId" @bind-Open="@menuOpen" VerticalThreshold="170">
+        <FluentMenuItem OnClick="OnFile">
+            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" slot="start" />
+            Download file
+        </FluentMenuItem>
+        <FluentMenuItem OnClick="OnVault" Disabled="@VaultDisabled" title="@VaultTitle">
+            <FluentIcon Value="@(new Icons.Regular.Size16.CloudArrowUp())" slot="start" />
+            Export to Vault
+        </FluentMenuItem>
+    </FluentMenu>
+}
+
+@code {
+    private readonly string anchorId = $"export-{Guid.NewGuid():N}";
+    private bool menuOpen;
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Whether an Admin turned on export to Vault; without it the button downloads directly.</summary>
+    [Parameter] public bool VaultEnabled { get; set; }
+
+    [Parameter] public bool VaultDisabled { get; set; }
+    [Parameter] public string? VaultTitle { get; set; }
+    [Parameter] public EventCallback OnFile { get; set; }
+    [Parameter] public EventCallback OnVault { get; set; }
+
+    private async Task OnClickAsync()
+    {
+        if (VaultEnabled)
+            menuOpen = !menuOpen;
+        else
+            await OnFile.InvokeAsync();
+    }
+}

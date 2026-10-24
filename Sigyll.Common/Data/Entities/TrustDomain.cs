@@ -21,6 +21,12 @@ public class TrustDomain
     public bool Enabled { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Folder under the Vault KV mount that this trust domain's certificates are exported to, e.g. "team-a".
+    /// Set by the first export to Vault; after that only an Admin changes it.
+    /// </summary>
+    public string? VaultNamespace { get; set; }
+
     public ICollection<TrustDomainBaseUrl> BaseUrls { get; set; } = new List<TrustDomainBaseUrl>();
     public ICollection<CaCertificate> CaCertificates { get; set; } = new List<CaCertificate>();
     public ICollection<DidDocument> DidDocuments { get; set; } = new List<DidDocument>();

@@ -19,6 +19,7 @@ using Microsoft.JSInterop;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services;
+using Sigyll.Common.Services.Export;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
@@ -58,6 +59,7 @@ public partial class CertificateExplorer : IDisposable
     [Inject] private TimeDisplayService TimeDisplay { get; set; } = null!;
     [Inject] private IssuancePasswordCache PasswordCache { get; set; } = null!;
     [Inject] private OperatorAccess Access { get; set; } = null!;
+    [Inject] private VaultExportService VaultExport { get; set; } = null!;
 
     // Tree state
     private List<TrustDomainOption> trustDomainList = new();
@@ -231,6 +233,7 @@ public partial class CertificateExplorer : IDisposable
     protected override async Task OnInitializedAsync()
     {
         await Access.LoadAsync();
+        vaultExportEnabled = (await VaultExport.GetSettingsAsync()).Enabled;
         TimeDisplay.OnChanged += StateHasChanged;
 
         availableKeyStorageProviders = SigningOptions.Value.AvailableProviders;
@@ -904,6 +907,28 @@ public partial class CertificateExplorer : IDisposable
             ? $"/api/ca/{selectedNode.Id}/download/p12"
             : $"/api/issued/{selectedNode.Id}/download/p12";
     }
+
+    private Task DownloadAsync(string url) => JS.InvokeVoidAsync("sigilDownloadFile", url).AsTask();
+
+    // --- Export to Vault ---
+
+    private bool vaultExportEnabled;
+    private Shared.VaultExportDialog vaultExportDialog = null!;
+
+    /// <summary>Public files (.cer, .crl) go to Vault for operators and key custodians; .p12 needs KeyCustodian.</summary>
+    private bool CanExportToVault => Access.CanOperate || Access.CanExportKeys;
+
+    private string VaultExportTitle => CanExportToVault
+        ? "Write it to the trust domain's Vault namespace"
+        : "Exporting to Vault requires the CaOperator or KeyCustodian role.";
+
+    private Task ExportSelectedToVaultAsync(VaultExportArtifact artifact) =>
+        selectedNode == null
+            ? Task.CompletedTask
+            : ExportToVaultAsync(selectedNode.EntityType, selectedNode.Id, artifact, selectedNode.Name);
+
+    private Task ExportToVaultAsync(string entityType, int id, VaultExportArtifact artifact, string name) =>
+        vaultExportDialog.ShowAsync(new VaultExportTarget(entityType, id, artifact), name);
 
     // --- .p12 download dialog ---
 
