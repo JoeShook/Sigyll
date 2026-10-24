@@ -6,44 +6,30 @@
 @page "/admin/settings"
 @page "/admin/settings/{Section}"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = SigyllRoles.Admin)]
+@using Sigyll.UI.Components.SettingsSections
 
 <PageTitle>Sigyll - Settings</PageTitle>
 
 <FluentLabel Typo="Typography.PageTitle">Settings</FluentLabel>
 
-<div class="settings-layout">
-    <nav class="settings-nav" aria-label="Settings sections">
-        @foreach (var section in Sections)
-        {
-            <FluentAnchor Href="@($"/admin/settings/{section.Id}")"
-                          Appearance="@(section == Current ? Appearance.Accent : Appearance.Stealth)"
-                          IconStart="@section.Icon"
-                          title="@section.Summary">
-                @section.Title
-            </FluentAnchor>
-        }
-    </nav>
-    <div class="settings-content">
-        @if (Current == null)
-        {
-            <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">
-                There's no settings section called "@Section".
-            </FluentMessageBar>
-        }
-        else
-        {
-            <DynamicComponent Type="@Current.Component" @key="Current.Id" />
-        }
-    </div>
+@if (!string.IsNullOrEmpty(Section) && Sections.All(s => !IsOpen(s)))
+{
+    <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Style="margin-top: 1rem;">
+        There's no settings card called "@Section".
+    </FluentMessageBar>
+}
+
+<div class="settings-grid">
+    @foreach (var section in Sections)
+    {
+        <DynamicComponent Type="@section.Component" @key="section.Id"
+                          Parameters="@(new Dictionary<string, object> { [nameof(SettingsCard.Expanded)] = IsOpen(section) })" />
+    }
 </div>
 
 <style>
-    .settings-layout { display: flex; gap: 1.5rem; margin-top: 1rem; align-items: flex-start; }
-    .settings-nav { display: flex; flex-direction: column; gap: 0.25rem; min-width: 200px; position: sticky; top: 0; }
-    .settings-nav fluent-anchor::part(control) { justify-content: flex-start; width: 100%; }
-    .settings-content { flex: 1; min-width: 0; max-width: 900px; }
-    @@media (max-width: 760px) {
-        .settings-layout { flex-direction: column; }
-        .settings-nav { flex-direction: row; flex-wrap: wrap; position: static; }
-    }
+    .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; margin-top: 1rem; align-items: start; }
+    .settings-grid .settings-card-open { grid-column: 1 / -1; }
+    .settings-card-header { display: flex; align-items: center; gap: 0.5rem; }
+    .settings-card-summary { font-size: 0.85rem; opacity: 0.8; margin: 0.5rem 0 0; }
 </style>

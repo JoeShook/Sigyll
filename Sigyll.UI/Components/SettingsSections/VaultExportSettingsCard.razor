@@ -3,17 +3,44 @@
                             Joseph.Shook@Surescripts.com
    See LICENSE in the project root for license information. *@
 
-@* Settings section: the Vault server certificates can be exported to, and each trust domain's namespace and
+@* Settings card: the Vault server certificates can be exported to, and each trust domain's namespace and
    full-backup switch. *@
 
-@if (isLoading)
-{
-    <FluentProgressRing Style="margin: 2rem auto; display: block;" />
-}
-else
-{
-    <FluentCard>
+@inherits SettingsCard
+
+<FluentCard Class="@CardClass">
+    <div class="settings-card-header">
+        <FluentIcon Value="@(new Icons.Regular.Size20.CloudArrowUp())" />
         <FluentLabel Typo="Typography.Subject">Export to Vault</FluentLabel>
+        @if (!isLoading)
+        {
+            <FluentBadge Appearance="@(enabled ? Appearance.Accent : Appearance.Neutral)">@(enabled ? "On" : "Off")</FluentBadge>
+        }
+        <FluentSpacer />
+        <FluentButton Appearance="Appearance.Lightweight" OnClick="Toggle">@(IsOpen ? "Close" : "Configure")</FluentButton>
+    </div>
+
+    @if (isLoading)
+    {
+        <FluentProgressRing Style="margin: 1rem auto; display: block;" />
+    }
+    else if (!IsOpen)
+    {
+        <p class="settings-card-summary">
+            @if (address != null)
+            {
+                <span><code>@address</code>, mount <code>@mount</code>. </span>
+            }
+            else
+            {
+                <span>Send .cer, .p12 and .crl files to HashiCorp Vault KV. No server set. </span>
+            }
+            @trustDomains.Count(t => t.Original != null) of @trustDomains.Count trust domains mapped,
+            @trustDomains.Count(t => t.BackupEnabled) with full backup.
+        </p>
+    }
+    else
+    {
         <p class="vault-settings-note">
             Lets operators send certificate files (.cer, .p12, .crl) to a HashiCorp Vault KV v2 mount instead of
             downloading them, and back up a whole trust domain at once. Each export uses the operator's own Vault
@@ -82,8 +109,8 @@ else
                 }
             </TemplateColumn>
         </FluentDataGrid>
-    </FluentCard>
-}
+    }
+</FluentCard>
 
 <style>
     .vault-settings-note { font-size: 0.9rem; opacity: 0.8; margin: 0.5rem 0 1rem; }
