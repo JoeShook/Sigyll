@@ -50,7 +50,7 @@
                 certificate, mirroring its hierarchy. Each secret keeps any fields it already has.
             </p>
 
-            <FluentCheckbox Value="@includeKeys" ValueChanged="@((bool v) => SetIncludeKeysAsync(v))"
+            <FluentCheckbox Value="@options.IncludeKeys" ValueChanged="@((bool v) => SetOptionsAsync(options with { IncludeKeys = v }))"
                             Disabled="@(!CanExportKeys || isBusy)"
                             Label="Include private keys (.p12, with their passwords)" />
             <div style="font-size: 0.8rem; opacity: 0.7; margin: 0.25rem 0 0 1.75rem;">
@@ -63,14 +63,20 @@
                     <span>Needs the KeyCustodian role.</span>
                 }
             </div>
+            @if (options.IncludeKeys)
+            {
+                <FluentCheckbox Value="@options.ChainInP12" ValueChanged="@((bool v) => SetOptionsAsync(options with { ChainInP12 = v }))"
+                                Disabled="@isBusy" Style="margin: 0.5rem 0 0 1.75rem;"
+                                Label="Include the certificate chain in each .p12 (name-chain.p12), e.g. for mTLS" />
+            }
 
             <div style="margin-top: 0.75rem; font-size: 0.85rem;">
                 <div style="opacity: 0.7;">Destination</div>
                 <code style="word-break: break-all;">@plan.Mount/@(plan.Namespace ?? (string.IsNullOrWhiteSpace(chosenNamespace) ? "<namespace>" : chosenNamespace.Trim().Trim('/')))/@VaultExportService.Slug(plan.TrustDomainName)/…</code>
                 <div style="margin-top: 0.25rem;">
-                    @plan.CertificateCount certificates, @plan.CrlCount CRLs@(plan.IncludeKeys ? $", {plan.KeyCount} key files" : "")
+                    @plan.CertificateCount certificates, @plan.CrlCount CRLs@(plan.Options.IncludeKeys ? $", {plan.KeyCount} key files" : "")
                 </div>
-                @if (plan.IncludeKeys && plan.CertificateOnly.Count > 0)
+                @if (plan.Options.IncludeKeys && plan.CertificateOnly.Count > 0)
                 {
                     <details style="margin-top: 0.25rem;">
                         <summary>@plan.CertificateOnly.Count without a key Sigyll holds (certificate only)</summary>
@@ -170,7 +176,7 @@
     private bool hidden = true;
     private bool isBusy;
     private int trustDomainId;
-    private bool includeKeys;
+    private VaultBackupOptions options = new();
     private VaultBackupPlan? plan;
     private VaultBackupResult? result;
     private string? chosenNamespace;
@@ -191,7 +197,7 @@
     public async Task ShowAsync(int id)
     {
         trustDomainId = id;
-        includeKeys = false;
+        options = new();
         plan = null;
         result = null;
         chosenNamespace = null;
@@ -208,7 +214,7 @@
     {
         try
         {
-            plan = await VaultExport.PlanBackupAsync(trustDomainId, includeKeys);
+            plan = await VaultExport.PlanBackupAsync(trustDomainId, options);
             error = null;
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -219,9 +225,9 @@
         StateHasChanged();
     }
 
-    private async Task SetIncludeKeysAsync(bool value)
+    private async Task SetOptionsAsync(VaultBackupOptions value)
     {
-        includeKeys = value;
+        options = value;
         await LoadPlanAsync();
     }
 
@@ -257,7 +263,7 @@
                 done = n;
                 StateHasChanged();
             });
-            result = await VaultExport.BackupAsync(trustDomainId, usedToken, includeKeys,
+            result = await VaultExport.BackupAsync(trustDomainId, usedToken, options,
                 plan!.Namespace == null ? chosenNamespace : null, progress);
             TokenCache.Save(usedToken);
             token = null;

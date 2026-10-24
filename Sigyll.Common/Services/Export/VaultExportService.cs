@@ -33,6 +33,12 @@ public enum VaultExportArtifact
 /// <param name="EntityType">"CaCertificate", "IssuedCertificate" or "Crl".</param>
 public record VaultExportTarget(string EntityType, int Id, VaultExportArtifact Artifact);
 
+/// <summary>What a full backup adds besides each certificate's .cer and each CA's latest CRL.</summary>
+/// <param name="IncludeKeys">The .p12 files (and their password) of certificates whose key Sigyll holds.</param>
+/// <param name="ChainInP12">Write each .p12 below a root with its issuing CA certificates, as <c>name-chain.p12</c>
+/// (what mTLS clients and servers load), instead of <c>name.p12</c>.</param>
+public record VaultBackupOptions(bool IncludeKeys = false, bool ChainInP12 = false);
+
 /// <summary>Where an export would go, shown to the operator before they confirm it.</summary>
 /// <param name="Namespace">The trust domain's folder under the mount; null until the first export sets it.</param>
 /// <param name="RelativePath">The secret's path below the namespace: trust domain, then the CA hierarchy.</param>
@@ -74,13 +80,13 @@ public record VaultBackupPlan(
     string? Namespace,
     string Address,
     string Mount,
-    bool IncludeKeys,
+    VaultBackupOptions Options,
     IReadOnlyList<VaultBackupSecret> Secrets,
     IReadOnlyList<string> CertificateOnly,
     IReadOnlyList<string> Superseded)
 {
     public int CertificateCount => Secrets.Count;
-    public int KeyCount => Secrets.Sum(s => s.Targets.Count(t => t.Artifact == VaultExportArtifact.P12));
+    public int KeyCount => Secrets.Sum(s => s.Targets.Count(t => t.Artifact is VaultExportArtifact.P12 or VaultExportArtifact.P12WithChain));
     public int CrlCount => Secrets.Sum(s => s.Targets.Count(t => t.Artifact == VaultExportArtifact.Crl));
 }
 
@@ -269,15 +275,15 @@ public partial class VaultExportService
 
     /// <summary>
     /// What a full backup of the trust domain would write: one secret per certificate (the newest generation of a
-    /// renewed one), with its .cer, its CA's latest CRL and, when <paramref name="includeKeys"/>, its .p12.
+    /// renewed one), with its .cer, its CA's latest CRL and what <paramref name="options"/> add.
     /// </summary>
-    public async Task<VaultBackupPlan> PlanBackupAsync(int trustDomainId, bool includeKeys, CancellationToken ct = default)
+    public async Task<VaultBackupPlan> PlanBackupAsync(int trustDomainId, VaultBackupOptions options, CancellationToken ct = default)
     {
         await _operator.DemandAsync(Permission.View);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var settings = await RequireEnabledAsync(db, ct);
-        return await BuildBackupPlanAsync(db, settings, trustDomainId, includeKeys, ct);
+        return await BuildBackupPlanAsync(db, settings, trustDomainId, options, ct);
     }
 
     /// <summary>
@@ -287,11 +293,11 @@ public partial class VaultExportService
     /// </summary>
     /// <param name="progress">Receives the number of secrets done so far.</param>
     public async Task<VaultBackupResult> BackupAsync(
-        int trustDomainId, string token, bool includeKeys, string? firstNamespace = null,
+        int trustDomainId, string token, VaultBackupOptions options, string? firstNamespace = null,
         IProgress<int>? progress = null, CancellationToken ct = default)
     {
         var identity = await _operator.DemandAsync(Permission.Operate, Permission.ExportKeys);
-        if (includeKeys)
+        if (options.IncludeKeys)
             await _operator.DemandAsync(Permission.ExportKeys);
 
         if (string.IsNullOrWhiteSpace(token))
@@ -299,7 +305,7 @@ public partial class VaultExportService
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var settings = await RequireEnabledAsync(db, ct);
-        var plan = await BuildBackupPlanAsync(db, settings, trustDomainId, includeKeys, ct);
+        var plan = await BuildBackupPlanAsync(db, settings, trustDomainId, options, ct);
         var (ns, settingNamespace) = ResolveNamespace(plan.TrustDomainName, plan.Namespace, firstNamespace);
 
         var address = new Uri(settings.Address!);
@@ -347,7 +353,7 @@ public partial class VaultExportService
         _logger.LogInformation(
             "{Actor} backed up trust domain {TrustDomain} to Vault {Address} {Mount}/{Root}: {Written} of {Planned} secrets, keys {Keys}, {Failed} failed",
             identity.Name, plan.TrustDomainName, settings.Address, settings.Mount, root, written, plan.Secrets.Count,
-            includeKeys ? "included" : "left out", failures.Count);
+            options.IncludeKeys ? (options.ChainInP12 ? "included with chains" : "included") : "left out", failures.Count);
 
         return new VaultBackupResult(settings.Address!, settings.Mount, root, written, plan.Secrets.Count, failures);
     }
@@ -477,7 +483,7 @@ public partial class VaultExportService
     }
 
     private async Task<VaultBackupPlan> BuildBackupPlanAsync(
-        SigyllDbContext db, VaultExportSettings settings, int trustDomainId, bool includeKeys, CancellationToken ct)
+        SigyllDbContext db, VaultExportSettings settings, int trustDomainId, VaultBackupOptions options, CancellationToken ct)
     {
         var trustDomain = await db.TrustDomains.AsNoTracking().SingleOrDefaultAsync(t => t.Id == trustDomainId, ct)
             ?? throw new ArgumentException("Trust domain not found.");
@@ -528,8 +534,14 @@ public partial class VaultExportService
             var hasKey = isCa ? caKeys[node.Id] : issuedKeys.GetValueOrDefault(node.Id);
             if (!hasKey)
                 certificateOnly.Add(node.Name);
-            else if (includeKeys)
+            else if (options.IncludeKeys && options.ChainInP12 && node.ParentId != null)
             {
+                targets.Add(new(entityType, node.Id, VaultExportArtifact.P12WithChain));
+                fields.AddRange([$"{node.Name}-chain.p12", PasswordField]);
+            }
+            else if (options.IncludeKeys)
+            {
+                // A root's chain is just itself.
                 targets.Add(new(entityType, node.Id, VaultExportArtifact.P12));
                 fields.AddRange([$"{node.Name}.p12", PasswordField]);
             }
@@ -544,7 +556,7 @@ public partial class VaultExportService
         }
 
         return new VaultBackupPlan(trustDomain.Id, trustDomain.Name, trustDomain.VaultNamespace,
-            settings.Address!, settings.Mount, includeKeys, secrets, certificateOnly, superseded);
+            settings.Address!, settings.Mount, options, secrets, certificateOnly, superseded);
     }
 
     private sealed record Node(int Id, string Name, int? ParentId, int? RenewalOfId, string SerialNumber, int TrustDomainId);

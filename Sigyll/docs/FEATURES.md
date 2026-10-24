@@ -208,7 +208,8 @@
   `TrustDomains.VaultNamespace` (Flyway V4)
 - **Full backup of a trust domain**: an Admin turns it on per trust domain in Settings; the Certificate Explorer then
   shows **Back up to Vault** for it. One run writes every certificate's `.cer` and each CA's latest CRL to the same
-  secrets single exports use, plus the `.p12` files when a KeyCustodian ticks *Include private keys*. Certificates
+  secrets single exports use, plus the `.p12` files when a KeyCustodian ticks *Include private keys* (optionally with
+  the chain, as `name-chain.p12` below each root, e.g. for mTLS). Certificates
   whose key Sigyll doesn't hold (HSM, Vault Transit, KMS, CSR-issued) are backed up as `.cer` only; a renewal
   writes its newest generation. A failed secret is reported and the run carries on; a refused token stops it.
   Last backup time and operator show in Settings (`TrustDomains.VaultBackupEnabled`, Flyway V5)

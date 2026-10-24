@@ -251,14 +251,14 @@ public class VaultExportServiceTests
         var other = await AddTrustDomainAsync("Other", "team-a", backup: true);
         await AddCaAsync(other, "Elsewhere");
 
-        var plan = await Service(KeyCustodian).PlanBackupAsync(td, includeKeys: true);
+        var plan = await Service(KeyCustodian).PlanBackupAsync(td, new(IncludeKeys: true));
         plan.CertificateCount.ShouldBe(4);
         plan.KeyCount.ShouldBe(2);
         plan.CrlCount.ShouldBe(1);
         plan.CertificateOnly.ShouldBe(["Issuing", "from csr"], ignoreOrder: true);
 
         var progress = new List<int>();
-        var result = await Service(KeyCustodian).BackupAsync(td, Token, includeKeys: true, progress: new SyncProgress(progress));
+        var result = await Service(KeyCustodian).BackupAsync(td, Token, new(IncludeKeys: true), progress: new SyncProgress(progress));
 
         result.SecretsWritten.ShouldBe(4);
         result.Failures.ShouldBeEmpty();
@@ -278,6 +278,25 @@ public class VaultExportServiceTests
     }
 
     [Fact]
+    public async Task Backup_ChainInP12_WritesChainP12sBelowTheRoot()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root", withKey: true);
+        var issuing = await AddCaAsync(td, "Issuing", root);
+        await AddIssuedAsync(issuing, "client", withKey: true);
+
+        await Service(KeyCustodian).BackupAsync(td, Token, new(IncludeKeys: true, ChainInP12: true));
+
+        var writes = _writes.ToDictionary(w => w.Path, w => w.Fields);
+        writes["team-a/lab/root"].Keys.ShouldBe(["Root.cer", "Root.p12", "password"], ignoreOrder: true);
+        var client = writes["team-a/lab/root/issuing/client"];
+        client.Keys.ShouldBe(["client.cer", "client-chain.p12", "password"], ignoreOrder: true);
+        var p12 = X509CertificateLoader.LoadPkcs12Collection(Convert.FromBase64String(client["client-chain.p12"]), client["password"]);
+        p12.Select(c => c.Subject).ShouldBe(["CN=client", "CN=Issuing", "CN=Root"], ignoreOrder: true);
+    }
+
+    [Fact]
     public async Task Backup_WithoutKeys_IsOpenToCaOperators_ButKeysNeedAKeyCustodian()
     {
         await EnableAsync();
@@ -285,11 +304,11 @@ public class VaultExportServiceTests
         var root = await AddCaAsync(td, "Root", withKey: true);
         await AddIssuedAsync(root, "client", withKey: true);
 
-        await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(CaOperator).BackupAsync(td, Token, includeKeys: true));
-        await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(Auditor).BackupAsync(td, Token, includeKeys: false));
+        await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(CaOperator).BackupAsync(td, Token, new(IncludeKeys: true)));
+        await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(Auditor).BackupAsync(td, Token, new()));
         _writes.ShouldBeEmpty();
 
-        var result = await Service(CaOperator).BackupAsync(td, Token, includeKeys: false);
+        var result = await Service(CaOperator).BackupAsync(td, Token, new());
 
         result.SecretsWritten.ShouldBe(2);
         _writes.SelectMany(w => w.Fields.Keys).ShouldBe(["Root.cer", "client.cer"], ignoreOrder: true);
@@ -302,13 +321,13 @@ public class VaultExportServiceTests
         var td = await AddTrustDomainAsync("Lab", "team-a");
         await AddCaAsync(td, "Root");
 
-        await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).PlanBackupAsync(td, false));
-        await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).BackupAsync(td, Token, false));
+        await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).PlanBackupAsync(td, new()));
+        await Should.ThrowAsync<InvalidOperationException>(() => Service(CaOperator).BackupAsync(td, Token, new()));
         await Should.ThrowAsync<OperatorAccessDeniedException>(() => Service(CaOperator).SetTrustDomainBackupAsync(td, true));
 
         await Service(Admin).SetTrustDomainBackupAsync(td, true);
 
-        (await Service(CaOperator).BackupAsync(td, Token, false)).SecretsWritten.ShouldBe(1);
+        (await Service(CaOperator).BackupAsync(td, Token, new())).SecretsWritten.ShouldBe(1);
         (await Service(Auditor).GetTrustDomainVaultSettingsAsync()).Single().BackupEnabled.ShouldBeTrue();
     }
 
@@ -321,7 +340,7 @@ public class VaultExportServiceTests
         var first = await AddIssuedAsync(root, "server");
         var renewal = await AddIssuedAsync(root, "server", renewalOf: first.Id);
 
-        var plan = await Service(CaOperator).PlanBackupAsync(td, false);
+        var plan = await Service(CaOperator).PlanBackupAsync(td, new());
 
         plan.Secrets.Single(s => s.RelativePath == "lab/root/server").Targets.Single().Id.ShouldBe(renewal.Id);
         plan.Superseded.ShouldBe(["server (lab/root/server)"]);
@@ -344,8 +363,8 @@ public class VaultExportServiceTests
                 return 1;
             });
 
-        await Should.ThrowAsync<ArgumentException>(() => Service(CaOperator).BackupAsync(td, Token, false));
-        var result = await Service(CaOperator).BackupAsync(td, Token, false, firstNamespace: "team-b");
+        await Should.ThrowAsync<ArgumentException>(() => Service(CaOperator).BackupAsync(td, Token, new()));
+        var result = await Service(CaOperator).BackupAsync(td, Token, new(), firstNamespace: "team-b");
 
         result.SecretsWritten.ShouldBe(2);
         result.Failures.Single().ShouldStartWith("team-b/lab/root/a:");
@@ -361,7 +380,7 @@ public class VaultExportServiceTests
         _vault.MergeAsync(default!, default!, default!, default!, default!, default)
             .ReturnsForAnyArgs<int>(_ => throw new VaultTokenRefusedException("team-b/lab/root", 403));
 
-        await Should.ThrowAsync<VaultTokenRefusedException>(() => Service(CaOperator).BackupAsync(td, Token, false, "team-b"));
+        await Should.ThrowAsync<VaultTokenRefusedException>(() => Service(CaOperator).BackupAsync(td, Token, new(), "team-b"));
 
         var saved = (await Service(Auditor).GetTrustDomainVaultSettingsAsync()).Single();
         saved.Namespace.ShouldBeNull();
