@@ -150,12 +150,14 @@ else
 }
 
 @* ---------------- New CSR dialog ---------------- *@
-<FluentDialog @bind-Hidden="@newDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 680px; max-width: 860px;">
+<FluentDialog @bind-Hidden="@newDialogHidden" Modal="true" TrapFocus="true"
+              Style="--dialog-width: 860px; min-width: 680px; max-width: 95vw; max-height: 80vh; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>@(editingId == null ? "New CSR for an external CA" : $"Edit request — {newName}")</FluentDialogHeader>
     <FluentDialogBody>
         @if (createResult == null)
         {
-            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 100%; min-width: 0; overflow-x: hidden;">
                 @if (editingId != null)
                 {
                     <FluentMessageBar Intent="MessageIntent.Info">
@@ -201,26 +203,39 @@ else
                     <FluentCheckbox @bind-Value="editRegenerateKey" Label="@($"Generate a new key pair (current: {editCurrentKey})")" />
                 }
 
+                @* A labeled FluentSelect renders its label and control as siblings: wrap each so the label sits above. *@
                 <div style="display: flex; gap: 1rem;">
-                    <FluentSelect TOption="string" Items="@keyAlgorithmOptions"
-                                  SelectedOption="@newKeyAlgorithm" SelectedOptionChanged="OnKeyAlgorithmChanged"
-                                  Disabled="@(editingId != null && !editRegenerateKey)"
-                                  Label="Key algorithm" Style="flex: 1;" />
-                    <FluentSelect TOption="string" Items="@KeySizeOptions"
-                                  OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
-                                  @bind-SelectedOption="newKeySize"
-                                  Disabled="@(editingId != null && !editRegenerateKey)"
-                                  Style="@(SelectedIsPqc ? "flex: 1; display: none;" : "flex: 1;")"
-                                  Label="Key size" />
-                    <FluentSelect TOption="CsrExtensionProfile" Items="@ProfileOptions"
-                                  OptionText="@ProfileLabel"
-                                  @bind-SelectedOption="newProfile"
-                                  Label="Requested extensions" Style="flex: 1.4;" />
+                    <div style="flex: 1; min-width: 0;">
+                        <FluentSelect TOption="string" Items="@keyAlgorithmOptions"
+                                      SelectedOption="@newKeyAlgorithm" SelectedOptionChanged="OnKeyAlgorithmChanged"
+                                      Disabled="@(editingId != null && !editRegenerateKey)"
+                                      Label="Key algorithm" Style="width: 100%;" />
+                    </div>
+                    @if (!SelectedIsPqc)
+                    {
+                        <div style="flex: 1; min-width: 0;">
+                            <FluentSelect TOption="string" Items="@KeySizeOptions"
+                                          OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
+                                          @bind-SelectedOption="newKeySize"
+                                          Disabled="@(editingId != null && !editRegenerateKey)"
+                                          Label="Key size" Style="width: 100%;" />
+                        </div>
+                    }
+                    <div style="flex: 1.4; min-width: 0;">
+                        <FluentSelect TOption="CsrExtensionProfile" Items="@ProfileOptions"
+                                      OptionText="@ProfileLabel"
+                                      @bind-SelectedOption="newProfile"
+                                      Label="Requested extensions" Style="width: 100%;" />
+                    </div>
                 </div>
 
                 <div style="display: flex; gap: 1rem;">
-                    <FluentTextField @bind-Value="newExternalCaName" Label="External CA (optional)" Placeholder="e.g. EMR Direct" Style="flex: 1;" />
-                    <FluentTextField @bind-Value="newNotes" Label="Notes (optional)" Placeholder="ticket number, contact…" Style="flex: 2;" />
+                    <div style="flex: 1; min-width: 0;">
+                        <FluentTextField @bind-Value="newExternalCaName" Label="External CA (optional)" Placeholder="e.g. EMR Direct" Style="width: 100%;" />
+                    </div>
+                    <div style="flex: 2; min-width: 0;">
+                        <FluentTextField @bind-Value="newNotes" Label="Notes (optional)" Placeholder="ticket number, contact…" Style="width: 100%;" />
+                    </div>
                 </div>
             </div>
         }
@@ -261,7 +276,9 @@ else
 </FluentDialog>
 
 @* ---------------- Complete (upload signed certificate) dialog ---------------- *@
-<FluentDialog @bind-Hidden="@completeDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 620px;">
+<FluentDialog @bind-Hidden="@completeDialogHidden" Modal="true" TrapFocus="true"
+              Style="--dialog-width: 720px; min-width: 620px; max-width: 95vw; max-height: 80vh; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Complete request — @completeTarget?.Name</FluentDialogHeader>
     <FluentDialogBody>
         @if (completeResult?.Success != true)
