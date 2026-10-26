@@ -10,7 +10,8 @@
 
 <FluentLabel Typo="Typography.PageTitle">External CA Requests</FluentLabel>
 
-<FluentCard Style="margin-top: 1rem;">
+@* AreaRestricted=false: the card otherwise clips the trust domain list when it opens. *@
+<FluentCard AreaRestricted="false" Style="margin-top: 1rem;">
     <FluentMessageBar Intent="MessageIntent.Info">
         CSRs you submit to an external CA. Sigyll generates the key pair, keeps the private key and the CSR, and
         when the CA's certificate comes back matches it to that key and imports it into the trust domain — no
@@ -23,6 +24,7 @@
                       OptionText="@(t => t.Name)"
                       SelectedOption="@selectedTrustDomain"
                       SelectedOptionChanged="OnTrustDomainChanged"
+                      Position="SelectPosition.Below"
                       Label="Trust domain"
                       Style="min-width: 240px;" />
         <FluentCheckbox Value="@showCompleted" ValueChanged="OnShowCompletedChanged" Label="Show fulfilled and cancelled" />
