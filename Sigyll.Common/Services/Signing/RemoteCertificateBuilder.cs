@@ -43,7 +43,7 @@ public static class RemoteCertificateBuilder
         var bcPublicKey = ConvertToBouncyCastlePublicKey(publicKey);
 
         var tbsGen = new V3TbsCertificateGenerator();
-        var subject = new X509Name(subjectDn);
+        var subject = new X509Name(DistinguishedNameText.Normalize(subjectDn));
         var serialNumber = GenerateSerialNumber();
         var sigAlgId = GetSignatureAlgorithmIdentifier(keyRef.KeyAlgorithm, hashAlgorithm);
 
@@ -98,7 +98,7 @@ public static class RemoteCertificateBuilder
 
         var tbsGen = new V3TbsCertificateGenerator();
         var issuerDn = new X509Name(issuerCert.Subject);
-        var subject = new X509Name(subjectDn);
+        var subject = new X509Name(DistinguishedNameText.Normalize(subjectDn));
         var serialNumber = GenerateSerialNumber();
         var sigAlgId = GetSignatureAlgorithmIdentifier(issuerKeyRef.KeyAlgorithm, hashAlgorithm);
 

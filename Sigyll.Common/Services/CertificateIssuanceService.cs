@@ -1327,6 +1327,7 @@ public class CertificateIssuanceService
         string subjectDn,
         KeyHolder keyHolder)
     {
+        subjectDn = DistinguishedNameText.Normalize(subjectDn);
         if (keyHolder.Pqc != null)
             return keyHolder.Pqc.CreateCertificateRequest(subjectDn);
 

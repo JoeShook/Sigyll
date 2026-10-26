@@ -163,7 +163,7 @@ public class CsrGenerationService
 
             var subjectName = !string.IsNullOrWhiteSpace(options.SubjectDn)
                               && !string.Equals(options.SubjectDn.Trim(), certificate.Subject, StringComparison.Ordinal)
-                ? new X500DistinguishedName(options.SubjectDn.Trim())
+                ? new X500DistinguishedName(DistinguishedNameText.Normalize(options.SubjectDn.Trim()))
                 : certificate.SubjectName; // keep the original encoding byte-for-byte
 
             var csr = key.CreateRequest(subjectName);

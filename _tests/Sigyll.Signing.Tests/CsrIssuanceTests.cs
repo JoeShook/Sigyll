@@ -307,6 +307,31 @@ public class CsrIssuanceTests
         firstEntity.RenewalOfId.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task Issue_AcceptsOpenSslEmailAddressInSubject()
+    {
+        var (caId, profileId, trustDomainId) = await SeedAsync();
+
+        var result = await CreateService().IssueCertificateAsync(new CertificateIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            ProfileId = profileId,
+            TrustDomainId = trustDomainId,
+            SubjectDn = "C=US, O=pharmacysystem, CN=api.example.com, emailAddress=api@example.com",
+            CertificateName = "api",
+            PfxPassword = "test-password",
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+        });
+        result.Success.ShouldBeTrue(result.Error);
+
+        await using var db = _dbFactory.CreateDbContext();
+        var entity = await db.IssuedCertificates.FindAsync(result.EntityId);
+        using var cert = X509Certificate2.CreateFromPem(entity!.X509CertificatePem);
+        cert.SubjectName.EnumerateRelativeDistinguishedNames()
+            .Single(r => r.GetSingleElementType().Value == "1.2.840.113549.1.9.1")
+            .GetSingleElementValue().ShouldBe("api@example.com");
+    }
+
     private async Task SetProfileSanTypesAsync(int profileId, string sanTypes)
     {
         await using var db = _dbFactory.CreateDbContext();

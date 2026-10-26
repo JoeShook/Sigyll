@@ -260,7 +260,7 @@ public class ExternalCertificateRequestService
     {
         try
         {
-            subject = new X500DistinguishedName(subjectDn.Trim());
+            subject = new X500DistinguishedName(DistinguishedNameText.Normalize(subjectDn.Trim()));
             error = null;
             return true;
         }

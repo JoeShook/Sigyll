@@ -106,7 +106,7 @@ public sealed class PqcKeyPair : IDisposable
     }
 
     public CertificateRequest CreateCertificateRequest(string subjectDn) =>
-        CreateCertificateRequest(new X500DistinguishedName(subjectDn));
+        CreateCertificateRequest(new X500DistinguishedName(DistinguishedNameText.Normalize(subjectDn)));
 
     public X509Certificate2 CopyWithPrivateKey(X509Certificate2 certificate)
     {
