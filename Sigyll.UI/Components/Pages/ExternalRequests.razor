@@ -186,7 +186,7 @@ else
                 {
                     <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; align-items: end;">
                         <FluentSelect TOption="SanType" Items="@sanTypeOptions" OptionText="@(s => s.ToString())"
-                                      @bind-SelectedOption="san.Type" Style="width: 120px;" />
+                                      @bind-SelectedOption="san.Type" Style="width: 120px; min-width: 0;" />
                         <FluentTextField @bind-Value="san.Value" Style="flex: 1;" Placeholder="@SanPlaceholder(san.Type)" />
                         <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                       IconStart="@(new Icons.Regular.Size16.Delete())" OnClick="@(() => newSans.Remove(san))" />
@@ -203,37 +203,39 @@ else
                     <FluentCheckbox @bind-Value="editRegenerateKey" Label="@($"Generate a new key pair (current: {editCurrentKey})")" />
                 }
 
-                @* A labeled FluentSelect renders its label and control as siblings: wrap each so the label sits above. *@
-                <div style="display: flex; gap: 1rem;">
-                    <div style="flex: 1; min-width: 0;">
+                @* A labeled FluentSelect renders its label and control as siblings: wrap each so the label sits above.
+                   fluent-select has a built-in min-width of about 250px; clearing it lets the row narrow with the
+                   dialog when it is resized, and the row wraps instead of overflowing. *@
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+                    <div style="flex: 1 1 160px; min-width: 0;">
                         <FluentSelect TOption="string" Items="@keyAlgorithmOptions"
                                       SelectedOption="@newKeyAlgorithm" SelectedOptionChanged="OnKeyAlgorithmChanged"
                                       Disabled="@(editingId != null && !editRegenerateKey)"
-                                      Label="Key algorithm" Style="width: 100%;" />
+                                      Label="Key algorithm" Style="width: 100%; min-width: 0;" />
                     </div>
                     @if (!SelectedIsPqc)
                     {
-                        <div style="flex: 1; min-width: 0;">
+                        <div style="flex: 1 1 160px; min-width: 0;">
                             <FluentSelect TOption="string" Items="@KeySizeOptions"
                                           OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
                                           @bind-SelectedOption="newKeySize"
                                           Disabled="@(editingId != null && !editRegenerateKey)"
-                                          Label="Key size" Style="width: 100%;" />
+                                          Label="Key size" Style="width: 100%; min-width: 0;" />
                         </div>
                     }
-                    <div style="flex: 1.4; min-width: 0;">
+                    <div style="flex: 1.4 1 240px; min-width: 0;">
                         <FluentSelect TOption="CsrExtensionProfile" Items="@ProfileOptions"
                                       OptionText="@ProfileLabel"
                                       @bind-SelectedOption="newProfile"
-                                      Label="Requested extensions" Style="width: 100%;" />
+                                      Label="Requested extensions" Style="width: 100%; min-width: 0;" />
                     </div>
                 </div>
 
-                <div style="display: flex; gap: 1rem;">
-                    <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+                    <div style="flex: 1 1 200px; min-width: 0;">
                         <FluentTextField @bind-Value="newExternalCaName" Label="External CA (optional)" Placeholder="e.g. EMR Direct" Style="width: 100%;" />
                     </div>
-                    <div style="flex: 2; min-width: 0;">
+                    <div style="flex: 2 1 240px; min-width: 0;">
                         <FluentTextField @bind-Value="newNotes" Label="Notes (optional)" Placeholder="ticket number, contact…" Style="width: 100%;" />
                     </div>
                 </div>
