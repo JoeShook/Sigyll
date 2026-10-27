@@ -414,7 +414,8 @@ public class ExternalCertificateRequestService
 
     /// <summary>
     /// Exports the private key as PKCS#8 PEM re-encrypted under an operator-chosen passphrase,
-    /// so the stored random password never leaves Sigyll.
+    /// so the stored random password never leaves Sigyll. A fulfilled request that holds no key of its
+    /// own (a record rebuilt from its files) exports the key stored with its certificate.
     /// </summary>
     public async Task<ExternalRequestExportResult> ExportPrivateKeyAsync(int id, string passphrase, CancellationToken ct = default)
     {
@@ -427,10 +428,20 @@ public class ExternalCertificateRequestService
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
         if (row == null) return ExternalRequestExportResult.Failure("Request not found.");
 
+        X509Certificate2? fulfilledCert = null;
         try
         {
-            using var key = CsrSigningKey.ImportEncryptedPkcs8(
-                row.KeyAlgorithm, row.KeySize, row.EncryptedPrivateKeyPem, row.KeyPassword!);
+            if (string.IsNullOrEmpty(row.EncryptedPrivateKeyPem))
+            {
+                var (pfx, pfxPassword, _, error) = await FulfilledKeyAsync(db, row, ct);
+                if (error != null) return ExternalRequestExportResult.Failure(error);
+                fulfilledCert = X509CertificateLoader.LoadPkcs12(pfx!, pfxPassword,
+                    X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            }
+
+            using var key = fulfilledCert != null
+                ? CsrSigningKey.FromCertificate(fulfilledCert)
+                : CsrSigningKey.ImportEncryptedPkcs8(row.KeyAlgorithm, row.KeySize, row.EncryptedPrivateKeyPem, row.KeyPassword!);
             var pbe = new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 100_000);
             var pem = key.ExportEncryptedPkcs8Pem(passphrase, pbe);
 
@@ -448,6 +459,38 @@ public class ExternalCertificateRequestService
         {
             return ExternalRequestExportResult.Failure($"Could not export the private key: {ex.Message}");
         }
+        finally
+        {
+            fulfilledCert?.Dispose();
+        }
+    }
+
+    /// <summary>The PKCS#12 stored with the certificate a fulfilled request was imported as, its password and issuer.</summary>
+    private static async Task<(byte[]? Pfx, string? Password, int? IssuerId, string? Error)> FulfilledKeyAsync(
+        SigyllDbContext db, ExternalCertificateRequest row, CancellationToken ct)
+    {
+        if (row.Status != ExternalRequestStatus.Fulfilled || row.FulfilledCertificateId is not int certId)
+            return (null, null, null, "This request has not been fulfilled yet — there is no certificate to bundle.");
+
+        byte[]? pfx;
+        string? pfxPassword;
+        int? issuerId;
+        if (row.FulfilledEntityType == "CaCertificate")
+        {
+            var ca = await db.CaCertificates.FindAsync([certId], ct);
+            if (ca == null) return (null, null, null, "The fulfilled certificate no longer exists.");
+            (pfx, pfxPassword, issuerId) = (ca.EncryptedPfxBytes, ca.PfxPassword, ca.ParentId);
+        }
+        else
+        {
+            var issued = await db.IssuedCertificates.FindAsync([certId], ct);
+            if (issued == null) return (null, null, null, "The fulfilled certificate no longer exists.");
+            (pfx, pfxPassword, issuerId) = (issued.EncryptedPfxBytes, issued.PfxPassword, issued.IssuingCaCertificateId);
+        }
+
+        return pfx == null
+            ? (null, null, null, "The fulfilled certificate has no stored private key.")
+            : (pfx, pfxPassword ?? string.Empty, issuerId, null);
     }
 
     /// <summary>
@@ -465,27 +508,8 @@ public class ExternalCertificateRequestService
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
         if (row == null) return ExternalRequestExportResult.Failure("Request not found.");
-        if (row.Status != ExternalRequestStatus.Fulfilled || row.FulfilledCertificateId is not int certId)
-            return ExternalRequestExportResult.Failure("This request has not been fulfilled yet — there is no certificate to bundle.");
-
-        byte[]? pfx;
-        string? pfxPassword;
-        int? issuerId;
-        if (row.FulfilledEntityType == "CaCertificate")
-        {
-            var ca = await db.CaCertificates.FindAsync([certId], ct);
-            if (ca == null) return ExternalRequestExportResult.Failure("The fulfilled certificate no longer exists.");
-            (pfx, pfxPassword, issuerId) = (ca.EncryptedPfxBytes, ca.PfxPassword, ca.ParentId);
-        }
-        else
-        {
-            var issued = await db.IssuedCertificates.FindAsync([certId], ct);
-            if (issued == null) return ExternalRequestExportResult.Failure("The fulfilled certificate no longer exists.");
-            (pfx, pfxPassword, issuerId) = (issued.EncryptedPfxBytes, issued.PfxPassword, issued.IssuingCaCertificateId);
-        }
-
-        if (pfx == null)
-            return ExternalRequestExportResult.Failure("The fulfilled certificate has no stored private key.");
+        var (pfx, pfxPassword, issuerId, error) = await FulfilledKeyAsync(db, row, ct);
+        if (error != null) return ExternalRequestExportResult.Failure(error);
 
         var chain = new List<X509Certificate2>();
         try
@@ -504,7 +528,7 @@ public class ExternalCertificateRequestService
                 }
             }
 
-            var bytes = Pkcs12Writer.Rewrap(pfx, pfxPassword ?? string.Empty, password, chain);
+            var bytes = Pkcs12Writer.Rewrap(pfx!, pfxPassword!, password, chain);
 
             _logger.LogWarning("PKCS#12 with private key exported for external CA request '{Name}' (ID {Id}), chain: {Chain}", row.Name, row.Id, includeChain);
 

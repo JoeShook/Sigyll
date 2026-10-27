@@ -352,6 +352,33 @@ public class ExternalCertificateRequestServiceTests
     }
 
     [Fact]
+    public async Task ExportPrivateKey_FulfilledRequestWithoutItsOwnKey_UsesTheCertificatesKey()
+    {
+        var tdId = await SeedTrustDomainAsync();
+        var (_, _, caCert) = await SeedCaAndIssuedAsync(tdId);
+        var created = await _service.CreateAsync(Basic(tdId));
+        var id = created.RequestId!.Value;
+        using var signed = SignCsr(created.CsrPem!, caCert);
+        (await _service.FulfillAsync(id, signed.RawData, "signed.cer", [])).Success.ShouldBeTrue();
+
+        // A record rebuilt from its files holds no key of its own.
+        await using (var db = await _dbFactory.CreateDbContextAsync())
+        {
+            var row = await db.ExternalCertificateRequests.FindAsync(id);
+            row!.EncryptedPrivateKeyPem = "";
+            row.KeyPassword = "";
+            await db.SaveChangesAsync();
+        }
+
+        var export = await _service.ExportPrivateKeyAsync(id, "operator-pass");
+
+        export.Success.ShouldBeTrue(export.Error);
+        using var key = RSA.Create();
+        key.ImportFromEncryptedPem(export.Content!, "operator-pass");
+        key.ExportSubjectPublicKeyInfo().ShouldBe(signed.PublicKey.ExportSubjectPublicKeyInfo());
+    }
+
+    [Fact]
     public async Task Fulfill_UnknownIssuer_ReportsNeedsCaSelection_ThenSucceedsWithChain()
     {
         var tdId = await SeedTrustDomainAsync();
