@@ -212,7 +212,12 @@
   when a KeyCustodian ticks *Include private keys* (optionally with the chain, as `name-chain.p12` below each root).
   Certificates
   whose key Sigyll doesn't hold (HSM, Vault Transit, KMS, CSR-issued) are backed up as `.cer` only; a renewal
-  writes its newest generation. A failed secret is reported and the run carries on; a refused token stops it.
+  writes its newest generation. Secrets are written eight at a time, and a secret that already holds the same files
+  is left alone (a P12 counts as the same when it opens with the same password and holds the same certificates and
+  key, since each export encrypts it afresh). A failed secret is reported and the run carries on; a refused token
+  stops it. Afterwards the dialog lists the secrets under the trust domain's folder that no certificate uses any
+  more (deleted or moved certificates; a trust domain sharing the folder counts as using its own), each with a
+  checkbox to delete it from Vault for good, all versions included, after a confirmation.
   Last backup time and operator show in Settings (`TrustDomains.VaultBackupEnabled`, Flyway V5)
 - A CaOperator can leave a certificate out of the backup (Explorer details, *Vault Backup*). It covers the whole
   renewal lineage, which shares one secret; leaving out a CA keeps what it issued (`VaultBackupExcluded`, Flyway V6)

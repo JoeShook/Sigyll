@@ -38,16 +38,44 @@ public class VaultExportServiceTests
     /// <summary>The field names each secret already has in Vault, by path.</summary>
     private readonly Dictionary<string, string[]> _existing = new();
 
+    /// <summary>What each secret holds after this test's writes, by path.</summary>
+    private readonly Dictionary<string, Dictionary<string, string>> _stored = new();
+
+    /// <summary>The keys Vault lists under each folder, by path.</summary>
+    private readonly Dictionary<string, string[]> _folders = new();
+
     public VaultExportServiceTests()
     {
         _vault.ReadFieldNamesAsync(default!, default!, default!, default!, default)
             .ReturnsForAnyArgs(call => (IReadOnlyCollection<string>)(call.ArgAt<string>(3) is { } path ? _existing.GetValueOrDefault(path, []) : []));
+        _vault.ReadFieldsAsync(default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs(call =>
+            {
+                lock (_writes)
+                    return (IReadOnlyDictionary<string, string>)new Dictionary<string, string>(
+                        call.ArgAt<string>(3) is { } path ? _stored.GetValueOrDefault(path) ?? new() : new());
+            });
+        _vault.ListAsync(default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs(call => (IReadOnlyList<string>)(call.ArgAt<string>(3) is { } path ? _folders.GetValueOrDefault(path, []) : []));
         _vault.MergeAsync(default!, default!, default!, default!, default!, default, default)
             .ReturnsForAnyArgs(call =>
             {
-                _writes.Add((call.ArgAt<string>(3), call.ArgAt<IReadOnlyDictionary<string, string>>(4)));
-                _removes.Add((call.ArgAt<string>(3), call.ArgAt<IReadOnlyCollection<string>?>(5) ?? []));
-                return _writes.Count;
+                // A test that sets up its own writes calls this with no arguments.
+                if (call.ArgAt<string>(3) is not { } path)
+                    return 0;
+
+                // A backup writes several secrets at once.
+                lock (_writes)
+                {
+                    var fields = call.ArgAt<IReadOnlyDictionary<string, string>>(4);
+                    _writes.Add((path, fields));
+                    _removes.Add((path, call.ArgAt<IReadOnlyCollection<string>?>(5) ?? []));
+                    if (!_stored.TryGetValue(path, out var stored))
+                        _stored[path] = stored = new();
+                    foreach (var (name, value) in fields)
+                        stored[name] = value;
+                    return _writes.Count;
+                }
             });
     }
 
@@ -512,7 +540,8 @@ public class VaultExportServiceTests
             {
                 var path = call.ArgAt<string>(3);
                 if (path.EndsWith("/a")) throw new HttpRequestException("Vault answered HTTP 500");
-                _writes.Add((path, call.ArgAt<IReadOnlyDictionary<string, string>>(4)));
+                lock (_writes)
+                    _writes.Add((path, call.ArgAt<IReadOnlyDictionary<string, string>>(4)));
                 return 1;
             });
 
@@ -538,6 +567,128 @@ public class VaultExportServiceTests
         var saved = (await Service(Auditor).GetTrustDomainVaultSettingsAsync()).Single();
         saved.Namespace.ShouldBeNull();
         saved.LastBackupAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Backup_LeavesSecretsThatAlreadyHoldTheSameFiles_AndWritesTheChangedOnes()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root", withKey: true);
+        var issuing = await AddCaAsync(td, "Issuing", root);
+        await AddIssuedAsync(issuing, "client", withKey: true);
+        await AddCrlAsync(root, 1, [1]);
+        var options = new VaultBackupOptions(IncludeKeys: true, ChainInP12: true, IncludeCrls: true);
+
+        (await Service(KeyCustodian).BackupAsync(td, Token, options)).SecretsWritten.ShouldBe(3);
+
+        // Each export encrypts a P12 afresh, yet the same certificates and key count as unchanged.
+        var again = await Service(KeyCustodian).BackupAsync(td, Token, options);
+        again.SecretsWritten.ShouldBe(0);
+        again.SecretsUnchanged.ShouldBe(3);
+        _writes.Count.ShouldBe(3);
+
+        await AddCrlAsync(root, 2, [2]);
+        var afterCrl = await Service(KeyCustodian).BackupAsync(td, Token, options);
+        afterCrl.SecretsWritten.ShouldBe(1);
+        afterCrl.SecretsUnchanged.ShouldBe(2);
+        _writes[^1].Path.ShouldBe("team-a/lab/root");
+
+        // A secret holding a P12 of another key is rewritten.
+        using var otherKey = RSA.Create(2048);
+        using var other = new CertificateRequest("CN=client", otherKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
+            .CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(1));
+        lock (_writes)
+            _stored["team-a/lab/root/issuing/client"]["client-chain.p12"] = Convert.ToBase64String(other.Export(X509ContentType.Pkcs12, "leaf-pass"));
+        var afterSwap = await Service(KeyCustodian).BackupAsync(td, Token, options);
+        afterSwap.SecretsWritten.ShouldBe(1);
+        _writes[^1].Path.ShouldBe("team-a/lab/root/issuing/client");
+    }
+
+    [Fact]
+    public async Task Backup_WritesSeveralSecretsAtOnce()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        for (var i = 0; i < 12; i++)
+            await AddIssuedAsync(root, $"client {i}");
+        var inFlight = 0;
+        var most = 0;
+        _vault.MergeAsync(default!, default!, default!, default!, default!, default, default)
+            .ReturnsForAnyArgs(async _ =>
+            {
+                var now = Interlocked.Increment(ref inFlight);
+                lock (_writes)
+                    most = Math.Max(most, now);
+                await Task.Delay(50);
+                Interlocked.Decrement(ref inFlight);
+                return 1;
+            });
+
+        var progress = new List<int>();
+        var result = await Service(CaOperator).BackupAsync(td, Token, new(), progress: new SyncProgress(progress));
+
+        result.SecretsWritten.ShouldBe(13);
+        most.ShouldBeGreaterThan(1);
+        progress.ShouldBe(Enumerable.Range(1, 13));
+    }
+
+    [Fact]
+    public async Task Backup_ListsTheSecretsNoCertificateUses_ButNotAnotherTrustDomainsInTheSameFolder()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        await AddIssuedAsync(root, "client");
+        var sharing = await AddTrustDomainAsync("lab", "team-a");
+        await AddCaAsync(sharing, "Other");
+        _folders["team-a/lab"] = ["root", "root/", "other", "old-ca/", "gone"];
+        _folders["team-a/lab/root"] = ["client", "deleted cert"];
+        _folders["team-a/lab/old-ca"] = ["leaf"];
+        _existing["team-a/lab/gone"] = ["gone.p12", "gone.cer", "password"];
+
+        var result = await Service(CaOperator).BackupAsync(td, Token, new());
+
+        result.OrphanCheckError.ShouldBeNull();
+        result.Orphans!.Select(o => o.Path).ShouldBe(["team-a/lab/gone", "team-a/lab/old-ca/leaf", "team-a/lab/root/deleted cert"]);
+        result.Orphans![0].Fields.ShouldBe(["gone.cer", "gone.p12", "password"]);
+    }
+
+    [Fact]
+    public async Task Backup_StillSucceeds_WhenTheTokenCannotListTheFolder()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        await AddCaAsync(td, "Root");
+        _vault.ListAsync(default!, default!, default!, default!, default)
+            .ReturnsForAnyArgs<IReadOnlyList<string>>(_ => throw new VaultTokenRefusedException("team-a/lab", 403));
+
+        var result = await Service(CaOperator).BackupAsync(td, Token, new());
+
+        result.SecretsWritten.ShouldBe(1);
+        result.Orphans.ShouldBeNull();
+        result.OrphanCheckError.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task RemoveOrphans_DeletesOnlySecretsNoCertificateUses_UnderTheTrustDomainsFolder()
+    {
+        await EnableAsync();
+        var td = await AddTrustDomainAsync("Lab", "team-a", backup: true);
+        var root = await AddCaAsync(td, "Root");
+        await AddIssuedAsync(root, "client");
+
+        await Should.ThrowAsync<OperatorAccessDeniedException>(
+            () => Service(Auditor).RemoveOrphansAsync(td, Token, ["team-a/lab/gone"]));
+
+        var result = await Service(CaOperator).RemoveOrphansAsync(td, Token,
+            ["team-a/lab/gone", "team-a/lab/root/client", "team-a/other/x", "team-a/lab/../other/x"]);
+
+        result.Removed.ShouldBe(["team-a/lab/gone"]);
+        result.Failures.Count.ShouldBe(3);
+        await _vault.Received(1).DeleteAsync(VaultAddress, Token, "secret", "team-a/lab/gone", Arg.Any<CancellationToken>());
+        await _vault.ReceivedWithAnyArgs(1).DeleteAsync(default!, default!, default!, default!, default);
     }
 
     [Theory]

@@ -22,6 +22,12 @@ public interface IVaultKvClient
     /// <summary>The field names of the secret at <paramref name="path"/>; empty when it doesn't exist.</summary>
     Task<IReadOnlyCollection<string>> ReadFieldNamesAsync(Uri address, string token, string mount, string path, CancellationToken ct = default);
 
+    /// <summary>The fields of the secret at <paramref name="path"/> with their values; empty when it doesn't exist.</summary>
+    Task<IReadOnlyDictionary<string, string>> ReadFieldsAsync(Uri address, string token, string mount, string path, CancellationToken ct = default);
+
+    /// <summary>Deletes the secret at <paramref name="path"/> for good: every version and its metadata.</summary>
+    Task DeleteAsync(Uri address, string token, string mount, string path, CancellationToken ct = default);
+
     /// <summary>
     /// Adds <paramref name="fields"/> to the secret at <paramref name="path"/>, keeping its other fields except
     /// <paramref name="remove"/>, and returns the new KV version. Creates the secret when it doesn't exist.

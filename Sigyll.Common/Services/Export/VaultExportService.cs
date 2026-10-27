@@ -8,6 +8,9 @@
 // */
 #endregion
 
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -103,8 +106,23 @@ public record VaultPendingUpdate(string RelativePath, string Name, string? Previ
 public record VaultUpdateResult(string Address, string Mount, IReadOnlyList<string> Updated, IReadOnlyList<string> Notes, IReadOnlyList<string> Failures);
 
 /// <param name="Root">The trust domain's folder: <c>&lt;namespace&gt;/&lt;trust domain&gt;</c>.</param>
+/// <param name="SecretsWritten">Secrets written because Vault didn't hold these files yet, or held different ones.</param>
+/// <param name="SecretsUnchanged">Secrets that already held the same files, left as they were.</param>
 /// <param name="Failures">Secrets that weren't written, with the reason.</param>
-public record VaultBackupResult(string Address, string Mount, string Root, int SecretsWritten, int SecretsPlanned, IReadOnlyList<string> Failures);
+/// <param name="Orphans">Secrets under <paramref name="Root"/> that no certificate of the trust domain uses any more;
+/// null when they couldn't be looked for (see <paramref name="OrphanCheckError"/>).</param>
+public record VaultBackupResult(
+    string Address, string Mount, string Root, int SecretsWritten, int SecretsUnchanged, int SecretsPlanned,
+    IReadOnlyList<string> Failures, IReadOnlyList<VaultOrphan>? Orphans = null, string? OrphanCheckError = null);
+
+/// <summary>A secret under a trust domain's folder that matches none of its certificates, e.g. one that was deleted or moved.</summary>
+/// <param name="Path">The secret's path below the mount.</param>
+/// <param name="Fields">Its current fields; empty when its latest version is deleted.</param>
+public record VaultOrphan(string Path, IReadOnlyList<string> Fields);
+
+/// <param name="Removed">The secrets deleted from Vault.</param>
+/// <param name="Failures">Secrets that weren't deleted, with the reason.</param>
+public record VaultOrphanRemovalResult(IReadOnlyList<string> Removed, IReadOnlyList<string> Failures);
 
 /// <summary>
 /// Exports certificate files to a HashiCorp Vault KV v2 mount instead of (or as well as) downloading them. The
@@ -114,6 +132,9 @@ public record VaultBackupResult(string Address, string Mount, string Root, int S
 /// </summary>
 public partial class VaultExportService
 {
+    /// <summary>How many secrets a backup reads, writes or lists at once.</summary>
+    private const int VaultParallelism = 8;
+
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
     private readonly IOperatorContext _operator;
     private readonly CertificateExportService _exportService;
@@ -300,9 +321,11 @@ public partial class VaultExportService
     }
 
     /// <summary>
-    /// Writes every secret of <see cref="PlanBackupAsync"/> with the operator's <paramref name="token"/>. A secret that
-    /// fails is reported and the backup carries on; a refused token stops it. Backing up keys takes the ExportKeys
-    /// permission, like downloading one.
+    /// Writes every secret of <see cref="PlanBackupAsync"/> with the operator's <paramref name="token"/>, several at a
+    /// time. A secret that already holds the same files is left alone. A secret that fails is reported and the backup
+    /// carries on; a refused token stops it. Backing up keys takes the ExportKeys permission, like downloading one.
+    /// Afterwards it lists the trust domain's folder for <see cref="VaultBackupResult.Orphans">secrets no certificate
+    /// uses any more</see>, which <see cref="RemoveOrphansAsync"/> can delete.
     /// </summary>
     /// <param name="progress">Receives the number of secrets done so far.</param>
     public async Task<VaultBackupResult> BackupAsync(
@@ -322,41 +345,74 @@ public partial class VaultExportService
         var (ns, settingNamespace) = ResolveNamespace(plan.TrustDomainName, plan.Namespace, firstNamespace);
 
         var address = new Uri(settings.Address!);
-        var written = 0;
-        var failures = new List<string>();
-        foreach (var secret in plan.Secrets)
-        {
-            var path = $"{ns}/{secret.RelativePath}";
-            try
-            {
-                var fields = new Dictionary<string, string>();
-                foreach (var target in secret.Targets)
-                foreach (var (name, value) in await BuildFieldsAsync(db, target, ct))
-                    fields[name] = value;
+        token = token.Trim();
+        var written = new ConcurrentBag<VaultExportTarget>();
+        var unchanged = new ConcurrentBag<VaultExportTarget>();
+        var failures = new ConcurrentBag<(int Order, string Message)>();
+        VaultTokenRefusedException? refused = null;
+        var done = 0;
+        var progressLock = new object();
 
-                await _vault.MergeAsync(address, token.Trim(), settings.Mount, path, fields, ct: ct);
-                if (written++ == 0 && settingNamespace)
-                    await SaveFirstNamespaceAsync(db, plan.TrustDomainId, ns, identity.Name, ct);
-                await MarkExportedAsync(db, secret.Targets[0], ct);
-            }
-            catch (VaultTokenRefusedException) when (written == 0)
-            {
-                throw;
-            }
-            catch (VaultTokenRefusedException ex)
-            {
-                failures.Add($"{path}: {ex.Message} The backup stopped here.");
-                break;
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
-            {
-                failures.Add($"{path}: {ex.Message}");
-            }
-            progress?.Report(written + failures.Count);
+        // A refused token stops the secrets not yet started; the ones in flight finish.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            await Parallel.ForEachAsync(plan.Secrets.Select((secret, order) => (secret, order)),
+                new ParallelOptions { MaxDegreeOfParallelism = VaultParallelism, CancellationToken = stop.Token },
+                async (item, _) =>
+                {
+                    var (secret, order) = item;
+                    var path = $"{ns}/{secret.RelativePath}";
+                    try
+                    {
+                        // A DbContext isn't thread-safe: each secret reads through its own.
+                        await using var secretDb = await _dbFactory.CreateDbContextAsync(ct);
+                        var fields = new Dictionary<string, string>();
+                        foreach (var target in secret.Targets)
+                        foreach (var (name, value) in await BuildFieldsAsync(secretDb, target, ct))
+                            fields[name] = value;
+
+                        var existing = await _vault.ReadFieldsAsync(address, token, settings.Mount, path, ct);
+                        if (HoldsTheSameFiles(existing, fields))
+                            unchanged.Add(secret.Targets[0]);
+                        else
+                        {
+                            await _vault.MergeAsync(address, token, settings.Mount, path, fields, ct: ct);
+                            written.Add(secret.Targets[0]);
+                        }
+                    }
+                    catch (VaultTokenRefusedException ex)
+                    {
+                        Interlocked.CompareExchange(ref refused, ex, null);
+                        await stop.CancelAsync();
+                        return;
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+                    {
+                        failures.Add((order, $"{path}: {ex.Message}"));
+                    }
+                    lock (progressLock)
+                        progress?.Report(++done);
+                });
+        }
+        catch (OperationCanceledException) when (refused != null && !ct.IsCancellationRequested)
+        {
         }
 
-        if (written > 0)
+        var succeeded = written.Count + unchanged.Count;
+        if (refused != null && succeeded == 0)
+            throw refused;
+
+        var failureList = failures.OrderBy(f => f.Order).Select(f => f.Message).ToList();
+        if (refused != null)
+            failureList.Add($"{refused.Path}: {refused.Message} The backup stopped here.");
+
+        if (succeeded > 0)
         {
+            if (settingNamespace)
+                await SaveFirstNamespaceAsync(db, plan.TrustDomainId, ns, identity.Name, ct);
+            foreach (var target in written.Concat(unchanged))
+                await MarkExportedAsync(db, target, ct);
             var trustDomain = await db.TrustDomains.FindAsync([plan.TrustDomainId], ct);
             trustDomain!.VaultLastBackupAt = DateTime.UtcNow;
             trustDomain.VaultLastBackupBy = identity.Name;
@@ -365,12 +421,190 @@ public partial class VaultExportService
 
         var root = $"{ns}/{Slug(plan.TrustDomainName)}";
         _logger.LogInformation(
-            "{Actor} backed up trust domain {TrustDomain} to Vault {Address} {Mount}/{Root}: {Written} of {Planned} secrets, keys {Keys}, CRLs {Crls}, {Failed} failed",
-            identity.Name, plan.TrustDomainName, settings.Address, settings.Mount, root, written, plan.Secrets.Count,
+            "{Actor} backed up trust domain {TrustDomain} to Vault {Address} {Mount}/{Root}: {Written} written, {Unchanged} unchanged of {Planned} secrets, keys {Keys}, CRLs {Crls}, {Failed} failed",
+            identity.Name, plan.TrustDomainName, settings.Address, settings.Mount, root, written.Count, unchanged.Count, plan.Secrets.Count,
             options.IncludeKeys ? (options.ChainInP12 ? "included with chains" : "included") : "left out",
-            options.IncludeCrls ? "included" : "left out", failures.Count);
+            options.IncludeCrls ? "included" : "left out", failureList.Count);
 
-        return new VaultBackupResult(settings.Address!, settings.Mount, root, written, plan.Secrets.Count, failures);
+        IReadOnlyList<VaultOrphan>? orphans = null;
+        string? orphanCheckError;
+        if (refused != null)
+            orphanCheckError = "Secrets no certificate uses weren't looked for, because Vault refused the token.";
+        else
+            (orphans, orphanCheckError) = await FindOrphansAsync(db, address, token, settings.Mount, ns, plan.TrustDomainId, plan.TrustDomainName, ct);
+
+        return new VaultBackupResult(settings.Address!, settings.Mount, root, written.Count, unchanged.Count, plan.Secrets.Count,
+            failureList, orphans, orphanCheckError);
+    }
+
+    /// <summary>
+    /// Deletes <paramref name="paths"/> from Vault for good, each a secret under the trust domain's folder that no
+    /// certificate uses any more (see <see cref="VaultBackupResult.Orphans"/>). A path a certificate still uses, or one
+    /// outside the folder, is refused rather than deleted.
+    /// </summary>
+    public async Task<VaultOrphanRemovalResult> RemoveOrphansAsync(
+        int trustDomainId, string token, IReadOnlyCollection<string> paths, CancellationToken ct = default)
+    {
+        var identity = await _operator.DemandAsync(Permission.Operate, Permission.ExportKeys);
+
+        if (string.IsNullOrWhiteSpace(token))
+            throw new ArgumentException("Paste a Vault token to remove secrets.");
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var settings = await RequireEnabledAsync(db, ct);
+        var trustDomain = await db.TrustDomains.AsNoTracking().SingleOrDefaultAsync(t => t.Id == trustDomainId, ct)
+            ?? throw new ArgumentException("Trust domain not found.");
+        var ns = trustDomain.VaultNamespace ?? throw new InvalidOperationException(
+            $"Trust domain {trustDomain.Name} has no Vault namespace yet.");
+        var root = $"{ns}/{Slug(trustDomain.Name)}/";
+        var inUse = await PathsInUseAsync(db, ns, trustDomain.Id, trustDomain.Name, ct);
+
+        var address = new Uri(settings.Address!);
+        token = token.Trim();
+        var removed = new List<string>();
+        var failures = new List<string>();
+        foreach (var path in paths.Distinct())
+        {
+            if (!path.StartsWith(root, StringComparison.Ordinal) || path.Split('/').Any(s => s is "" or "." or ".."))
+            {
+                failures.Add($"{path}: not under {root}, so it was left alone.");
+                continue;
+            }
+            if (inUse.Contains(path))
+            {
+                failures.Add($"{path}: a certificate uses this secret, so it was left alone.");
+                continue;
+            }
+            try
+            {
+                await _vault.DeleteAsync(address, token, settings.Mount, path, ct);
+                removed.Add(path);
+            }
+            catch (VaultTokenRefusedException) when (removed.Count == 0 && failures.Count == 0)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is VaultTokenRefusedException or HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                failures.Add($"{path}: {ex.Message}");
+            }
+        }
+
+        _logger.LogWarning(
+            "{Actor} removed {Count} secrets no certificate uses from Vault {Address} {Mount} for trust domain {TrustDomain}: {Paths}; {Failed} not removed",
+            identity.Name, removed.Count, settings.Address, settings.Mount, trustDomain.Name, string.Join(", ", removed), failures.Count);
+        return new VaultOrphanRemovalResult(removed, failures);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="existing"/> already holds every field of <paramref name="fields"/>. A P12 counts as the
+    /// same when it opens with the same password and holds the same certificates and key: each export encrypts it
+    /// afresh, so its bytes never match.
+    /// </summary>
+    private static bool HoldsTheSameFiles(IReadOnlyDictionary<string, string> existing, Dictionary<string, string> fields)
+    {
+        fields.TryGetValue(PasswordField, out var password);
+        foreach (var (name, value) in fields)
+        {
+            if (!existing.TryGetValue(name, out var current))
+                return false;
+            if (current == value)
+                continue;
+            if (!name.EndsWith(".p12", StringComparison.Ordinal)
+                || P12Contents(current, password) is not { } before
+                || P12Contents(value, password) is not { } after
+                || !before.SetEquals(after))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>The thumbprints of a base64 P12's certificates, marked when one carries its key; null when it won't open.</summary>
+    private static HashSet<string>? P12Contents(string base64, string? password)
+    {
+        try
+        {
+            var certificates = X509CertificateLoader.LoadPkcs12Collection(
+                Convert.FromBase64String(base64), password, X509KeyStorageFlags.EphemeralKeySet);
+            try
+            {
+                return certificates.Select(c => (c.HasPrivateKey ? "key:" : "") + c.Thumbprint).ToHashSet();
+            }
+            finally
+            {
+                foreach (var certificate in certificates)
+                    certificate.Dispose();
+            }
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The secrets under the trust domain's folder that no certificate uses: every secret Vault lists below
+    /// <c>&lt;namespace&gt;/&lt;trust domain&gt;</c>, less the paths of certificates in it (or in another trust domain
+    /// that shares the folder). The error says why they couldn't be listed.
+    /// </summary>
+    private async Task<(IReadOnlyList<VaultOrphan>? Orphans, string? Error)> FindOrphansAsync(
+        SigyllDbContext db, Uri address, string token, string mount, string ns, int trustDomainId, string trustDomainName, CancellationToken ct)
+    {
+        var inUse = await PathsInUseAsync(db, ns, trustDomainId, trustDomainName, ct);
+        var options = new ParallelOptions { MaxDegreeOfParallelism = VaultParallelism, CancellationToken = ct };
+        try
+        {
+            var secrets = new ConcurrentBag<string>();
+            var folders = new List<string> { $"{ns}/{Slug(trustDomainName)}" };
+            while (folders.Count > 0)
+            {
+                var next = new ConcurrentBag<string>();
+                await Parallel.ForEachAsync(folders, options, async (folder, c) =>
+                {
+                    foreach (var key in await _vault.ListAsync(address, token, mount, folder, c))
+                        (key.EndsWith('/') ? next : secrets).Add($"{folder}/{key.TrimEnd('/')}");
+                });
+                folders = next.ToList();
+            }
+
+            var orphans = new ConcurrentBag<VaultOrphan>();
+            await Parallel.ForEachAsync(secrets.Where(s => !inUse.Contains(s)), options, async (path, c) =>
+                orphans.Add(new VaultOrphan(path, (await _vault.ReadFieldNamesAsync(address, token, mount, path, c)).Order().ToList())));
+            return (orphans.OrderBy(o => o.Path, StringComparer.Ordinal).ToList(), null);
+        }
+        catch (VaultTokenRefusedException)
+        {
+            return (null, "Your token can't list the trust domain's folder, so secrets no certificate uses weren't looked for.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return (null, $"Couldn't list the trust domain's folder: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The full paths of every certificate's secret under <c>&lt;namespace&gt;/&lt;trust domain&gt;</c>, counting each
+    /// trust domain that writes to that folder (two names can make the same folder), and certificates left out of the
+    /// backup, whose secrets single exports may still have written. The trust domain itself counts even before its
+    /// first backup has saved the namespace.
+    /// </summary>
+    private static async Task<HashSet<string>> PathsInUseAsync(
+        SigyllDbContext db, string ns, int trustDomainId, string trustDomainName, CancellationToken ct)
+    {
+        var folder = Slug(trustDomainName);
+        var sharing = (await db.TrustDomains.AsNoTracking()
+                .Where(t => t.Id == trustDomainId || t.VaultNamespace == ns)
+                .Select(t => new { t.Id, t.Name })
+                .ToListAsync(ct))
+            .Where(t => t.Id == trustDomainId || Slug(t.Name) == folder);
+
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var trustDomain in sharing)
+        {
+            var (_, groups, _) = await LoadSecretsAsync(db, trustDomain.Id, ct);
+            paths.UnionWith(groups.Select(g => $"{ns}/{g.Path}"));
+        }
+        return paths;
     }
 
     /// <summary>

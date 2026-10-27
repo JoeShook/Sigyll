@@ -57,6 +57,24 @@ public sealed class VaultKvClient : IVaultKvClient
         return fields.Select(f => f.Key).ToList();
     }
 
+    public async Task<IReadOnlyDictionary<string, string>> ReadFieldsAsync(
+        Uri address, string token, string mount, string path, CancellationToken ct = default)
+    {
+        using var http = _httpClientFactory.CreateClient(HttpClientName);
+        var (fields, _) = await ReadAsync(http, address, token, mount, path, ct);
+        return fields.ToDictionary(
+            f => f.Key,
+            f => f.Value is JsonValue v && v.TryGetValue<string>(out var s) ? s : f.Value?.ToJsonString() ?? string.Empty);
+    }
+
+    public async Task DeleteAsync(Uri address, string token, string mount, string path, CancellationToken ct = default)
+    {
+        using var http = _httpClientFactory.CreateClient(HttpClientName);
+        using var request = Request(HttpMethod.Delete, address, token, $"{mount}/metadata/{path}");
+        using var response = await http.SendAsync(request, ct);
+        await EnsureSuccessAsync(response, path, ct);
+    }
+
     public async Task<int> MergeAsync(
         Uri address, string token, string mount, string path,
         IReadOnlyDictionary<string, string> fields, IReadOnlyCollection<string>? remove = null, CancellationToken ct = default)

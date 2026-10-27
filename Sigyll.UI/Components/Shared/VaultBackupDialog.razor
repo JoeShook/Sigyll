@@ -4,7 +4,8 @@
    See LICENSE in the project root for license information. *@
 
 @* Backs up a whole trust domain to Vault KV: every certificate's .cer and, when asked, each CA's latest CRL and
-   (for a KeyCustodian) the P12 files, at the same paths single exports use. *@
+   (for a KeyCustodian) the P12 files, at the same paths single exports use. Afterwards it lists the secrets in the
+   trust domain's folder that no certificate uses any more, for the operator to remove. *@
 
 @using Sigyll.Common.Services.Export
 @inject VaultExportService VaultExport
@@ -29,6 +30,10 @@
         {
             <FluentMessageBar Intent="@(result.Failures.Count == 0 ? MessageIntent.Success : MessageIntent.Warning)" AllowDismiss="false">
                 Wrote @result.SecretsWritten of @result.SecretsPlanned secrets under <code>@result.Mount/@result.Root</code>.
+                @if (result.SecretsUnchanged > 0)
+                {
+                    <span> @result.SecretsUnchanged already held the same files and were left as they were.</span>
+                }
             </FluentMessageBar>
             @if (result.Failures.Count > 0)
             {
@@ -39,6 +44,96 @@
                     }
                 </ul>
             }
+
+            <div style="margin-top: 1rem;">
+                <FluentLabel Weight="FontWeight.Bold">Secrets no certificate uses</FluentLabel>
+                @if (result.Orphans == null)
+                {
+                    <p style="font-size: 0.85rem; opacity: 0.8; margin: 0.25rem 0 0;">@result.OrphanCheckError</p>
+                }
+                else if (orphans.Count == 0)
+                {
+                    <p style="font-size: 0.85rem; opacity: 0.8; margin: 0.25rem 0 0;">
+                        @(removedOrphans.Count > 0 ? "No others" : "None") under <code>@result.Root</code>.
+                    </p>
+                }
+                else
+                {
+                    <p style="font-size: 0.8rem; opacity: 0.7; margin: 0.25rem 0 0.5rem;">
+                        These secrets are in the trust domain's folder but belong to none of its certificates, for
+                        example one that was deleted or moved. Removing a secret deletes it from Vault for good, with
+                        all its versions.
+                    </p>
+                    <div style="max-height: 240px; overflow-y: auto; border: 1px solid var(--neutral-stroke-rest); border-radius: 4px; padding: 0 0.5rem;">
+                        @foreach (var orphan in orphans)
+                        {
+                            <div style="display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid var(--neutral-stroke-divider-rest);">
+                                <FluentCheckbox Value="@selectedOrphans.Contains(orphan.Path)"
+                                                ValueChanged="@((bool v) => ToggleOrphan(orphan.Path, v))"
+                                                Disabled="@isBusy" aria-label="@($"Remove {orphan.Path}")" />
+                                <div style="min-width: 0;">
+                                    <code style="word-break: break-all;">@orphan.Path[(result.Root.Length + 1)..]</code>
+                                    <div style="font-size: 0.75rem; opacity: 0.7;">
+                                        @(orphan.Fields.Count == 0 ? "No current version (its latest version was deleted)" : string.Join(", ", orphan.Fields))
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    @if (EffectiveToken == null)
+                    {
+                        <FluentTextField @bind-Value="token" TextFieldType="TextFieldType.Password" Immediate="true"
+                                         Label="Vault token" Style="width: 100%; margin-top: 0.5rem;" />
+                    }
+                    @if (confirmingRemoval)
+                    {
+                        <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Style="margin-top: 0.5rem;">
+                            Delete @selectedOrphans.Count @(selectedOrphans.Count == 1 ? "secret" : "secrets") from Vault for good? This can't be undone.
+                            <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                <FluentButton Appearance="Appearance.Accent" OnClick="RemoveSelectedAsync" Loading="@isBusy" Disabled="@isBusy">Remove</FluentButton>
+                                <FluentButton Appearance="Appearance.Outline" OnClick="@(() => confirmingRemoval = false)" Disabled="@isBusy">Cancel</FluentButton>
+                            </div>
+                        </FluentMessageBar>
+                    }
+                    else
+                    {
+                        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 0.5rem; margin-top: 0.5rem;">
+                            <FluentButton Appearance="Appearance.Outline" OnClick="@(() => confirmingRemoval = true)"
+                                          Disabled="@(isBusy || selectedOrphans.Count == 0 || string.IsNullOrWhiteSpace(EffectiveToken))">
+                                Remove selected from Vault
+                            </FluentButton>
+                            <FluentButton Appearance="Appearance.Lightweight" OnClick="SelectAllOrphans" Disabled="@isBusy">
+                                @(selectedOrphans.Count == orphans.Count ? "Select none" : "Select all")
+                            </FluentButton>
+                        </FluentStack>
+                    }
+                }
+                @if (removedOrphans.Count > 0)
+                {
+                    <details style="font-size: 0.8rem; margin-top: 0.5rem;">
+                        <summary>Removed @removedOrphans.Count @(removedOrphans.Count == 1 ? "secret" : "secrets")</summary>
+                        @foreach (var path in removedOrphans)
+                        {
+                            <div style="word-break: break-all; opacity: 0.8;"><code>@path</code></div>
+                        }
+                    </details>
+                }
+                @if (removalFailures.Count > 0)
+                {
+                    <ul style="font-size: 0.8rem; margin-top: 0.5rem;">
+                        @foreach (var failure in removalFailures)
+                        {
+                            <li style="word-break: break-all;">@failure</li>
+                        }
+                    </ul>
+                }
+            </div>
+
+            @if (error != null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false" Style="margin-top: 0.75rem;">@error</FluentMessageBar>
+            }
+
             <p style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.75rem;">
                 Browse it with <code>vault kv list -mount=@result.Mount @result.Root</code>.
             </p>
@@ -194,6 +289,11 @@
     private string? token;
     private string? error;
     private int done;
+    private List<VaultOrphan> orphans = [];
+    private readonly HashSet<string> selectedOrphans = new();
+    private List<string> removedOrphans = [];
+    private List<string> removalFailures = [];
+    private bool confirmingRemoval;
 
     /// <summary>Whether the operator may include P12 files (the KeyCustodian role).</summary>
     [Parameter] public bool CanExportKeys { get; set; }
@@ -201,7 +301,7 @@
     /// <summary>Raised after a backup wrote at least one secret.</summary>
     [Parameter] public EventCallback OnBackedUp { get; set; }
 
-    private string? EffectiveToken => TokenCache.Token ?? token;
+    private string? EffectiveToken => TokenCache.Token ?? (string.IsNullOrWhiteSpace(token) ? null : token);
 
     /// <summary>Opens the dialog for the trust domain <paramref name="id"/>.</summary>
     public async Task ShowAsync(int id)
@@ -215,6 +315,11 @@
         token = null;
         error = null;
         done = 0;
+        orphans = [];
+        selectedOrphans.Clear();
+        removedOrphans = [];
+        removalFailures = [];
+        confirmingRemoval = false;
         hidden = false;
         StateHasChanged();
         await LoadPlanAsync();
@@ -277,9 +382,11 @@
                 plan!.Namespace == null ? chosenNamespace : null, progress);
             TokenCache.Save(usedToken);
             token = null;
-            if (result.SecretsWritten > 0)
+            orphans = result.Orphans?.ToList() ?? [];
+            if (result.SecretsWritten + result.SecretsUnchanged > 0)
             {
-                ToastService.ShowSuccess($"Backed up {plan.TrustDomainName} to Vault {result.Mount}/{result.Root} ({result.SecretsWritten} secrets).");
+                ToastService.ShowSuccess($"Backed up {plan.TrustDomainName} to Vault {result.Mount}/{result.Root} " +
+                                         $"({result.SecretsWritten} written, {result.SecretsUnchanged} unchanged).");
                 await OnBackedUp.InvokeAsync();
             }
         }
@@ -295,6 +402,58 @@
         }
         finally
         {
+            isBusy = false;
+        }
+    }
+
+    private void ToggleOrphan(string path, bool selected)
+    {
+        if (selected)
+            selectedOrphans.Add(path);
+        else
+            selectedOrphans.Remove(path);
+        confirmingRemoval = false;
+    }
+
+    private void SelectAllOrphans()
+    {
+        if (selectedOrphans.Count == orphans.Count)
+            selectedOrphans.Clear();
+        else
+            selectedOrphans.UnionWith(orphans.Select(o => o.Path));
+        confirmingRemoval = false;
+    }
+
+    private async Task RemoveSelectedAsync()
+    {
+        isBusy = true;
+        error = null;
+        try
+        {
+            var usedToken = EffectiveToken!;
+            var removal = await VaultExport.RemoveOrphansAsync(trustDomainId, usedToken, selectedOrphans.ToList());
+            TokenCache.Save(usedToken);
+            token = null;
+            removedOrphans.AddRange(removal.Removed);
+            removalFailures = removal.Failures.ToList();
+            orphans.RemoveAll(o => removal.Removed.Contains(o.Path));
+            selectedOrphans.ExceptWith(removal.Removed);
+            if (removal.Removed.Count > 0)
+                ToastService.ShowSuccess($"Removed {removal.Removed.Count} {(removal.Removed.Count == 1 ? "secret" : "secrets")} from Vault.");
+        }
+        catch (VaultTokenRefusedException ex)
+        {
+            TokenCache.Clear();
+            token = null;
+            error = $"{ex.Message} Paste a new token, or ask for a policy that allows deleting under the namespace.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            confirmingRemoval = false;
             isBusy = false;
         }
     }
