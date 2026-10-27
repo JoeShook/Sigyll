@@ -28,6 +28,7 @@ public partial class ExternalRequests
     [Inject] private ExternalCertificateRequestService RequestService { get; set; } = null!;
     [Inject] private IDbContextFactory<SigyllDbContext> DbFactory { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
+    [Inject] private IDialogService DialogService { get; set; } = null!;
     [Inject] private IJSRuntime JS { get; set; } = null!;
     [Inject] private TimeDisplayService TimeDisplay { get; set; } = null!;
     [Inject] private OperatorAccess Access { get; set; } = null!;
@@ -441,12 +442,19 @@ public partial class ExternalRequests
 
     private async Task DeleteAsync(ExternalCertificateRequestSummary row)
     {
-        if (row.Status == ExternalRequestStatus.Pending)
+        // Every status asks first: the delete cannot be undone.
+        var message = row.Status switch
         {
-            var confirmed = await JS.InvokeAsync<bool>("confirm",
-                $"Delete '{row.Name}'? This permanently destroys its stored private key; a certificate the CA returns for this CSR will be unusable.");
-            if (!confirmed) return;
-        }
+            ExternalRequestStatus.Pending =>
+                $"Delete '{row.Name}'? This permanently destroys its stored private key; a certificate the CA returns for this CSR will be unusable.",
+            ExternalRequestStatus.Fulfilled =>
+                $"Delete the request record '{row.Name}'? The issued certificate and its private key stay in the Explorer; " +
+                "this removes the request's CSR and history, and it cannot be undone.",
+            _ =>
+                $"Delete '{row.Name}'? This permanently destroys its stored private key and CSR.",
+        };
+        var dialog = await DialogService.ShowConfirmationAsync(message, "Delete", "Cancel", "Confirm Delete");
+        if ((await dialog.Result).Cancelled) return;
 
         if (await RequestService.DeleteAsync(row.Id))
         {
