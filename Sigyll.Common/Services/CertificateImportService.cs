@@ -17,6 +17,7 @@ using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 
@@ -53,12 +54,16 @@ public class CertificateImportService
     public CertificateImportService(
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
-        ILogger<CertificateImportService> logger)
+        ILogger<CertificateImportService> logger,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
+
+    private readonly AuditTrail _audit;
 
     /// <summary>
     /// Imports a single parsed certificate into the database.
@@ -74,7 +79,7 @@ public class CertificateImportService
         byte[]? rawFileOverride = null,
         CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var cert = parsed.Certificate;
@@ -92,6 +97,8 @@ public class CertificateImportService
                 existingCa.EncryptedPfxBytes = fileBytes;
                 existingCa.PfxPassword = password;
                 await db.SaveChangesAsync(ct);
+                await _audit.RecordAsync(identity, AuditActions.CertificateImported, AuditTarget.Of(existingCa),
+                    "Its private key was imported into the existing certificate.", ct: ct);
             }
             return SingleImportResult.Merged(existingCa.Name);
         }
@@ -107,6 +114,8 @@ public class CertificateImportService
                 existingIssued.EncryptedPfxBytes = fileBytes;
                 existingIssued.PfxPassword = password;
                 await db.SaveChangesAsync(ct);
+                await _audit.RecordAsync(identity, AuditActions.CertificateImported, AuditTarget.Of(existingIssued),
+                    "Its private key was imported into the existing certificate.", ct: ct);
             }
             return SingleImportResult.Merged(existingIssued.Name);
         }
@@ -251,6 +260,13 @@ public class CertificateImportService
         {
             await MarkRequestFulfilledAsync(db, pendingRequest, newCa, newIssued, thumbprint, ct);
         }
+
+        var importedTarget = newCa != null ? AuditTarget.Of(newCa) : AuditTarget.Of(newIssued!, trustDomainId);
+        var keyNote = pendingRequest != null ? $"paired with the key of request #{pendingRequest.Id}"
+            : keyPairedFrom != null ? $"paired with the key of {keyPairedFrom}"
+            : parsed.HasPrivateKey ? "with its private key" : "certificate only";
+        await _audit.RecordAsync(identity, AuditActions.CertificateImported, importedTarget,
+            $"Imported from {parsed.FileName}, {keyNote}.", ct: ct);
 
         return SingleImportResult.Imported(certName.Trim(), keyPairedFrom);
     }

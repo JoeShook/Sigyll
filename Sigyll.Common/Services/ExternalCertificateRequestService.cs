@@ -17,6 +17,7 @@ using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.ViewModels;
 using X509Extension = System.Security.Cryptography.X509Certificates.X509Extension;
@@ -48,6 +49,7 @@ public class ExternalCertificateRequestService
     private readonly Pkcs12BundleService _bundleService;
     private readonly CertificateParsingService _parsingService;
     private readonly CertificateImportService _importService;
+    private readonly AuditTrail _audit;
 
     public ExternalCertificateRequestService(
         IDbContextFactory<SigyllDbContext> dbFactory,
@@ -55,7 +57,8 @@ public class ExternalCertificateRequestService
         ILogger<ExternalCertificateRequestService> logger,
         Pkcs12BundleService bundleService,
         CertificateParsingService parsingService,
-        CertificateImportService importService)
+        CertificateImportService importService,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
@@ -63,13 +66,14 @@ public class ExternalCertificateRequestService
         _bundleService = bundleService;
         _parsingService = parsingService;
         _importService = importService;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
 
     // ------------------------------------------------------------------ create
 
     public async Task<ExternalCertificateRequestResult> CreateAsync(CreateExternalCertificateRequest request, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         if (string.IsNullOrWhiteSpace(request.Name))
             return ExternalCertificateRequestResult.Failure("A name is required.");
@@ -140,6 +144,8 @@ public class ExternalCertificateRequestService
             _logger.LogInformation(
                 "Created external CA request '{Name}' (ID {Id}) in trust domain {TrustDomainId}: {Alg} {Size}, profile {Profile}",
                 entity.Name, entity.Id, entity.TrustDomainId, alg, size, request.Profile);
+            await _audit.RecordAsync(identity, AuditActions.RequestCreated, AuditTarget.Of(entity),
+                $"New {alg} {size} key held by Sigyll; profile {request.Profile}.", ct: ct);
 
             return new ExternalCertificateRequestResult
             {
@@ -440,7 +446,7 @@ public class ExternalCertificateRequestService
     /// </summary>
     public async Task<ExternalRequestExportResult> ExportPrivateKeyAsync(int id, string passphrase, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.ExportKeys);
+        var identity = await _operator.DemandAsync(Permission.ExportKeys);
 
         if (string.IsNullOrEmpty(passphrase))
             return ExternalRequestExportResult.Failure("A passphrase is required to export the private key.");
@@ -467,6 +473,9 @@ public class ExternalCertificateRequestService
             var pem = key.ExportEncryptedPkcs8Pem(passphrase, pbe);
 
             _logger.LogWarning("Private key of external CA request '{Name}' (ID {Id}) exported", row.Name, row.Id);
+            // Recorded before the key is handed over: no record, no key.
+            await _audit.RecordAsync(identity, AuditActions.KeyExported, AuditTarget.Of(row),
+                "Encrypted PKCS#8 PEM with an operator-chosen passphrase.", ct: ct);
 
             return new ExternalRequestExportResult
             {
@@ -521,7 +530,7 @@ public class ExternalCertificateRequestService
     /// </summary>
     public async Task<ExternalRequestExportResult> ExportPkcs12Async(int id, string password, bool includeChain, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.ExportKeys);
+        var identity = await _operator.DemandAsync(Permission.ExportKeys);
 
         if (string.IsNullOrEmpty(password))
             return ExternalRequestExportResult.Failure("A password for the .p12 is required.");
@@ -552,6 +561,9 @@ public class ExternalCertificateRequestService
             var bytes = Pkcs12Writer.Rewrap(pfx!, pfxPassword!, password, chain);
 
             _logger.LogWarning("PKCS#12 with private key exported for external CA request '{Name}' (ID {Id}), chain: {Chain}", row.Name, row.Id, includeChain);
+            await _audit.RecordAsync(identity, AuditActions.KeyExported, AuditTarget.Of(row),
+                includeChain ? "PKCS #12 with an operator-chosen password and the CA chain." : "PKCS #12 with an operator-chosen password.",
+                ct: ct);
 
             return new ExternalRequestExportResult
             {
@@ -587,7 +599,7 @@ public class ExternalCertificateRequestService
         int? issuingCaId = null,
         CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
@@ -701,6 +713,8 @@ public class ExternalCertificateRequestService
             _logger.LogInformation(
                 "Fulfilled external CA request '{Name}' (ID {Id}) with certificate {Thumbprint} as {EntityType} {CertId}",
                 row.Name, row.Id, bundle.Thumbprint, result.EntityType, result.CertificateId);
+            await _audit.RecordAsync(identity, AuditActions.RequestFulfilled, AuditTarget.Of(row) with { Thumbprint = bundle.Thumbprint },
+                $"Fulfilled by {result.EntityType} #{result.CertificateId}.", ct: ct);
 
             result.Success = true;
             return result;
@@ -729,7 +743,7 @@ public class ExternalCertificateRequestService
     /// <summary>Deletes the request and its stored private key. Irreversible.</summary>
     public async Task<bool> DeleteAsync(int id, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Administer);
+        var identity = await _operator.DemandAsync(Permission.Administer);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var row = await db.ExternalCertificateRequests.FindAsync([id], ct);
@@ -737,6 +751,8 @@ public class ExternalCertificateRequestService
         db.ExternalCertificateRequests.Remove(row);
         await db.SaveChangesAsync(ct);
         _logger.LogWarning("Deleted external CA request '{Name}' (ID {Id}) and its private key", row.Name, row.Id);
+        await _audit.RecordAsync(identity, AuditActions.RequestDeleted, AuditTarget.Of(row),
+            $"Its private key was deleted (request status {row.Status}).", ct: ct);
         return true;
     }
 

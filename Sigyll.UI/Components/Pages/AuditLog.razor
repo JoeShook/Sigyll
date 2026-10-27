@@ -1,0 +1,99 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@page "/audit"
+@using Sigyll.Common.Data.Entities
+@using Sigyll.Common.Services.Audit
+
+<PageTitle>Sigyll - Audit Trail</PageTitle>
+
+<FluentLabel Typo="Typography.PageTitle">Audit Trail</FluentLabel>
+<FluentLabel Style="opacity: 0.7; margin-bottom: 1rem;">
+    Every issuance, revocation, key export, deletion, Vault write and operator change, newest first.
+    Entries can't be edited or removed.
+</FluentLabel>
+
+<div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; margin-bottom: 0.75rem;">
+    <div style="flex: 0 1 220px; min-width: 0;">
+        <FluentSelect TOption="string"
+                      Label="Action"
+                      Items="@actionOptions"
+                      OptionText="@(a => a.Length == 0 ? "All actions" : a)"
+                      SelectedOption="@action"
+                      SelectedOptionChanged="OnActionChanged"
+                      Style="width: 100%; min-width: 0;" />
+    </div>
+    <div style="flex: 0 1 220px; min-width: 0;">
+        <FluentSearch Label="Actor" @bind-Value="actor" @bind-Value:after="SearchAsync"
+                      Immediate="true" ImmediateDelay="300" Placeholder="Operator or job"
+                      Style="width: 100%;" />
+    </div>
+    <div style="flex: 1 1 280px; min-width: 0;">
+        <FluentSearch Label="Certificate or detail" @bind-Value="text" @bind-Value:after="SearchAsync"
+                      Immediate="true" ImmediateDelay="300" Placeholder="Name, subject, thumbprint or detail"
+                      Style="width: 100%;" />
+    </div>
+</div>
+
+@if (results == null)
+{
+    <FluentProgressRing Style="margin: 2rem auto; display: block;" />
+}
+else if (results.Total == 0)
+{
+    <p style="opacity: 0.6;">No audit events match.</p>
+}
+else
+{
+    <FluentDataGrid Items="@results.Events.AsQueryable()" ResizableColumns="true"
+                    GridTemplateColumns="170px 200px 190px minmax(220px, 1.2fr) minmax(260px, 2fr)">
+        <TemplateColumn Title="When">@TimeDisplay.Format(context.OccurredAt)</TemplateColumn>
+        <TemplateColumn Title="Actor" Class="multiline-text">
+            @context.Actor
+            @if (context.ActorIsSystem)
+            {
+                <span style="opacity: 0.6;"> (system)</span>
+            }
+        </TemplateColumn>
+        <TemplateColumn Title="Action">
+            @if (context.Succeeded)
+            {
+                <code>@context.Action</code>
+            }
+            else
+            {
+                <code>@context.Action</code>
+                <FluentBadge BackgroundColor="#c62828" Color="white" Style="margin-left: 0.35rem;">Failed</FluentBadge>
+            }
+        </TemplateColumn>
+        <TemplateColumn Title="Record" Class="multiline-text">
+            @if (ExplorerLink(context) is { } href)
+            {
+                <a href="@href">@(context.EntityName ?? $"{context.EntityType} #{context.EntityId}")</a>
+            }
+            else if (context.EntityType != null)
+            {
+                @(context.EntityName ?? $"{context.EntityType} #{context.EntityId}")
+            }
+            @if (context.EntityType != null)
+            {
+                <div style="font-size: 0.8rem; opacity: 0.65;">@context.EntityType@(context.EntityId is { } id ? $" #{id}" : "")</div>
+            }
+            @if (context.Subject != null)
+            {
+                <div style="font-size: 0.8rem; opacity: 0.65; overflow-wrap: anywhere;">@context.Subject</div>
+            }
+        </TemplateColumn>
+        <TemplateColumn Title="Detail" Class="multiline-text">
+            <span style="overflow-wrap: anywhere;">@context.Detail</span>
+        </TemplateColumn>
+    </FluentDataGrid>
+
+    <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem;">
+        <FluentButton Appearance="Appearance.Outline" Disabled="@(skip == 0)" OnClick="NewerAsync">Newer</FluentButton>
+        <span style="opacity: 0.7;">@(skip + 1)–@(skip + results.Events.Count) of @results.Total</span>
+        <FluentButton Appearance="Appearance.Outline" Disabled="@(skip + results.Events.Count >= results.Total)" OnClick="OlderAsync">Older</FluentButton>
+    </div>
+}

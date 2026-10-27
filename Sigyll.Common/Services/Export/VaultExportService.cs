@@ -17,6 +17,7 @@ using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 
 namespace Sigyll.Common.Services.Export;
 
@@ -146,14 +147,18 @@ public partial class VaultExportService
         IOperatorContext operatorContext,
         CertificateExportService exportService,
         IVaultKvClient vault,
-        ILogger<VaultExportService> logger)
+        ILogger<VaultExportService> logger,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _exportService = exportService;
         _vault = vault;
         _logger = logger;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
+
+    private readonly AuditTrail _audit;
 
     public async Task<VaultExportSettings> GetSettingsAsync(CancellationToken ct = default)
     {
@@ -303,6 +308,8 @@ public partial class VaultExportService
         _logger.LogInformation(
             "{Actor} exported {Fields} of {EntityType} {Id} to Vault {Address} {Mount}/{Path} (version {Version})",
             identity.Name, string.Join(", ", fields.Keys), target.EntityType, target.Id, settings.Address, settings.Mount, path, version);
+        await _audit.RecordAsync(identity, AuditActions.VaultExported, target.EntityType, target.Id,
+            $"Wrote {string.Join(", ", fields.Keys)} to {settings.Address} {settings.Mount}/{path} (version {version}).", ct: ct);
 
         return new VaultExportResult(settings.Address!, settings.Mount, path, version, fields.Keys.ToList());
     }
@@ -425,6 +432,12 @@ public partial class VaultExportService
             identity.Name, plan.TrustDomainName, settings.Address, settings.Mount, root, written.Count, unchanged.Count, plan.Secrets.Count,
             options.IncludeKeys ? (options.ChainInP12 ? "included with chains" : "included") : "left out",
             options.IncludeCrls ? "included" : "left out", failureList.Count);
+        await _audit.RecordAsync(identity, AuditActions.VaultBackedUp,
+            new AuditTarget("TrustDomain", plan.TrustDomainId, plan.TrustDomainName, TrustDomainId: plan.TrustDomainId),
+            $"{settings.Address} {settings.Mount}/{root}: {written.Count} written, {unchanged.Count} unchanged of {plan.Secrets.Count}; " +
+            $"private keys {(options.IncludeKeys ? "included" : "left out")}; {failureList.Count} failed." +
+            (written.Count > 0 ? $" Written: {string.Join(", ", written.Select(t => $"{t.EntityType} #{t.Id}"))}." : ""),
+            succeeded: failureList.Count == 0, ct: ct);
 
         IReadOnlyList<VaultOrphan>? orphans = null;
         string? orphanCheckError;
@@ -493,6 +506,10 @@ public partial class VaultExportService
         _logger.LogWarning(
             "{Actor} removed {Count} secrets no certificate uses from Vault {Address} {Mount} for trust domain {TrustDomain}: {Paths}; {Failed} not removed",
             identity.Name, removed.Count, settings.Address, settings.Mount, trustDomain.Name, string.Join(", ", removed), failures.Count);
+        if (removed.Count > 0 || failures.Count > 0)
+            await _audit.RecordAsync(identity, AuditActions.VaultSecretsRemoved, AuditTarget.Of(trustDomain),
+                $"Deleted from {settings.Address} {settings.Mount}: {(removed.Count > 0 ? string.Join(", ", removed) : "nothing")}; " +
+                $"{failures.Count} not removed.", succeeded: failures.Count == 0, ct: ct);
         return new VaultOrphanRemovalResult(removed, failures);
     }
 
@@ -758,6 +775,10 @@ public partial class VaultExportService
         _logger.LogInformation(
             "{Actor} updated {Count} changed certificates of trust domain {TrustDomain} in Vault {Address} {Mount}: {Paths}; {Failed} failed",
             identity.Name, updated.Count, trustDomain.Name, settings.Address, settings.Mount, string.Join(", ", updated), failures.Count);
+        if (updated.Count > 0 || failures.Count > 0)
+            await _audit.RecordAsync(identity, AuditActions.VaultUpdated, AuditTarget.Of(trustDomain),
+                $"Updated in {settings.Address} {settings.Mount}: {(updated.Count > 0 ? string.Join(", ", updated) : "nothing")}; " +
+                $"{failures.Count} failed.", succeeded: failures.Count == 0, ct: ct);
 
         return new VaultUpdateResult(settings.Address!, settings.Mount, updated, notes, failures);
     }

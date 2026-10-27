@@ -117,6 +117,7 @@ try
     builder.Services.AddScoped<CertificateProfileService>();
     builder.Services.AddScoped<TrustDomainService>();
     builder.Services.AddScoped<CertificateManagementService>();
+    builder.Services.AddScoped<Sigyll.Common.Services.Audit.AuditTrail>();
     builder.Services.AddScoped<CertificatePublishingService>();
     builder.Services.AddSingleton<IssuanceValidator>();
     builder.Services.AddScoped<SanListService>();

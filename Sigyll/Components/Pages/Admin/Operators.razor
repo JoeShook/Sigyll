@@ -12,9 +12,12 @@
 @using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
 @using Sigyll.Data
 @using Sigyll.Common.Security
+@using Sigyll.Common.Services.Audit
 @using Sigyll.UI.Services
 
 @inject UserManager<SigyllUser> UserManager
+@inject AuditTrail Audit
+@inject IOperatorContext OperatorContext
 @inject IToastService ToastService
 @inject IDialogService DialogService
 
@@ -218,6 +221,8 @@
 
         foreach (var role in newRoles)
             await UserManager.AddToRoleAsync(user, role);
+        await RecordAsync(AuditActions.OperatorCreated, user,
+            $"Roles: {(newRoles.Count > 0 ? string.Join(", ", newRoles.Order()) : "none")}.");
 
         ToastService.ShowSuccess($"Operator '{user.Email}' created");
         createDialogHidden = true;
@@ -267,6 +272,9 @@
         {
             // Rotate the security stamp so the operator's open sessions pick up the change.
             await UserManager.UpdateSecurityStampAsync(editRolesTarget);
+            await RecordAsync(AuditActions.OperatorRolesChanged, editRolesTarget,
+                $"Granted: {(toAdd.Count > 0 ? string.Join(", ", toAdd) : "none")}; " +
+                $"removed: {(toRemove.Count > 0 ? string.Join(", ", toRemove) : "none")}.");
             ToastService.ShowSuccess($"Roles updated for '{editRolesTarget.Email}'");
             editRolesDialogHidden = true;
             await LoadOperatorsAsync();
@@ -276,6 +284,10 @@
             ToastService.ShowCopyableError(string.Join("; ", result.Errors.Select(e => e.Description)));
         }
     }
+
+    private async Task RecordAsync(string action, SigyllUser user, string detail) =>
+        await Audit.RecordAsync(await OperatorContext.GetCurrentAsync(), action,
+            AuditTarget.Operator(user.Email ?? user.UserName ?? user.Id), detail);
 
     private void ShowSetPasswordDialog(SigyllUser user)
     {
@@ -293,6 +305,7 @@
 
         if (result.Succeeded)
         {
+            await RecordAsync(AuditActions.OperatorPasswordSet, setPasswordTarget, "Set by an Admin.");
             ToastService.ShowSuccess($"Password updated for '{setPasswordTarget.Email}'");
             setPasswordDialogHidden = true;
         }
@@ -310,9 +323,12 @@
         var result = await dialog.Result;
         if (result.Cancelled) return;
 
+        var roles = await UserManager.GetRolesAsync(user);
         var deleteResult = await UserManager.DeleteAsync(user);
         if (deleteResult.Succeeded)
         {
+            await RecordAsync(AuditActions.OperatorDeleted, user,
+                $"Held roles: {(roles.Count > 0 ? string.Join(", ", roles.Order()) : "none")}.");
             ToastService.ShowSuccess($"Operator '{user.Email}' deleted");
             await LoadOperatorsAsync();
         }

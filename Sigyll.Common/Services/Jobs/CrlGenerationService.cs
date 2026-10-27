@@ -23,6 +23,7 @@ using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using X509Extensions = Org.BouncyCastle.Asn1.X509.X509Extensions;
@@ -56,13 +57,17 @@ public class CrlGenerationService
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
         ILogger<CrlGenerationService> logger,
-        ISigningProvider signingProvider)
+        ISigningProvider signingProvider,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
         _signingProvider = signingProvider;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
+
+    private readonly AuditTrail _audit;
 
     /// <summary>
     /// Generates a new CRL for the specified CA certificate.
@@ -74,7 +79,7 @@ public class CrlGenerationService
         TimeSpan? validity = null,
         CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
@@ -218,6 +223,9 @@ public class CrlGenerationService
         _logger.LogInformation(
             "Generated CRL #{CrlNumber} for CA '{CaName}' with {RevokedCount} revocations, next update {NextUpdate}",
             nextCrlNumber, ca.Name, revocationEntries.Count, nextUpdate);
+        await _audit.RecordAsync(identity, AuditActions.CrlGenerated, AuditTarget.Of(crlEntity, ca.TrustDomainId)
+                with { Subject = ca.Subject },
+            $"Signed by {ca.Name}; {revocationEntries.Count} revoked; next update {nextUpdate:u}.", ct: ct);
 
         await PublishCrlToFileSystemAsync(db, ca, crlBytes, ct);
 

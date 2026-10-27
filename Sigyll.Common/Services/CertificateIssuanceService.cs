@@ -16,6 +16,7 @@ using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
@@ -36,19 +37,22 @@ public class CertificateIssuanceService
     private readonly ILogger<CertificateIssuanceService> _logger;
     private readonly ISigningProvider _signingProvider;
     private readonly IssuanceValidator _validator;
+    private readonly AuditTrail _audit;
 
     public CertificateIssuanceService(
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
         ILogger<CertificateIssuanceService> logger,
         ISigningProvider? signingProvider = null,
-        IssuanceValidator? validator = null)
+        IssuanceValidator? validator = null,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
         _signingProvider = signingProvider ?? new LocalSigningProvider();
         _validator = validator ?? new IssuanceValidator();
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
 
     public IssuanceValidator Validator => _validator;
@@ -65,7 +69,26 @@ public class CertificateIssuanceService
     /// </summary>
     public async Task<CertificateIssuanceResult> IssueCertificateAsync(CertificateIssuanceRequest request)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
+        var result = await IssueAsync(request);
+        await RecordIssuanceAsync(identity, result.Success, result.EntityType, result.EntityId, result.SerialNumber,
+            request.IssuingCaCertificateId is int issuer ? $"Issued by CA #{issuer}" : "Self-signed", request.SubjectDn,
+            result.Error);
+        return result;
+    }
+
+    private async Task RecordIssuanceAsync(OperatorIdentity identity, bool success, string? entityType, int? entityId,
+        string? serialNumber, string how, string? requestedSubject, string? error)
+    {
+        if (success && entityType != null && entityId is int id)
+            await _audit.RecordAsync(identity, AuditActions.CertificateIssued, entityType, id, $"{how}; serial {serialNumber}.");
+        else
+            await _audit.RecordAsync(identity, AuditActions.CertificateIssued,
+                detail: $"{how}; subject {requestedSubject}. Failed: {error}", succeeded: false);
+    }
+
+    private async Task<CertificateIssuanceResult> IssueAsync(CertificateIssuanceRequest request)
+    {
 
         await using var db = await _dbFactory.CreateDbContextAsync();
 
@@ -415,7 +438,15 @@ public class CertificateIssuanceService
     /// </summary>
     public async Task<CsrIssuanceResult> IssueCertificateFromCsrAsync(CsrIssuanceRequest request)
     {
-        await _operator.DemandAsync(Permission.Operate, Permission.IssueFromRa);
+        var identity = await _operator.DemandAsync(Permission.Operate, Permission.IssueFromRa);
+        var result = await IssueFromCsrAsync(request);
+        await RecordIssuanceAsync(identity, result.Success, result.EntityType, result.EntityId, result.SerialNumber,
+            $"Issued from a CSR by CA #{request.IssuingCaCertificateId}", request.CertificateName, result.Error);
+        return result;
+    }
+
+    private async Task<CsrIssuanceResult> IssueFromCsrAsync(CsrIssuanceRequest request)
+    {
 
         await using var db = await _dbFactory.CreateDbContextAsync();
 
@@ -657,7 +688,16 @@ public class CertificateIssuanceService
     /// </summary>
     public async Task<CertificateIssuanceResult> ResignCertificateAsync(CertificateResignRequest request)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
+        var result = await ResignAsync(request);
+        await RecordIssuanceAsync(identity, result.Success, result.EntityType, result.EntityId, result.SerialNumber,
+            $"Re-signed {request.EntityType} #{request.ExistingCertificateId} with its existing key",
+            $"{request.EntityType} #{request.ExistingCertificateId}", result.Error);
+        return result;
+    }
+
+    private async Task<CertificateIssuanceResult> ResignAsync(CertificateResignRequest request)
+    {
 
         if (string.IsNullOrWhiteSpace(request.PfxPassword))
             return CertificateIssuanceResult.Failure("PFX password is required.");

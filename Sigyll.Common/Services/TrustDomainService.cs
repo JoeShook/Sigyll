@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Services;
@@ -26,12 +27,16 @@ public class TrustDomainService
     public TrustDomainService(
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
-        ILogger<TrustDomainService> logger)
+        ILogger<TrustDomainService> logger,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
+
+    private readonly AuditTrail _audit;
 
     public async Task<List<TrustDomainViewModel>> GetAllAsync(CancellationToken ct = default)
     {
@@ -138,14 +143,18 @@ public class TrustDomainService
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Administer);
+        var identity = await _operator.DemandAsync(Permission.Administer);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var entity = await db.TrustDomains.FindAsync([id], ct);
         if (entity != null)
         {
+            var cas = await db.CaCertificates.CountAsync(c => c.TrustDomainId == id, ct);
+            var issued = await db.IssuedCertificates.CountAsync(i => i.IssuingCaCertificate.TrustDomainId == id, ct);
             db.TrustDomains.Remove(entity);
             await db.SaveChangesAsync(ct);
+            await _audit.RecordAsync(identity, AuditActions.TrustDomainDeleted, AuditTarget.Of(entity),
+                $"Held {cas} CA certificate(s) and {issued} issued certificate(s) when deleted.", ct: ct);
         }
     }
 

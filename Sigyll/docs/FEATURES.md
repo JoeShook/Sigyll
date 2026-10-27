@@ -230,6 +230,20 @@
 - Exporting P12 files is for development and lab CAs: in production, keys stay in an HSM and only certificates
   leave the CA (Settings says so too)
 
+### Audit Trail
+- Every issuance (including re-sign and issuance from a CSR), import, revocation, archive, move and deletion of a
+  certificate or CRL, every CRL generated or imported, every private-key export, every Vault export, backup, update
+  and secret removal, external CA request creation, fulfilment and deletion, trust domain deletion, and every
+  operator account change (created, deleted, roles changed, password set) adds a row to `AuditEvents`: who (operator
+  or system job), what, which record (name, subject and thumbprint as they were), whether it worked, and details
+  such as the revocation reason, export format or roles granted
+- Append-only: a database trigger stamps each row's time and refuses updates, deletes and truncation for any user;
+  hosted databases also revoke UPDATE/DELETE/TRUNCATE from the write role (`V8__audit_trail.sql`). No foreign keys,
+  so the record outlives what it describes
+- A private key is never handed over unrecorded: exports write their audit row first and fail if they can't
+- **Audit Trail** page (`/audit`), readable by every role: filter by action, actor and certificate name, subject,
+  thumbprint or detail; certificates still in the Explorer link to it
+
 ### Renewal Validation
 - **CDP/AIA URL change warning**: When renewing a certificate, if the selected profile would change CDP or AIA URLs compared to the original certificate, a warning banner appears in the issuance dialog listing each added/removed URL
 - Business logic in `IssuanceValidator` (injected into `CertificateIssuanceService`), not in UI code-behind

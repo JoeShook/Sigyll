@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 using Sigyll.Common.Services.Jobs;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
@@ -59,6 +60,7 @@ public class CertificateManagementService
     private readonly CrlGenerationService _crlGenService;
     private readonly IssuanceValidator _validator;
     private readonly IRemoteKeyStore? _remoteKeys;
+    private readonly AuditTrail _audit;
 
     public CertificateManagementService(
         IDbContextFactory<SigyllDbContext> dbFactory,
@@ -67,7 +69,8 @@ public class CertificateManagementService
         ChainValidationService chainValidator,
         CrlGenerationService crlGenService,
         IssuanceValidator? validator = null,
-        IRemoteKeyStore? remoteKeys = null)
+        IRemoteKeyStore? remoteKeys = null,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
@@ -76,6 +79,7 @@ public class CertificateManagementService
         _crlGenService = crlGenService;
         _validator = validator ?? new IssuanceValidator();
         _remoteKeys = remoteKeys;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
 
     public async Task<TrustDomainTreeData> GetTrustDomainTreeAsync(int trustDomainId, CancellationToken ct = default)
@@ -206,10 +210,11 @@ public class CertificateManagementService
     public async Task<ArchiveResult> ArchiveAsync(
         int id, string entityType, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var now = DateTime.UtcNow;
+        AuditTarget target;
 
         switch (entityType)
         {
@@ -218,24 +223,28 @@ public class CertificateManagementService
                 if (ca == null) return new ArchiveResult(false, "Certificate not found.");
                 ca.IsArchived = true;
                 ca.ArchivedAt = now;
+                target = AuditTarget.Of(ca);
                 break;
             case "IssuedCertificate":
                 var issued = await db.IssuedCertificates.FindAsync([id], ct);
                 if (issued == null) return new ArchiveResult(false, "Certificate not found.");
                 issued.IsArchived = true;
                 issued.ArchivedAt = now;
+                target = AuditTarget.Of(issued);
                 break;
             case "Crl":
                 var crl = await db.Crls.FindAsync([id], ct);
                 if (crl == null) return new ArchiveResult(false, "CRL not found.");
                 crl.IsArchived = true;
                 crl.ArchivedAt = now;
+                target = AuditTarget.Of(crl);
                 break;
             default:
                 return new ArchiveResult(false, "Invalid entity type.");
         }
 
         await db.SaveChangesAsync(ct);
+        await _audit.RecordAsync(identity, AuditActions.CertificateArchived, target, ct: ct);
         return new ArchiveResult(true);
     }
 
@@ -249,10 +258,13 @@ public class CertificateManagementService
         int id, string entityType,
         CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Administer);
+        var identity = await _operator.DemandAsync(Permission.Administer);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         string? remoteKeyHint = null;
+        AuditTarget target;
+        var action = AuditActions.CertificateDeleted;
+        var hadKey = false;
 
         switch (entityType)
         {
@@ -268,6 +280,8 @@ public class CertificateManagementService
                     return new DeleteResult(false,
                         $"Cannot delete: it has {ca.Children.Count} child CA(s) and {ca.IssuedCertificates.Count} issued cert(s). Delete or move them first.");
                 remoteKeyHint = ca.StoreProviderHint;
+                target = AuditTarget.Of(ca);
+                hadKey = ca.EncryptedPfxBytes != null;
                 foreach (var crl in ca.Crls.ToList())
                 {
                     db.CertificateRevocations.RemoveRange(crl.Revocations);
@@ -280,6 +294,9 @@ public class CertificateManagementService
                 if (issued == null)
                     return new DeleteResult(false, "Certificate not found.");
                 remoteKeyHint = issued.StoreProviderHint;
+                target = AuditTarget.Of(issued, await db.CaCertificates
+                    .Where(c => c.Id == issued.IssuingCaCertificateId).Select(c => (int?)c.TrustDomainId).FirstOrDefaultAsync(ct));
+                hadKey = issued.EncryptedPfxBytes != null;
                 db.IssuedCertificates.Remove(issued);
                 break;
             case "Crl":
@@ -288,6 +305,9 @@ public class CertificateManagementService
                     .FirstOrDefaultAsync(c => c.Id == id, ct);
                 if (crl2 == null)
                     return new DeleteResult(false, "CRL not found.");
+                target = AuditTarget.Of(crl2, await db.CaCertificates
+                    .Where(c => c.Id == crl2.CaCertificateId).Select(c => (int?)c.TrustDomainId).FirstOrDefaultAsync(ct));
+                action = AuditActions.CrlDeleted;
                 db.CertificateRevocations.RemoveRange(crl2.Revocations);
                 db.Crls.Remove(crl2);
                 break;
@@ -297,6 +317,7 @@ public class CertificateManagementService
 
         await db.SaveChangesAsync(ct);
 
+        var keyDetail = hadKey ? "Its private key, held by Sigyll, was deleted." : null;
         if (_remoteKeys != null && !string.IsNullOrEmpty(remoteKeyHint))
         {
             try
@@ -307,25 +328,33 @@ public class CertificateManagementService
             {
                 _logger.LogError(ex, "Deleted {EntityType} {Id} but could not destroy its remote key {Hint}",
                     entityType, id, remoteKeyHint);
+                await _audit.RecordAsync(identity, action, target,
+                    $"Its remote key {remoteKeyHint} was not destroyed: {ex.Message}", ct: ct);
                 return new DeleteResult(true, Warning: $"Deleted, but the remote key was not destroyed: {ex.Message}");
             }
+            keyDetail = $"Its remote key {remoteKeyHint} was destroyed.";
         }
 
+        await _audit.RecordAsync(identity, action, target, keyDetail, ct: ct);
         return new DeleteResult(true);
     }
 
     public async Task<MoveResult> MoveAsync(
         int id, string entityType, int targetTrustDomainId, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        AuditTarget target;
+        int fromTrustDomainId;
 
         switch (entityType)
         {
             case "CaCertificate":
                 var ca = await db.CaCertificates.FindAsync([id], ct);
                 if (ca == null) return new MoveResult(false, "Certificate not found.");
+                target = AuditTarget.Of(ca) with { TrustDomainId = targetTrustDomainId };
+                fromTrustDomainId = ca.TrustDomainId;
                 ca.TrustDomainId = targetTrustDomainId;
                 ca.ParentId = null;
 
@@ -357,6 +386,8 @@ public class CertificateManagementService
                 if (newIssuingCaId == null)
                     return new MoveResult(false, "Target trust domain has no CA certificates.");
 
+                target = AuditTarget.Of(issued, targetTrustDomainId);
+                fromTrustDomainId = issued.IssuingCaCertificate.TrustDomainId;
                 issued.IssuingCaCertificateId = newIssuingCaId.Value;
                 await MoveFulfilledRequestsAsync(db, r =>
                     r.FulfilledEntityType == "IssuedCertificate" && r.FulfilledCertificateId == id,
@@ -367,6 +398,8 @@ public class CertificateManagementService
         }
 
         await db.SaveChangesAsync(ct);
+        await _audit.RecordAsync(identity, AuditActions.CertificateMoved, target,
+            $"Moved from trust domain {fromTrustDomainId} to {targetTrustDomainId}.", ct: ct);
         return new MoveResult(true);
     }
 
@@ -385,11 +418,12 @@ public class CertificateManagementService
     public async Task<RevokeResult> RevokeAsync(
         int id, string entityType, int reasonCode, CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var now = DateTime.UtcNow;
         int? issuingCaId = null;
+        AuditTarget target;
 
         if (entityType == "CaCertificate")
         {
@@ -400,6 +434,7 @@ public class CertificateManagementService
             ca.RevocationReason = reasonCode;
             issuingCaId = ca.ParentId;
             await db.SaveChangesAsync(ct);
+            target = AuditTarget.Of(ca);
         }
         else
         {
@@ -410,7 +445,12 @@ public class CertificateManagementService
             issued.RevocationReason = reasonCode;
             issuingCaId = issued.IssuingCaCertificateId;
             await db.SaveChangesAsync(ct);
+            target = AuditTarget.Of(issued, await db.CaCertificates
+                .Where(c => c.Id == issued.IssuingCaCertificateId).Select(c => (int?)c.TrustDomainId).FirstOrDefaultAsync(ct));
         }
+
+        await _audit.RecordAsync(identity, AuditActions.CertificateRevoked, target,
+            $"Reason: {(X509RevocationReason)reasonCode} ({reasonCode}).", ct: ct);
 
         if (issuingCaId.HasValue)
         {

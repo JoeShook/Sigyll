@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 
 namespace Sigyll.Common.Services;
 
@@ -48,15 +49,18 @@ public class CertificateExportService
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
     private readonly IOperatorContext _operator;
     private readonly ILogger<CertificateExportService> _logger;
+    private readonly AuditTrail _audit;
 
     public CertificateExportService(
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
-        ILogger<CertificateExportService> logger)
+        ILogger<CertificateExportService> logger,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
 
     /// <summary>
@@ -68,7 +72,7 @@ public class CertificateExportService
         string entityType,
         CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.ExportKeys);
+        var identity = await _operator.DemandAsync(Permission.ExportKeys);
 
         if (entityType == "CaCertificate")
             return CertificateExportResult.Failure(
@@ -113,7 +117,11 @@ public class CertificateExportService
             var pkcs8 = Pkcs12Writer.ReadPkcs8(pfxBytes, pfxPassword ?? string.Empty);
             try
             {
-                return CertificateExportResult.Ok(PemEncoding.WriteString("PRIVATE KEY", pkcs8));
+                var pem = PemEncoding.WriteString("PRIVATE KEY", pkcs8);
+                // Recorded before the key is handed over: no record, no key.
+                await _audit.RecordAsync(identity, AuditActions.KeyExported, entityType, certificateId,
+                    "Unencrypted PKCS#8 PEM.", ct: ct);
+                return CertificateExportResult.Ok(pem);
             }
             finally
             {
@@ -139,7 +147,7 @@ public class CertificateExportService
         bool includeChain,
         CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.ExportKeys);
+        var identity = await _operator.DemandAsync(Permission.ExportKeys);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
@@ -177,7 +185,12 @@ public class CertificateExportService
         {
             // Always re-encrypt: rows written before Pkcs12Writer hold 3DES/SHA-1 files.
             if (!includeChain || issuerCaId == null)
-                return PfxExportResult.Ok(Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty), $"{name}.p12", pfxPassword ?? string.Empty);
+            {
+                var single = Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty);
+                await _audit.RecordAsync(identity, AuditActions.KeyExported, entityType, certificateId,
+                    "PKCS #12 with its stored password.", ct: ct);
+                return PfxExportResult.Ok(single, $"{name}.p12", pfxPassword ?? string.Empty);
+            }
 
             var visited = new HashSet<int>();
             var nextId = issuerCaId;
@@ -190,6 +203,8 @@ public class CertificateExportService
             }
 
             var bytes = Pkcs12Writer.Rewrap(pfxBytes, pfxPassword ?? string.Empty, extraCerts: chainCerts);
+            await _audit.RecordAsync(identity, AuditActions.KeyExported, entityType, certificateId,
+                "PKCS #12 with its stored password and the CA chain.", ct: ct);
             return PfxExportResult.Ok(bytes, $"{name}-chain.p12", pfxPassword ?? string.Empty);
         }
         catch (Exception ex)

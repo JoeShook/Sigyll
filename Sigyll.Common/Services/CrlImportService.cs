@@ -16,6 +16,7 @@ using Org.BouncyCastle.X509.Extension;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 
 namespace Sigyll.Common.Services;
 
@@ -28,12 +29,16 @@ public class CrlImportService
     public CrlImportService(
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
-        ILogger<CrlImportService> logger)
+        ILogger<CrlImportService> logger,
+        AuditTrail? audit = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
+        _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
+
+    private readonly AuditTrail _audit;
 
     /// <summary>
     /// Imports a CRL file, validates its signature against the issuing CA in the trustDomain,
@@ -61,7 +66,7 @@ public class CrlImportService
         int trustDomainId,
         CancellationToken ct = default)
     {
-        await _operator.DemandAsync(Permission.Operate);
+        var identity = await _operator.DemandAsync(Permission.Operate);
 
         var crlParser = new X509CrlParser();
         var crl = crlParser.ReadCrl(crlBytes);
@@ -182,6 +187,9 @@ public class CrlImportService
 
         _logger.LogInformation("Imported CRL #{CrlNumber} from {File}: {Count} revocations, signature {Valid}",
             crlNumber, fileName, revokedCount, signatureValid ? "valid" : "INVALID");
+        await _audit.RecordAsync(identity, AuditActions.CrlImported,
+            AuditTarget.Of(crlEntity, issuingCa.TrustDomainId) with { Subject = issuingCa.Subject },
+            $"Imported from {fileName}; {revokedCount} revoked; signature {(signatureValid ? "valid" : "INVALID")}.", ct: ct);
 
         return CrlImportResult.Success(crlNumber, revokedCount, signatureValid,
             crl.NextUpdate?.ToUniversalTime(), issuingCa.Name);

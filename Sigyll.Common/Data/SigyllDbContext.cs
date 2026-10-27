@@ -36,6 +36,7 @@ public class SigyllDbContext : DbContext
     public DbSet<IssuedCredential> IssuedCredentials => Set<IssuedCredential>();
     public DbSet<ExternalCertificateRequest> ExternalCertificateRequests => Set<ExternalCertificateRequest>();
     public DbSet<VaultExportSettings> VaultExportSettings => Set<VaultExportSettings>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +55,21 @@ public class SigyllDbContext : DbContext
         modelBuilder.Entity<CaCertificate>().Property(e => e.PfxPassword).HasConversion(optionalKeyPassword);
         modelBuilder.Entity<IssuedCertificate>().Property(e => e.PfxPassword).HasConversion(optionalKeyPassword);
         modelBuilder.Entity<ExternalCertificateRequest>().Property(e => e.KeyPassword).HasConversion(keyPassword);
+
+        // AuditEvent — append-only; the database refuses updates and deletes and stamps OccurredAt
+        modelBuilder.Entity<AuditEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.OccurredAt);
+            entity.HasIndex(e => new { e.EntityType, e.EntityId });
+            entity.HasIndex(e => e.Actor);
+            entity.Property(e => e.Actor).HasMaxLength(256).IsRequired();
+            entity.Property(e => e.Action).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.EntityType).HasMaxLength(64);
+            entity.Property(e => e.EntityName).HasMaxLength(256);
+            entity.Property(e => e.Subject).HasMaxLength(1024);
+            entity.Property(e => e.Thumbprint).HasMaxLength(128);
+        });
 
         // RecurringJob — schedule and last outcome of a background job
         modelBuilder.Entity<RecurringJob>(entity =>
