@@ -68,7 +68,8 @@
 </FluentCard>
 
 <FluentDialog @bind-Hidden="@addDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 600px;">
+              Style="min-width: 600px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Add Trust Domain</FluentDialogHeader>
     <FluentDialogBody>
         <FluentTextField @bind-Value="newTrustDomainName" Label="Name" Style="width: 100%;" />
@@ -116,7 +117,8 @@
 </FluentDialog>
 
 <FluentDialog @bind-Hidden="@editDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 600px;">
+              Style="min-width: 600px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Edit Trust Domain</FluentDialogHeader>
     <FluentDialogBody>
         <FluentTextField @bind-Value="editTrustDomainName" Label="Name" Style="width: 100%;" />
@@ -164,7 +166,8 @@
 </FluentDialog>
 
 <FluentDialog @bind-Hidden="@folderBrowserHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 600px; max-height: 80vh;">
+              Style="min-width: 600px; max-height: 80vh; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Select Folder</FluentDialogHeader>
     <FluentDialogBody>
         <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">

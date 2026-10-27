@@ -19,6 +19,13 @@ code {
 
 
 /* Dialog right-edge resize handle */
+/* A FluentDialog's visible panel is the shadow part "control", sized by --dialog-width (640px by default) and
+   blind to the min-width set on the element: wider content spilled past its edge. Let it inherit the min-width,
+   so each dialog's declared minimum (and the resize handle's) sizes the panel. */
+fluent-dialog::part(control) {
+    min-width: inherit;
+}
+
 .sigil-resize-handle {
     position: absolute;
     right: -4px;

@@ -11,7 +11,8 @@
 @inject VaultTokenCache TokenCache
 @inject IToastService ToastService
 
-<FluentDialog @bind-Hidden="@hidden" Modal="true" TrapFocus="true" Style="min-width: 560px;">
+<FluentDialog @bind-Hidden="@hidden" Modal="true" TrapFocus="true" Style="min-width: 560px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Export to Vault</FluentDialogHeader>
     <FluentDialogBody>
         @if (plan == null)

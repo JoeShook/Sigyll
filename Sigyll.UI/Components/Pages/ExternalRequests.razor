@@ -374,7 +374,8 @@ else
 </FluentDialog>
 
 @* ---------------- Download .p12 dialog ---------------- *@
-<FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true" Style="min-width: 480px;">
+<FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true" Style="min-width: 480px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Download .p12 — @p12Target?.Name</FluentDialogHeader>
     <FluentDialogBody>
         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
@@ -395,7 +396,8 @@ else
 </FluentDialog>
 
 @* ---------------- Export private key dialog ---------------- *@
-<FluentDialog @bind-Hidden="@exportKeyDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 480px;">
+<FluentDialog @bind-Hidden="@exportKeyDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 480px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Export private key — @exportKeyTarget?.Name</FluentDialogHeader>
     <FluentDialogBody>
         <div style="display: flex; flex-direction: column; gap: 0.75rem;">

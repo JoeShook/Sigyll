@@ -60,7 +60,8 @@
 </FluentCard>
 
 <FluentDialog @bind-Hidden="@mintDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 600px; max-height: 80vh; overflow: auto;">
+              Style="min-width: 600px; max-height: 80vh; overflow: auto; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Mint DID</FluentDialogHeader>
     <FluentDialogBody>
         <FluentSelect TOption="TrustDomainOption" Items="@trustDomainOptions"
@@ -99,7 +100,8 @@
 </FluentDialog>
 
 <FluentDialog @bind-Hidden="@detailDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 800px; max-height: 85vh; overflow: auto;">
+              Style="min-width: 800px; max-height: 85vh; overflow: auto; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>DID Document</FluentDialogHeader>
     <FluentDialogBody>
         @if (selectedDetail != null)

@@ -9,7 +9,7 @@
 
 @if (result == null)
 {
-    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+    <div style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 100%; min-width: 0; overflow-x: hidden;">
         <FluentMessageBar Intent="MessageIntent.Info">
             Builds a PKCS#10 request from this certificate's subject and SANs so an external CA can
             issue the renewal. Nothing is stored — download or copy the CSR and submit it. If the CSR
@@ -17,7 +17,7 @@
             returned certificate is paired with that key automatically.
         </FluentMessageBar>
 
-        <div style="display: grid; grid-template-columns: 120px 1fr; gap: 0.4rem; font-size: 0.9rem;">
+        <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 0.4rem; font-size: 0.9rem; overflow-wrap: anywhere;">
             <strong>Modeled on</strong>
             <span>@SourceName</span>
             <strong>Subject</strong>
@@ -28,29 +28,40 @@
             <span>@DescribeCurrentKey() @(HasPrivateKey ? "" : "(no private key available)")</span>
         </div>
 
-        <FluentSelect TOption="string"
-                      Items="@keyModeOptions"
-                      OptionText="@(o => o == "reuse" ? "Reuse this certificate's private key (renew only, same key)" : "Generate a new key pair (re-key) — subject, SANs and extensions still come from this certificate")"
-                      OptionDisabled="@(o => o == "reuse" && !HasPrivateKey)"
-                      @bind-SelectedOption="keyMode"
-                      Label="Key"
-                      Style="width: 100%;" />
+        @* A labeled FluentSelect renders its label beside the control, and the control has a built-in minimum
+           width: wrap each one so the label sits above it and the control can narrow with the dialog. *@
+        <div style="min-width: 0;">
+            <FluentSelect TOption="string"
+                          Items="@keyModeOptions"
+                          OptionText="@(o => o == "reuse" ? "Reuse this certificate's private key (renew only, same key)" : "Generate a new key pair (re-key) — subject, SANs and extensions still come from this certificate")"
+                          OptionDisabled="@(o => o == "reuse" && !HasPrivateKey)"
+                          @bind-SelectedOption="keyMode"
+                          Label="Key"
+                          Style="width: 100%; min-width: 0;" />
+        </div>
 
         @if (keyMode == "new")
         {
-            <div style="display: flex; gap: 1rem;">
-                <FluentSelect TOption="string"
-                              Items="@keyAlgorithmOptions"
-                              SelectedOption="@newKeyAlgorithm"
-                              SelectedOptionChanged="OnKeyAlgorithmChanged"
-                              Label="Algorithm"
-                              Style="flex: 1;" />
-                <FluentSelect TOption="string"
-                              Items="@KeySizeOptions"
-                              OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
-                              @bind-SelectedOption="newKeySize"
-                              Label="Key size"
-                              Style="@(SelectedIsPqc ? "flex: 1; display: none;" : "flex: 1;")" />
+            <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+                <div style="flex: 1 1 200px; min-width: 0;">
+                    <FluentSelect TOption="string"
+                                  Items="@keyAlgorithmOptions"
+                                  SelectedOption="@newKeyAlgorithm"
+                                  SelectedOptionChanged="OnKeyAlgorithmChanged"
+                                  Label="Algorithm"
+                                  Style="width: 100%; min-width: 0;" />
+                </div>
+                @if (!SelectedIsPqc)
+                {
+                    <div style="flex: 1 1 160px; min-width: 0;">
+                        <FluentSelect TOption="string"
+                                      Items="@KeySizeOptions"
+                                      OptionText="@(s => newKeyAlgorithm == "ECDSA" ? $"P-{s}" : $"{s}-bit")"
+                                      @bind-SelectedOption="newKeySize"
+                                      Label="Key size"
+                                      Style="width: 100%; min-width: 0;" />
+                    </div>
+                }
             </div>
             <FluentTextField @bind-Value="newKeyPassphrase"
                              Label="Passphrase for the downloaded private key"
@@ -75,8 +86,8 @@
                               Items="@sanTypeOptions"
                               OptionText="@(s => s.ToString())"
                               @bind-SelectedOption="san.Type"
-                              Style="width: 120px;" />
-                <FluentTextField @bind-Value="san.Value" Style="flex: 1;"
+                              Style="width: 120px; min-width: 0; flex: none;" />
+                <FluentTextField @bind-Value="san.Value" Style="flex: 1; min-width: 0;"
                                  Placeholder="@SanPlaceholder(san.Type)" />
                 <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                               IconStart="@(new Icons.Regular.Size16.Delete())"

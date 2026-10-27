@@ -5,7 +5,8 @@
 
 @using Sigyll.Common.ViewModels
 
-<FluentDialog Hidden="@Hidden" Modal="true" TrapFocus="true" Style="min-width: 480px;">
+<FluentDialog Hidden="@Hidden" Modal="true" TrapFocus="true" Style="min-width: 480px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>@Title</FluentDialogHeader>
     <FluentDialogBody>
         @if (!string.IsNullOrEmpty(Message))

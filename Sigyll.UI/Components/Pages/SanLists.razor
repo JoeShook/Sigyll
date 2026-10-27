@@ -49,7 +49,8 @@
 </FluentCard>
 
 <FluentDialog @bind-Hidden="@dialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 700px; max-height: 80vh; overflow: auto;">
+              Style="min-width: 700px; max-height: 80vh; overflow: auto; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>@(isEditing ? "Edit SAN List" : "New SAN List")</FluentDialogHeader>
     <FluentDialogBody>
         <FluentTextField @bind-Value="editName" Label="Name" Style="width: 100%;"

@@ -153,7 +153,8 @@
 
 @* Password dialog for PFX files *@
 <FluentDialog @bind-Hidden="@passwordDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 400px;">
+              Style="min-width: 400px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>PFX Password Required</FluentDialogHeader>
     <FluentDialogBody>
         <p style="font-size: 0.9rem;">Enter the password for <code>@pendingFileName</code></p>
@@ -184,7 +185,8 @@
 
 @* Confirm import dialog showing parsed cert details *@
 <FluentDialog @bind-Hidden="@confirmDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 500px;">
+              Style="min-width: 500px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Confirm Import</FluentDialogHeader>
     <FluentDialogBody>
         @if (parsedCert != null)
@@ -236,7 +238,8 @@
 
 @* .p12 download options dialog *@
 <FluentDialog @bind-Hidden="@p12DialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 440px;">
+              Style="min-width: 440px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Download .p12</FluentDialogHeader>
     <FluentDialogBody>
         <p style="font-size: 0.9rem;">
@@ -257,7 +260,8 @@
 
 @* Move to trust domain dialog *@
 <FluentDialog @bind-Hidden="@moveDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 400px; overflow: visible;">
+              Style="min-width: 400px; overflow: visible; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Move to Trust Domain</FluentDialogHeader>
     <FluentDialogBody Style="overflow: visible;">
         <p style="font-size: 0.9rem;">Move <code>@selectedNode?.Name</code> to:</p>
@@ -280,7 +284,8 @@
 
 @* CA selection dialog for unmatched certs *@
 <FluentDialog @bind-Hidden="@caSelectDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 500px; overflow: visible;">
+              Style="min-width: 500px; overflow: visible; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Select Issuing CA</FluentDialogHeader>
     <FluentDialogBody Style="overflow: visible;">
         <p style="font-size: 0.9rem;">
@@ -586,7 +591,8 @@
 
 @* Issue Direct PQC Pair dialog *@
 <FluentDialog @bind-Hidden="@directPairDialogHidden" Modal="true" TrapFocus="true"
-              Style="--dialog-width: 760px; max-width: 95vw; max-height: 85vh;">
+              Style="--dialog-width: 760px; max-width: 95vw; max-height: 85vh; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>
         <span>@(directPairRekey != null ? "Re-key Direct PQC Pair" : "Issue Direct PQC Pair") — signed by @directPairCaName</span>
     </FluentDialogHeader>
@@ -713,7 +719,8 @@
 
 @* Re-sign Certificate dialog *@
 <FluentDialog @bind-Hidden="@resignDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 500px;">
+              Style="min-width: 500px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Re-sign Certificate (Same Key)</FluentDialogHeader>
     <FluentDialogBody>
         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
@@ -757,7 +764,8 @@
 </FluentDialog>
 
 <FluentDialog @bind-Hidden="@revokeDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 450px;">
+              Style="min-width: 450px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Revoke Certificate</FluentDialogHeader>
     <FluentDialogBody>
         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
@@ -1705,7 +1713,8 @@ else if (TrustDomainId > 0 && !showDropZone)
 
 @* SAN List Picker Dialog *@
 <FluentDialog @bind-Hidden="@sanPickerDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 600px; max-height: 80vh; overflow: auto;">
+              Style="min-width: 600px; max-height: 80vh; overflow: auto; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>@(sanListForPicker?.Name ?? "Select SANs")</FluentDialogHeader>
     <FluentDialogBody>
         @if (sanListForPicker?.Description != null)
@@ -1737,7 +1746,8 @@ else if (TrustDomainId > 0 && !showDropZone)
 
 @* Create CSR dialog — form lives in the shared CsrBuilder component *@
 <FluentDialog @bind-Hidden="@csrDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 640px; max-width: 800px;">
+              Style="--dialog-width: 780px; min-width: 560px; max-width: 95vw; max-height: 85vh; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Create Certificate Signing Request</FluentDialogHeader>
     <FluentDialogBody>
         @if (!csrDialogHidden && selectedNode != null && selectedCert != null)
@@ -1753,7 +1763,8 @@ else if (TrustDomainId > 0 && !showDropZone)
 
 @* Publish CRL Dialog *@
 <FluentDialog @bind-Hidden="@crlOverrideDialogHidden" Modal="true" TrapFocus="true"
-              Style="min-width: 400px;">
+              Style="min-width: 400px; position: relative;">
+    <div class="sigil-resize-handle"></div>
     <FluentDialogHeader>Publish CRL</FluentDialogHeader>
     <FluentDialogBody>
         <FluentLabel Typo="Typography.Subject">Override Expiration</FluentLabel>
