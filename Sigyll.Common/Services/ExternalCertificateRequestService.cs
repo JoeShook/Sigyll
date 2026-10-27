@@ -256,6 +256,27 @@ public class ExternalCertificateRequestService
 
     private static readonly PbeParameters KeyPbe = new(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 100_000);
 
+    /// <summary>
+    /// Whether two certificates name the same subject, whatever the order of its attributes. A certificate modeled on
+    /// another is its renewal only when it does: one given a new subject is a separate certificate, and linking it as
+    /// a renewal would make it share (and overwrite) its model's Vault secret.
+    /// </summary>
+    private static bool SameSubject(string pemA, string pemB)
+    {
+        static List<string> Attributes(string pem)
+        {
+            using var cert = X509Certificate2.CreateFromPem(pem);
+            return cert.SubjectName.EnumerateRelativeDistinguishedNames()
+                .Select(r => r.HasMultipleElements
+                    ? Convert.ToHexString(r.RawData.Span)
+                    : $"{r.GetSingleElementType().Value}={r.GetSingleElementValue()?.Trim().ToUpperInvariant()}")
+                .Order(StringComparer.Ordinal)
+                .ToList();
+        }
+
+        return Attributes(pemA).SequenceEqual(Attributes(pemB));
+    }
+
     private static bool TryParseSubject(string subjectDn, out X500DistinguishedName subject, out string? error)
     {
         try
@@ -645,7 +666,8 @@ public class ExternalCertificateRequestService
                 result.EntityType = "CaCertificate";
                 result.ImportedName = ca.Name;
                 if (row.ModeledOnEntityType == "CaCertificate" && row.ModeledOnCertificateId is int modelCaId
-                    && await db.CaCertificates.FindAsync([modelCaId], ct) is { } modelCa)
+                    && await db.CaCertificates.FindAsync([modelCaId], ct) is { } modelCa
+                    && SameSubject(ca.X509CertificatePem, modelCa.X509CertificatePem))
                 {
                     ca.RenewalOfId = modelCa.Id;
                     ca.Version = modelCa.Version + 1;
@@ -661,7 +683,8 @@ public class ExternalCertificateRequestService
                 result.EntityType = "IssuedCertificate";
                 result.ImportedName = issued.Name;
                 if (row.ModeledOnEntityType == "IssuedCertificate" && row.ModeledOnCertificateId is int modelIssuedId
-                    && await db.IssuedCertificates.FindAsync([modelIssuedId], ct) is { } modelIssued)
+                    && await db.IssuedCertificates.FindAsync([modelIssuedId], ct) is { } modelIssued
+                    && SameSubject(issued.X509CertificatePem, modelIssued.X509CertificatePem))
                 {
                     issued.RenewalOfId = modelIssued.Id;
                     issued.Version = modelIssued.Version + 1;

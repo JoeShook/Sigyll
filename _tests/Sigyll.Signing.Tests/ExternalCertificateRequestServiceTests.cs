@@ -317,6 +317,46 @@ public class ExternalCertificateRequestServiceTests
     }
 
     [Fact]
+    public async Task Fulfill_ModeledOnACertificate_WithAnotherSubject_IsNotItsRenewal()
+    {
+        var tdId = await SeedTrustDomainAsync();
+        var (_, issuedId, caCert) = await SeedCaAndIssuedAsync(tdId);
+        var created = await _service.CreateAsync(new CreateExternalCertificateRequest
+        {
+            TrustDomainId = tdId, Name = "new client", SubjectDn = "CN=New Client, O=My Org",
+            Profile = CsrExtensionProfile.UdapClient,
+            ModeledOnCertificateId = issuedId, ModeledOnEntityType = "IssuedCertificate"
+        });
+        using var signed = SignCsr(created.CsrPem!, caCert);
+
+        (await _service.FulfillAsync(created.RequestId!.Value, signed.RawData, "new.cer", [])).Success.ShouldBeTrue();
+
+        await using var db = _dbFactory.CreateDbContext();
+        var stored = await db.IssuedCertificates.SingleAsync(i => i.Thumbprint == signed.Thumbprint);
+        stored.RenewalOfId.ShouldBeNull();
+        stored.Version.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Fulfill_ModeledOnACertificate_WithItsSubjectReordered_IsItsRenewal()
+    {
+        var tdId = await SeedTrustDomainAsync();
+        var (_, issuedId, caCert) = await SeedCaAndIssuedAsync(tdId);
+        var created = await _service.CreateAsync(new CreateExternalCertificateRequest
+        {
+            TrustDomainId = tdId, Name = "renewed client", SubjectDn = "O=My Org, CN=Old Client",
+            Profile = CsrExtensionProfile.UdapClient,
+            ModeledOnCertificateId = issuedId, ModeledOnEntityType = "IssuedCertificate"
+        });
+        using var signed = SignCsr(created.CsrPem!, caCert);
+
+        (await _service.FulfillAsync(created.RequestId!.Value, signed.RawData, "renewed.cer", [])).Success.ShouldBeTrue();
+
+        await using var db = _dbFactory.CreateDbContext();
+        (await db.IssuedCertificates.SingleAsync(i => i.Thumbprint == signed.Thumbprint)).RenewalOfId.ShouldBe(issuedId);
+    }
+
+    [Fact]
     public async Task ExportPkcs12_AfterFulfilment_UsesOperatorPasswordAndOptionalChain()
     {
         var tdId = await SeedTrustDomainAsync();
