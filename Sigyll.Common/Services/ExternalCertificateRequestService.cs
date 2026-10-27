@@ -267,7 +267,7 @@ public class ExternalCertificateRequestService
     /// another is its renewal only when it does: one given a new subject is a separate certificate, and linking it as
     /// a renewal would make it share (and overwrite) its model's Vault secret.
     /// </summary>
-    private static bool SameSubject(string pemA, string pemB)
+    internal static bool SameSubject(string pemA, string pemB)
     {
         static List<string> Attributes(string pem)
         {

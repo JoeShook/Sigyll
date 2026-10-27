@@ -485,6 +485,31 @@ public class ExternalCertificateRequestServiceTests
         row.FulfilledCertificateId.ShouldBe(stored.Id);
     }
 
+    [Fact]
+    public async Task ImportingReturnedCertificateDirectly_ModeledOnACertificate_IsItsRenewalOnlyWithTheSameSubject()
+    {
+        var tdId = await SeedTrustDomainAsync();
+        var (caId, issuedId, caCert) = await SeedCaAndIssuedAsync(tdId);
+
+        async Task<IssuedCertificate> ImportAsync(string subjectDn, string name)
+        {
+            var created = await _service.CreateAsync(new CreateExternalCertificateRequest
+            {
+                TrustDomainId = tdId, Name = name, SubjectDn = subjectDn, Profile = CsrExtensionProfile.UdapClient,
+                ModeledOnCertificateId = issuedId, ModeledOnEntityType = "IssuedCertificate"
+            });
+            using var signed = SignCsr(created.CsrPem!, caCert);
+            var parsed = new CertificateParsingService().Parse(signed.RawData, $"{name}.cer")!;
+            (await _importService.ImportParsedCertificateAsync(parsed, tdId, name: name, issuingCaId: caId)).Success.ShouldBeTrue();
+            parsed.Certificate.Dispose();
+            await using var db = _dbFactory.CreateDbContext();
+            return await db.IssuedCertificates.SingleAsync(i => i.Thumbprint == signed.Thumbprint);
+        }
+
+        (await ImportAsync("CN=New Client, O=My Org", "new client")).RenewalOfId.ShouldBeNull();
+        (await ImportAsync("O=My Org, CN=Old Client", "renewed client")).RenewalOfId.ShouldBe(issuedId);
+    }
+
     // ------------------------------------------------------------------ lifecycle
 
     [Fact]

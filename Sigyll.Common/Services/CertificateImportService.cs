@@ -311,7 +311,8 @@ public class CertificateImportService
             request.FulfilledCertificateId = newCa.Id;
             request.FulfilledEntityType = "CaCertificate";
             if (request.ModeledOnEntityType == "CaCertificate" && request.ModeledOnCertificateId is int modelId
-                && await db.CaCertificates.FindAsync([modelId], ct) is { } model)
+                && await db.CaCertificates.FindAsync([modelId], ct) is { } model
+                && ExternalCertificateRequestService.SameSubject(newCa.X509CertificatePem, model.X509CertificatePem))
             {
                 newCa.RenewalOfId = model.Id;
                 newCa.Version = model.Version + 1;
@@ -322,7 +323,8 @@ public class CertificateImportService
             request.FulfilledCertificateId = newIssued.Id;
             request.FulfilledEntityType = "IssuedCertificate";
             if (request.ModeledOnEntityType == "IssuedCertificate" && request.ModeledOnCertificateId is int modelId
-                && await db.IssuedCertificates.FindAsync([modelId], ct) is { } model)
+                && await db.IssuedCertificates.FindAsync([modelId], ct) is { } model
+                && ExternalCertificateRequestService.SameSubject(newIssued.X509CertificatePem, model.X509CertificatePem))
             {
                 newIssued.RenewalOfId = model.Id;
                 newIssued.Version = model.Version + 1;
