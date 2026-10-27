@@ -870,7 +870,7 @@ else if (treeNodes.Count > 0)
                         Showing @visibleNodeCount of @totalNodeCount certificates
                     </div>
                 }
-                <div style="flex: 1; overflow-y: auto; min-height: 0;">
+                <div id="@TreeScrollId" style="flex: 1; overflow-y: auto; min-height: 0;">
                 <FluentTreeView @key="@treeVersion"
                                 CurrentSelected="@selectedTreeItem"
                                 CurrentSelectedChanged="OnTreeItemSelected">

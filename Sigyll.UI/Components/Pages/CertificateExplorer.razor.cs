@@ -108,6 +108,14 @@ public partial class CertificateExplorer : IDisposable
     private FluentTreeItem? selectedTreeItem;
     private int treeVersion;
     private bool isLoadingTree;
+
+    private const string TreeScrollId = "explorer-tree-scroll";
+
+    /// <summary>The trust domain the tree shows; reloading the same one keeps the scroll position.</summary>
+    private int loadedTreeTrustDomainId;
+
+    /// <summary>The scroll position to restore once a reloaded tree has rendered.</summary>
+    private double? pendingTreeScrollTop;
     private bool isRevalidating;
     private bool isValidatingOnline;
     private bool pendingHighlight;
@@ -297,6 +305,12 @@ public partial class CertificateExplorer : IDisposable
             pendingDragDropInit = false;
             await InitDragDropAsync();
         }
+
+        if (pendingTreeScrollTop is { } scrollTop)
+        {
+            pendingTreeScrollTop = null;
+            await JS.InvokeVoidAsync("sigilRestoreScrollTop", TreeScrollId, scrollTop);
+        }
     }
 
     [JSInvokable]
@@ -456,6 +470,11 @@ public partial class CertificateExplorer : IDisposable
 
     private async Task LoadTrustDomainTreeAsync(int trustDomainId)
     {
+        // Rebuilding the tree scrolls it to the top: after a delete or other change, put it back where it was.
+        double? scrollTop = trustDomainId == loadedTreeTrustDomainId && treeNodes.Count > 0
+            ? await JS.InvokeAsync<double>("sigilGetScrollTop", TreeScrollId)
+            : null;
+
         isLoadingTree = true;
         StateHasChanged();
 
@@ -470,6 +489,8 @@ public partial class CertificateExplorer : IDisposable
         _ = CheckRemoteKeysAsync(treeNodes);
 
         treeVersion++;
+        loadedTreeTrustDomainId = trustDomainId;
+        pendingTreeScrollTop = scrollTop;
         selectedTreeItem = null;
         selectedNode = null;
         selectedCert?.Dispose();

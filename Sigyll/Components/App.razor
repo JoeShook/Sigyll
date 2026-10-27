@@ -147,6 +147,24 @@
             }
         };
 
+        // The Explorer rebuilds its tree after every change; these keep the tree's scroll position across a rebuild.
+        window.sigilGetScrollTop = function(id) {
+            var el = document.getElementById(id);
+            return el ? el.scrollTop : 0;
+        };
+
+        window.sigilRestoreScrollTop = function(id, top) {
+            // The rebuilt tree items lay out over a few frames: retry until the content is tall enough.
+            var tries = 0;
+            (function apply() {
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.scrollTop = top;
+                if (el.scrollTop < top - 1 && ++tries < 30)
+                    requestAnimationFrame(apply);
+            })();
+        };
+
         window.sigilHighlightTree = function(selectedId, issuerId) {
             // Clear previous highlights
             document.querySelectorAll('fluent-tree-item').forEach(function(el) {
