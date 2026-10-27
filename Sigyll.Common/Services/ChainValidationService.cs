@@ -8,6 +8,7 @@
 // */
 #endregion
 
+using System.Collections.Concurrent;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -58,9 +59,17 @@ public class ChainValidationService
         }
     }
 
+    /// <summary>How long a CRL download (or its failure) is reused before the URL is fetched again.</summary>
+    private static readonly TimeSpan CrlReuse = TimeSpan.FromMinutes(5);
+
+    /// <summary>Recent CRL downloads by URL, shared across validations and circuits.</summary>
+    private static readonly ConcurrentDictionary<string, (DateTime At, Lazy<Task<byte[]?>> Download)> RecentCrls = new();
+
     /// <summary>
     /// Validates all certificates in a trustDomain in one pass (parses CAs once).
-    /// Uses stored CRLs only (no HTTP) for speed.
+    /// A CA without a current stored CRL is checked against the CRL its CDP points to; each URL is downloaded once
+    /// and reused for a few minutes, so a tree of many certificates (rendered twice, prerendered then interactive)
+    /// doesn't fetch it per certificate and chain link.
     /// Returns a dictionary keyed by thumbprint.
     /// </summary>
     public async Task<Dictionary<string, ChainValidationResult>> ValidateTrustDomainAsync(
@@ -697,7 +706,7 @@ public class ChainValidationService
         {
             try
             {
-                var crlBytes = await DownloadCrlAsync(url, ct);
+                var crlBytes = await RecentCrlAsync(url, ct);
                 if (crlBytes == null) continue;
 
                 var crlParser = new X509CrlParser();
@@ -965,6 +974,21 @@ public class ChainValidationService
             link.CrlStatus = CrlCheckStatus.Good;
             link.CrlSource = source;
         }
+    }
+
+    /// <summary>
+    /// The CRL at <paramref name="url"/>, downloaded at most once every <see cref="CrlReuse"/>; a failed download is
+    /// reused too, so an unreachable CDP costs one attempt rather than one per certificate.
+    /// </summary>
+    private Task<byte[]?> RecentCrlAsync(string url, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var entry = RecentCrls.AddOrUpdate(url,
+            _ => (now, new Lazy<Task<byte[]?>>(() => DownloadCrlAsync(url, CancellationToken.None))),
+            (_, existing) => now - existing.At < CrlReuse
+                ? existing
+                : (now, new Lazy<Task<byte[]?>>(() => DownloadCrlAsync(url, CancellationToken.None))));
+        return entry.Download.Value.WaitAsync(ct);
     }
 
     private async Task<byte[]?> DownloadCrlAsync(string url, CancellationToken ct)

@@ -120,7 +120,12 @@ try
     builder.Services.AddScoped<CertificatePublishingService>();
     builder.Services.AddSingleton<IssuanceValidator>();
     builder.Services.AddScoped<SanListService>();
-    builder.Services.AddHttpClient("SigyllCrl");
+    // A CRL fetch either answers or it doesn't: retrying an unreachable CDP only stalls chain validation.
+#pragma warning disable EXTEXP0001
+#pragma warning disable EXTEXP0001
+    builder.Services.AddHttpClient("SigyllCrl").RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+#pragma warning restore EXTEXP0001
     builder.Services.AddHttpClient();
 
     // Signing provider configuration
