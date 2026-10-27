@@ -8,6 +8,7 @@
 // */
 #endregion
 
+using System.Linq.Expressions;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -327,6 +328,14 @@ public class CertificateManagementService
                 if (ca == null) return new MoveResult(false, "Certificate not found.");
                 ca.TrustDomainId = targetTrustDomainId;
                 ca.ParentId = null;
+
+                // Fulfilled requests follow the certificate they produced: the CA itself and the certificates it issued
+                var issuedIds = await db.IssuedCertificates
+                    .Where(i => i.IssuingCaCertificateId == id).Select(i => i.Id).ToListAsync(ct);
+                await MoveFulfilledRequestsAsync(db, r =>
+                    (r.FulfilledEntityType == "CaCertificate" && r.FulfilledCertificateId == id) ||
+                    (r.FulfilledEntityType == "IssuedCertificate" && issuedIds.Contains(r.FulfilledCertificateId!.Value)),
+                    targetTrustDomainId, ct);
                 break;
             case "IssuedCertificate":
                 var issued = await db.IssuedCertificates
@@ -349,6 +358,9 @@ public class CertificateManagementService
                     return new MoveResult(false, "Target trust domain has no CA certificates.");
 
                 issued.IssuingCaCertificateId = newIssuingCaId.Value;
+                await MoveFulfilledRequestsAsync(db, r =>
+                    r.FulfilledEntityType == "IssuedCertificate" && r.FulfilledCertificateId == id,
+                    targetTrustDomainId, ct);
                 break;
             default:
                 return new MoveResult(false, "Invalid entity type.");
@@ -356,6 +368,18 @@ public class CertificateManagementService
 
         await db.SaveChangesAsync(ct);
         return new MoveResult(true);
+    }
+
+    private static async Task MoveFulfilledRequestsAsync(SigyllDbContext db,
+        Expression<Func<ExternalCertificateRequest, bool>> fulfilled,
+        int targetTrustDomainId, CancellationToken ct)
+    {
+        var requests = await db.ExternalCertificateRequests
+            .Where(r => r.Status == ExternalRequestStatus.Fulfilled)
+            .Where(fulfilled)
+            .ToListAsync(ct);
+        foreach (var r in requests)
+            r.TrustDomainId = targetTrustDomainId;
     }
 
     public async Task<RevokeResult> RevokeAsync(

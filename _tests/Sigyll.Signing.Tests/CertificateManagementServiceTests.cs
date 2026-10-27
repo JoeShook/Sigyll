@@ -201,6 +201,95 @@ public class CertificateManagementServiceTests
     }
 
     [Fact]
+    public async Task MoveAsync_CaCertificate_TakesFulfilledRequestsForItsCertificatesAlong()
+    {
+        var (caId, issuedId) = await SeedCaAndIssuedAsync();
+        int targetTrustDomainId, sourceTrustDomainId;
+
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            sourceTrustDomainId = (await db.CaCertificates.FindAsync(caId))!.TrustDomainId;
+            var target = new TrustDomain { Name = "Target", Enabled = true };
+            db.TrustDomains.Add(target);
+            await db.SaveChangesAsync();
+            targetTrustDomainId = target.Id;
+        }
+        var issuedRequestId = await SeedRequestAsync(sourceTrustDomainId, ExternalRequestStatus.Fulfilled, "IssuedCertificate", issuedId);
+        var caRequestId = await SeedRequestAsync(sourceTrustDomainId, ExternalRequestStatus.Fulfilled, "CaCertificate", caId);
+        var pendingRequestId = await SeedRequestAsync(sourceTrustDomainId, ExternalRequestStatus.Pending, null, null);
+
+        (await CreateService().MoveAsync(caId, "CaCertificate", targetTrustDomainId)).Success.ShouldBeTrue();
+
+        await using var db2 = _dbFactory.CreateDbContext();
+        (await db2.ExternalCertificateRequests.FindAsync(issuedRequestId))!.TrustDomainId.ShouldBe(targetTrustDomainId);
+        (await db2.ExternalCertificateRequests.FindAsync(caRequestId))!.TrustDomainId.ShouldBe(targetTrustDomainId);
+        (await db2.ExternalCertificateRequests.FindAsync(pendingRequestId))!.TrustDomainId.ShouldBe(sourceTrustDomainId);
+    }
+
+    [Fact]
+    public async Task MoveAsync_IssuedCertificate_TakesItsFulfilledRequestAlong()
+    {
+        var (caId, issuedId) = await SeedCaAndIssuedAsync();
+        int targetTrustDomainId, sourceTrustDomainId;
+
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            sourceTrustDomainId = (await db.CaCertificates.FindAsync(caId))!.TrustDomainId;
+            var target = new TrustDomain { Name = "Target", Enabled = true };
+            db.TrustDomains.Add(target);
+            await db.SaveChangesAsync();
+            targetTrustDomainId = target.Id;
+        }
+        await SeedCaCertificateInAsync("Target CA", targetTrustDomainId);
+        var requestId = await SeedRequestAsync(sourceTrustDomainId, ExternalRequestStatus.Fulfilled, "IssuedCertificate", issuedId);
+
+        (await CreateService().MoveAsync(issuedId, "IssuedCertificate", targetTrustDomainId)).Success.ShouldBeTrue();
+
+        await using var db2 = _dbFactory.CreateDbContext();
+        (await db2.ExternalCertificateRequests.FindAsync(requestId))!.TrustDomainId.ShouldBe(targetTrustDomainId);
+    }
+
+    private async Task<int> SeedRequestAsync(int trustDomainId, ExternalRequestStatus status, string? entityType, int? certificateId)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        var request = new ExternalCertificateRequest
+        {
+            TrustDomainId = trustDomainId,
+            Name = "Request",
+            SubjectDn = "CN=Request",
+            Status = status,
+            FulfilledEntityType = entityType,
+            FulfilledCertificateId = certificateId
+        };
+        db.ExternalCertificateRequests.Add(request);
+        await db.SaveChangesAsync();
+        return request.Id;
+    }
+
+    private async Task SeedCaCertificateInAsync(string name, int trustDomainId)
+    {
+        using var rsa = RSA.Create(2048);
+        var req = new CertificateRequest($"CN={name}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(1));
+
+        await using var db = _dbFactory.CreateDbContext();
+        db.CaCertificates.Add(new CaCertificate
+        {
+            TrustDomainId = trustDomainId,
+            Name = name,
+            Subject = $"CN={name}",
+            X509CertificatePem = cert.ExportCertificatePem(),
+            Thumbprint = cert.Thumbprint,
+            SerialNumber = cert.SerialNumber,
+            KeyAlgorithm = "RSA",
+            KeySize = 2048,
+            NotBefore = cert.NotBefore,
+            NotAfter = cert.NotAfter
+        });
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
     public async Task RevokeAsync_CaCertificate_SetsRevokedFlags()
     {
         var caId = await SeedCaCertificateAsync("Revoke Me");
