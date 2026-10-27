@@ -843,7 +843,7 @@ else if (treeNodes.Count > 0)
                     </FluentLabel>
                     <FluentButton Appearance="@(IsTreeFilterActive ? Appearance.Accent : Appearance.Stealth)"
                                   Size="ButtonSize.Small"
-                                  OnClick="@(() => treeFilterExpanded = !treeFilterExpanded)"
+                                  OnClick="ToggleTreeFilterAsync"
                                   Title="Filter certificates"
                                   IconStart="@(new Icons.Regular.Size16.Filter())" />
                 </div>
@@ -888,7 +888,8 @@ else if (treeNodes.Count > 0)
                                         @key="@($"ca-{root.Id}")"
                                         Id="@($"tree-{root.Thumbprint}")"
                                         Data="@root"
-                                        InitiallyExpanded="true"
+                                        InitiallyExpanded="@IsExpanded(root)"
+                                        ExpandedChanged="@(expanded => OnNodeExpandedChangedAsync(root, expanded))"
                                         Style="@(IsError(root.Status) ? $"color: {NodeColor(root.Status)};" : "")">
                             <span slot="start" style="display: flex; align-items: center; gap: 0.35rem;">
                                 <FluentIcon Value="@(new Icons.Regular.Size16.ShieldKeyhole())" Color="Color.Custom"
@@ -903,7 +904,8 @@ else if (treeNodes.Count > 0)
                                                 @key="@($"ca-{intermediate.Id}")"
                                                 Id="@($"tree-{intermediate.Thumbprint}")"
                                                 Data="@intermediate"
-                                                InitiallyExpanded="true"
+                                                InitiallyExpanded="@IsExpanded(intermediate)"
+                                                ExpandedChanged="@(expanded => OnNodeExpandedChangedAsync(intermediate, expanded))"
                                                 Style="@(IsError(intermediate.Status) ? $"color: {NodeColor(intermediate.Status)};" : "")">
                                     <span slot="start" style="display: flex; align-items: center; gap: 0.35rem;">
                                         <FluentIcon Value="@(new Icons.Regular.Size16.Shield())" Color="Color.Custom"
@@ -1652,7 +1654,8 @@ else if (TrustDomainId > 0 && !showDropZone)
                         @key="@($"ca-{caNode.Id}")"
                         Id="@($"tree-{caNode.Thumbprint}")"
                         Data="@caNode"
-                        InitiallyExpanded="true"
+                        InitiallyExpanded="@IsExpanded(caNode)"
+                        ExpandedChanged="@(expanded => OnNodeExpandedChangedAsync(caNode, expanded))"
                         Style="@(IsError(caNode.Status) ? $"color: {NodeColor(caNode.Status)};" : "")">
             <span slot="start" style="display: flex; align-items: center; gap: 0.35rem;">
                 @if (caNode.CertificateRole == "RootCA")

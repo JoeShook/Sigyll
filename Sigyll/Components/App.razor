@@ -147,6 +147,48 @@
             }
         };
 
+        // The Explorer remembers, in this browser, each trust domain's collapsed tree nodes and scroll position, and
+        // the tree filter. Losing it costs nothing, so a browser that refuses storage just starts from the defaults.
+        window.sigilExplorerState = (function () {
+            function read(key) {
+                try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+            }
+            function write(key, value) {
+                try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { }
+            }
+            function treeKey(trustDomainId) { return 'sigil-explorer-tree-' + trustDomainId; }
+            function updateTree(trustDomainId, change) {
+                var tree = read(treeKey(trustDomainId)) || {};
+                change(tree);
+                write(treeKey(trustDomainId), tree);
+            }
+            return {
+                read: function (trustDomainId) {
+                    return { tree: read(treeKey(trustDomainId)), filter: read('sigil-explorer-filter') };
+                },
+                writeCollapsed: function (trustDomainId, collapsed) {
+                    updateTree(trustDomainId, function (tree) { tree.collapsed = collapsed; });
+                },
+                writeFilter: function (filter) { write('sigil-explorer-filter', filter); },
+                // Saves the element's scroll position, under the trust domain it shows when the scrolling settles.
+                trackScroll: function (id, trustDomainId) {
+                    var el = document.getElementById(id);
+                    if (!el) return;
+                    el.dataset.sigilTrustDomain = trustDomainId;
+                    if (el.dataset.sigilScrollTracked) return;
+                    el.dataset.sigilScrollTracked = 'true';
+                    var timer;
+                    el.addEventListener('scroll', function () {
+                        clearTimeout(timer);
+                        timer = setTimeout(function () {
+                            var top = el.scrollTop;
+                            updateTree(el.dataset.sigilTrustDomain, function (tree) { tree.scrollTop = top; });
+                        }, 250);
+                    }, { passive: true });
+                }
+            };
+        })();
+
         // The Explorer rebuilds its tree after every change; these keep the tree's scroll position across a rebuild.
         window.sigilGetScrollTop = function(id) {
             var el = document.getElementById(id);

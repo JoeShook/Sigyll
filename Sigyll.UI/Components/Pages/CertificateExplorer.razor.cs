@@ -116,6 +116,15 @@ public partial class CertificateExplorer : IDisposable
 
     /// <summary>The scroll position to restore once a reloaded tree has rendered.</summary>
     private double? pendingTreeScrollTop;
+
+    /// <summary>The tree's CA nodes the operator collapsed (by <see cref="NodeKey"/>); every other one opens expanded.</summary>
+    private HashSet<string> collapsedNodes = new();
+
+    /// <summary>Whether the filter remembered in this browser has been applied yet.</summary>
+    private bool treeFilterRestored;
+
+    /// <summary>Set after a trust domain's tree loads: start saving its scroll position as the operator scrolls.</summary>
+    private bool pendingScrollTracking;
     private bool isRevalidating;
     private bool isValidatingOnline;
     private bool pendingHighlight;
@@ -267,21 +276,15 @@ public partial class CertificateExplorer : IDisposable
         if (TrustDomainId > 0)
         {
             selectedTrustDomain = trustDomainList.FirstOrDefault(c => c.Id == TrustDomainId);
+            var requested = SelectedThumbprint;
             await LoadTrustDomainTreeAsync(TrustDomainId);
 
-            // Auto-select cert if thumbprint was provided via query string
-            if (!string.IsNullOrEmpty(SelectedThumbprint))
+            // Select the certificate the address names (a refresh, a bookmark or a shared link), opening its branch.
+            if (!string.IsNullOrEmpty(requested) && FindNodeByThumbprint(treeNodes, requested) is { } node)
             {
-                var node = FindNodeByThumbprint(treeNodes, SelectedThumbprint);
-                if (node != null)
-                {
-                    await SelectNode(node);
-                    pendingHighlight = true;
-                }
-
-                // Clear the query string so it doesn't linger as the user navigates
-                SelectedThumbprint = null;
-                Navigation.NavigateTo($"/explorer/{TrustDomainId}", replace: true);
+                ExpandPathTo(node);
+                await SelectNode(node);
+                pendingHighlight = true;
             }
         }
     }
@@ -310,6 +313,12 @@ public partial class CertificateExplorer : IDisposable
         {
             pendingTreeScrollTop = null;
             await JS.InvokeVoidAsync("sigilRestoreScrollTop", TreeScrollId, scrollTop);
+        }
+
+        if (pendingScrollTracking)
+        {
+            pendingScrollTracking = false;
+            await JS.InvokeVoidAsync("sigilExplorerState.trackScroll", TreeScrollId, loadedTreeTrustDomainId);
         }
     }
 
@@ -471,9 +480,30 @@ public partial class CertificateExplorer : IDisposable
     private async Task LoadTrustDomainTreeAsync(int trustDomainId)
     {
         // Rebuilding the tree scrolls it to the top: after a delete or other change, put it back where it was.
-        double? scrollTop = trustDomainId == loadedTreeTrustDomainId && treeNodes.Count > 0
+        var reloading = trustDomainId == loadedTreeTrustDomainId && treeNodes.Count > 0;
+        double? scrollTop = reloading
             ? await JS.InvokeAsync<double>("sigilGetScrollTop", TreeScrollId)
             : null;
+
+        // A reload keeps the selected certificate selected, if it's still there.
+        var reselect = reloading && selectedNode != null ? NodeKey(selectedNode) : null;
+
+        // Opening a trust domain: restore how this browser last left its tree. The browser's storage can't be read
+        // while prerendering; the interactive render that follows does it.
+        if (!reloading && RendererInfo.IsInteractive)
+        {
+            var saved = await ReadExplorerStateAsync(trustDomainId);
+            collapsedNodes = saved?.Tree?.Collapsed?.ToHashSet() ?? new();
+            scrollTop = saved?.Tree?.ScrollTop;
+            if (!treeFilterRestored && saved?.Filter is { } filter)
+            {
+                treeFilterExpanded = filter.Open;
+                treeFilterText = filter.Text ?? string.Empty;
+                selectedTreeStatusFilter = treeStatusFilterOptions.FirstOrDefault(o => o.Label == filter.Status)
+                    ?? treeStatusFilterOptions[0];
+            }
+            treeFilterRestored = true;
+        }
 
         isLoadingTree = true;
         StateHasChanged();
@@ -501,8 +531,111 @@ public partial class CertificateExplorer : IDisposable
         subjectAltNames.Clear();
         isLoadingTree = false;
         pendingDragDropInit = true;
+        pendingScrollTracking = true;
+
+        if (reselect != null && FindNodeByKey(treeNodes, reselect) is { } stillThere)
+        {
+            await SelectNode(stillThere);
+            pendingHighlight = true;
+        }
+        else
+        {
+            KeepSelectionInAddress();
+        }
 
         await RefreshPendingVaultUpdatesAsync(trustDomainId, prompt: true);
+    }
+
+    // --- Remembered tree state ---
+
+    private sealed record SavedTree(List<string>? Collapsed, double? ScrollTop);
+    private sealed record SavedFilter(bool Open, string? Text, string? Status);
+    private sealed record SavedExplorerState(SavedTree? Tree, SavedFilter? Filter);
+
+    private async Task<SavedExplorerState?> ReadExplorerStateAsync(int trustDomainId)
+    {
+        try
+        {
+            return await JS.InvokeAsync<SavedExplorerState?>("sigilExplorerState.read", trustDomainId);
+        }
+        catch (JSException)
+        {
+            return null;
+        }
+    }
+
+    private static string NodeKey(CertificateChainNodeViewModel node) => $"{node.EntityType}:{node.Id}";
+
+    /// <summary>A filter opens every branch, so no match hides inside a collapsed CA.</summary>
+    private bool IsExpanded(CertificateChainNodeViewModel node) =>
+        IsTreeFilterActive || !collapsedNodes.Contains(NodeKey(node));
+
+    private async Task OnNodeExpandedChangedAsync(CertificateChainNodeViewModel node, bool expanded)
+    {
+        var changed = expanded ? collapsedNodes.Remove(NodeKey(node)) : collapsedNodes.Add(NodeKey(node));
+        if (changed)
+            await JS.InvokeVoidAsync("sigilExplorerState.writeCollapsed", loadedTreeTrustDomainId, collapsedNodes);
+    }
+
+    /// <summary>Opens every collapsed CA above <paramref name="node"/>, so it can be seen once selected.</summary>
+    private void ExpandPathTo(CertificateChainNodeViewModel node)
+    {
+        var path = new List<CertificateChainNodeViewModel>();
+        if (!FindPath(treeNodes, node, path)) return;
+        var opened = false;
+        foreach (var ancestor in path.Take(path.Count - 1))
+            opened |= collapsedNodes.Remove(NodeKey(ancestor));
+        if (opened)
+            treeVersion++;
+    }
+
+    private static bool FindPath(List<CertificateChainNodeViewModel> nodes, CertificateChainNodeViewModel target,
+        List<CertificateChainNodeViewModel> path)
+    {
+        foreach (var node in nodes)
+        {
+            path.Add(node);
+            if (node == target || FindPath(node.Children, target, path)) return true;
+            path.RemoveAt(path.Count - 1);
+        }
+        return false;
+    }
+
+    private static CertificateChainNodeViewModel? FindNodeByKey(List<CertificateChainNodeViewModel> nodes, string key)
+    {
+        foreach (var node in nodes)
+        {
+            if (NodeKey(node) == key) return node;
+            if (FindNodeByKey(node.Children, key) is { } found) return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Keeps the selected certificate in the address (<c>?thumbprint=</c>), so a refresh, the Back button or a copied
+    /// link reopens it. Replaces the entry rather than adding one per click.
+    /// </summary>
+    private void KeepSelectionInAddress()
+    {
+        if (!RendererInfo.IsInteractive || TrustDomainId <= 0) return;
+        var target = selectedNode is { EntityType: not "Crl", Thumbprint: { Length: > 0 } thumbprint }
+            ? $"explorer/{TrustDomainId}?thumbprint={Uri.EscapeDataString(thumbprint)}"
+            : $"explorer/{TrustDomainId}";
+        if (!string.Equals(Navigation.ToBaseRelativePath(Navigation.Uri), target, StringComparison.OrdinalIgnoreCase))
+            Navigation.NavigateTo("/" + target, replace: true);
+    }
+
+    private async Task SaveTreeFilterAsync()
+    {
+        if (RendererInfo.IsInteractive)
+            await JS.InvokeVoidAsync("sigilExplorerState.writeFilter",
+                new SavedFilter(treeFilterExpanded, treeFilterText, selectedTreeStatusFilter.Label));
+    }
+
+    private async Task ToggleTreeFilterAsync()
+    {
+        treeFilterExpanded = !treeFilterExpanded;
+        await SaveTreeFilterAsync();
     }
 
 
@@ -522,6 +655,7 @@ public partial class CertificateExplorer : IDisposable
     private async Task SelectNode(CertificateChainNodeViewModel node)
     {
         selectedNode = node;
+        KeepSelectionInAddress();
         selectedCert?.Dispose();
         selectedCert = null;
         selectedCrl = null;
@@ -3052,25 +3186,28 @@ public partial class CertificateExplorer : IDisposable
     private bool IsNodeVisible(CertificateChainNodeViewModel node) =>
         !IsTreeFilterActive || visibleNodes.Contains(node);
 
-    private void OnTreeFilterChanged()
+    private async Task OnTreeFilterChanged()
     {
         RecomputeVisibleNodes();
         treeVersion++;
+        await SaveTreeFilterAsync();
     }
 
-    private void OnTreeStatusFilterChanged(TreeStatusFilterOption? option)
+    private async Task OnTreeStatusFilterChanged(TreeStatusFilterOption? option)
     {
         selectedTreeStatusFilter = option ?? treeStatusFilterOptions[0];
         RecomputeVisibleNodes();
         treeVersion++;
+        await SaveTreeFilterAsync();
     }
 
-    private void ClearTreeFilter()
+    private async Task ClearTreeFilter()
     {
         treeFilterText = string.Empty;
         selectedTreeStatusFilter = treeStatusFilterOptions[0];
         RecomputeVisibleNodes();
         treeVersion++;
+        await SaveTreeFilterAsync();
     }
 
     private void RecomputeVisibleNodes()
