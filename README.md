@@ -54,7 +54,7 @@ Sigyll.Common/                # Entities, services, ViewModels (no UI dependenci
 │   └── Services/Signing/     # ISigningProvider, LocalSigningProvider
 Sigyll.UI/                    # Razor Class Library (all CA pages and components)
 Sigyll.Portal/                # The RA: request portal, domain validation, RA approval queue
-Sigyll.Certificate.Server/    # Publishes CA certificates (AIA) and CRLs (CDP)
+Sigyll.Certificate.Server/    # Lab tool: lists and serves published CA certificates and CRLs
 Sigyll.Vault/                 # Vault Transit signing, AppRole login, KV export
 Sigyll.Gcp/                   # Google Cloud KMS signing and publishing
 Sigyll.Did/, Sigyll.Vc/       # DID documents and Verifiable Credentials

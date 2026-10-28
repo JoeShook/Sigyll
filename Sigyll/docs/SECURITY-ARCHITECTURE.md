@@ -12,9 +12,9 @@ the record of who did what. For how these controls line up with the criteria CA 
                      |                                              |
                      v                                              v
    +------------------------------+                  +---------------------------+
-   |  Sigyll.Portal  (RA)         |                  | Sigyll.Certificate.Server |
-   |  passkey sign-in, requests,  |                  | static AIA certs and CRLs |
-   |  domain validation, RA queue |                  | GET/HEAD only, no listing |
+   |  Sigyll.Portal  (RA)         |                  | publication point: a web  |
+   |  passkey sign-in, requests,  |                  | server or bucket for AIA  |
+   |  domain validation, RA queue |                  | certs and CRLs            |
    |  holds no CA keys            |                  +---------------------------+
    +------------------------------+                                ^
                      | RA API (mTLS or API key)                     | publishes
@@ -37,7 +37,7 @@ the record of who did what. For how these controls line up with the criteria CA 
 |---|---|---|
 | **Sigyll** (`Sigyll`, `Sigyll.Common`, `Sigyll.UI`) | The CA: operator UI, issuance, renewal, revocation, CRL generation, audit trail | Holds or controls the CA signing keys; operators only |
 | **Sigyll.Portal** | The RA: requester accounts, certificate requests, http-01 domain validation, RA approval queue | Never holds CA keys; asks the CA to sign through the RA API |
-| **Sigyll.Certificate.Server** | Publishes CA certificates (AIA) and CRLs (CDP) | Public, read-only |
+| **Sigyll.Certificate.Server** | A lab tool that serves and lists what Sigyll publishes (AIA certificates, CDP CRLs) | Read-only; not part of a production deployment |
 | **Signing providers** (`Sigyll.Vault`, `Sigyll.Gcp`) | Sign certificates and CRLs with keys held outside the application | Keys never leave Vault Transit or Cloud KMS |
 | **PostgreSQL** | CA state and the audit trail | Schema owned by Flyway migrations, not the application |
 
@@ -104,9 +104,12 @@ read them on the Audit Trail page, filtered by action, actor or certificate.
 
 ## Publication
 
-The certificate server publishes only `.cer`, `.crt`, `.crl`, `.p7c` and `.pem` files with their RFC 2585 media
-types, accepts only GET and HEAD, and has no directory listing. Relying parties fetch the exact AIA and CDP URLs
-written into each certificate.
+Sigyll writes CA certificates (AIA) and CRLs (CDP) through its publishing providers, to a file system path or a
+Google Cloud Storage bucket, and the operator serves them from a static web host. Relying parties fetch the exact
+AIA and CDP URLs written into each certificate.
+
+`Sigyll.Certificate.Server` is a lab tool for that role: it lists the published folders and serves only
+`.cer`, `.crt`, `.crl`, `.p7c` and `.pem` files with their RFC 2585 media types, over GET and HEAD.
 
 ## Platform and web hardening
 

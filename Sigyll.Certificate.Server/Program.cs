@@ -9,6 +9,7 @@
 #endregion
 
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
@@ -34,11 +35,12 @@ try
         .Enrich.FromLogContext()
         .Enrich.WithThreadId());
 
+    builder.Services.AddDirectoryBrowser();
+
     var app = builder.Build();
 
-    // Only certificates and CRLs are served; anything else under wwwroot (a half-written .tmp file,
-    // a stray upload) is a 404. There is no directory listing: relying parties fetch the exact
-    // AIA and CDP URLs written into the certificates.
+    // A lab tool for browsing what Sigyll has published; the folders can be listed. Only certificates and
+    // CRLs are served, though: anything else under wwwroot (a half-written .tmp file, a stray upload) is a 404.
     var provider = new FileExtensionContentTypeProvider(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         [".cer"] = "application/pkix-cert",
@@ -61,7 +63,8 @@ try
 
         var headers = context.Response.Headers;
         headers.XContentTypeOptions = "nosniff";
-        headers.ContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
+        // The directory listing page uses inline styles and nothing else.
+        headers.ContentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'";
         headers["Referrer-Policy"] = "no-referrer";
         await next();
     });
@@ -69,6 +72,11 @@ try
     app.UseStaticFiles(new StaticFileOptions
     {
         ContentTypeProvider = provider
+    });
+
+    app.UseDirectoryBrowser(new DirectoryBrowserOptions
+    {
+        FileProvider = new PhysicalFileProvider(builder.Environment.WebRootPath)
     });
 
     app.Run();
