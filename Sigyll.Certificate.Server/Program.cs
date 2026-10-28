@@ -8,7 +8,7 @@
 // */
 #endregion
 
-using Microsoft.Extensions.FileProviders;
+using Microsoft.AspNetCore.StaticFiles;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
@@ -34,25 +34,41 @@ try
         .Enrich.FromLogContext()
         .Enrich.WithThreadId());
 
-    builder.Services.AddDirectoryBrowser();
-
     var app = builder.Build();
 
-    var provider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
-    provider.Mappings[".cer"] = "application/x-x509-ca-cert";
-    provider.Mappings[".crl"] = "application/pkix-crl";
-    provider.Mappings[".pem"] = "application/x-pem-file";
+    // Only certificates and CRLs are served; anything else under wwwroot (a half-written .tmp file,
+    // a stray upload) is a 404. There is no directory listing: relying parties fetch the exact
+    // AIA and CDP URLs written into the certificates.
+    var provider = new FileExtensionContentTypeProvider(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        [".cer"] = "application/pkix-cert",
+        [".crt"] = "application/pkix-cert",
+        [".crl"] = "application/pkix-crl",
+        [".p7c"] = "application/pkcs7-mime",
+        [".pem"] = "application/x-pem-file",
+    });
 
     app.UseSerilogRequestLogging();
+
+    app.Use(async (context, next) =>
+    {
+        if (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+            context.Response.Headers.Allow = "GET, HEAD";
+            return;
+        }
+
+        var headers = context.Response.Headers;
+        headers.XContentTypeOptions = "nosniff";
+        headers.ContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'";
+        headers["Referrer-Policy"] = "no-referrer";
+        await next();
+    });
 
     app.UseStaticFiles(new StaticFileOptions
     {
         ContentTypeProvider = provider
-    });
-
-    app.UseDirectoryBrowser(new DirectoryBrowserOptions
-    {
-        FileProvider = new PhysicalFileProvider(builder.Environment.WebRootPath)
     });
 
     app.Run();
