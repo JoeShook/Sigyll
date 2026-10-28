@@ -8,9 +8,10 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its older run; every commit on main keeps a complete run.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true
