@@ -6,6 +6,8 @@
 @inject UserManager<SigyllUser> UserManager
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<Disable2fa> Logger
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment Environment
 
 <PageTitle>Disable two-factor authentication (2FA)</PageTitle>
 
@@ -55,6 +57,15 @@
         if (user is null)
         {
             RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        if (OperatorMfa.IsRequired(Configuration, Environment) && (await UserManager.GetPasskeysAsync(user)).Count == 0)
+        {
+            RedirectManager.RedirectToWithStatus(
+                "Account/Manage/TwoFactorAuthentication",
+                "Error: Sigyll requires a second factor. Add a passkey before turning off the authenticator app.",
+                HttpContext);
             return;
         }
 

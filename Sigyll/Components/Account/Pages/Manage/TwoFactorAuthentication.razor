@@ -12,6 +12,15 @@
 
 <StatusMessage />
 <h3>Two-factor authentication (2FA)</h3>
+@if (Required == "1")
+{
+    <div class="alert alert-warning" role="alert">
+        <strong>Sigyll requires a second factor for every operator.</strong>
+        <p>Set up an authenticator app (any app that shows 6-digit codes, such as Duo Mobile, Microsoft
+            Authenticator or Google Authenticator), or <a href="Account/Manage/Passkeys">add a passkey</a>
+            (Windows Hello, a phone or a security key). You can use Sigyll once one is in place.</p>
+    </div>
+}
 @if (canTrack)
 {
     if (is2faEnabled)
@@ -78,6 +87,9 @@ else
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery(Name = "required")]
+    private string? Required { get; set; }
 
     protected override async Task OnInitializedAsync()
     {

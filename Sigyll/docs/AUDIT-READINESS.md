@@ -30,7 +30,7 @@ The criteria used below come from those audit schemes and from the standards the
 | Revocation and CRLs | In place | RFC 5280 reason codes; CRL regenerated on revocation; increasing CRL numbers; scheduled renewal before `nextUpdate`; public CRL and AIA publication | `CrlGenerationService`, `CrlAutoRenewalJob`, `CertificatePublishingService`, `Sigyll.FileSystem`, `Sigyll.Gcp` |
 | Secure development lifecycle | In place | Build, tests, vulnerable-package gate, CodeQL, container scan and SBOM on every change; Actions pinned by commit; Dependabot | [`.github/workflows`](../../.github/workflows) |
 | CA private key protection | Partial | Keys can be held in Vault Transit or Google Cloud KMS, where they never leave; local keys are encrypted with a master key held in Vault. **Gap:** FIPS 140-3 Level 3 HSM support (PKCS #11) and HSM-level Cloud KMS keys | `Sigyll.Vault`, `Sigyll.Gcp`, `KeyPasswordProtection.cs` |
-| Operator authentication | Partial | No self-registration; passkeys and authenticator-app MFA available; role changes end open sessions. **Gap:** MFA required for every operator, account lockout, idle session timeout | `Sigyll/Components/Account` |
+| Operator authentication | In place | No self-registration; every operator must have a second factor (a passkey, or an authenticator app with time-based codes) before using Sigyll and can't remove their last one; five failures lock an account for 15 minutes; sessions end after 30 idle minutes or 8 hours; no remembered devices; role changes and Admin factor resets end open sessions, and unlocks and resets are audited | `Sigyll/Components/Account` (`OperatorMfa.cs`, `OperatorSession.cs`) |
 | Certificate content control | Partial | Certificate profiles fix key algorithm, extensions, key usage and SAN types; CSR proof of possession checked; DNS names must be domain-validated unless an RA approved the request. **Gap:** verify RA approval references, validate every SAN type | `CertificateIssuanceService`, `DomainValidationService` |
 | Serial and lifecycle integrity | Partial | Archive instead of delete; renewal lineage kept; revocation history kept. **Gap:** revoke-before-delete, tombstones so no issued serial is ever forgotten, CA deletion blocked while unexpired certificates exist | [ROADMAP.md](../../ROADMAP.md) Phase 13 |
 | System hardening | Partial | Non-root containers with pinned images; security headers, HSTS, HTTPS redirect; generic error pages; the RA API's shared key is compared in constant time, and outside Development Sigyll won't start with the published placeholder or a short key; URLs from certificates and requesters can't reach private, loopback or cloud-metadata addresses, with size and redirect limits; publishing stays inside deployment-approved folders with plain file names. **Gap:** content security policy enforced on the RA portal (enforced on the CA), working mTLS for the RA API | `Sigyll.ServiceDefaults/SecurityHeaders.cs`, `Sigyll.ServiceDefaults/OutboundFetch.cs`, `PublishingPathPolicy.cs`, `Sigyll/Dockerfile` |
@@ -44,8 +44,8 @@ The criteria used below come from those audit schemes and from the standards the
 The remaining work is sequenced so each step leaves Sigyll more defensible than the last.
 
 1. **Secure foundation.** CI gates, container and web hardening, and the outbound and publishing limits are done.
-   Still to do: enforce the content security policy on the RA portal; require MFA, with lockout and an idle
-   timeout; mutual TLS for the RA API.
+   Operators must use a second factor, with lockout and session limits. Still to do: enforce the content security
+   policy on the RA portal; mutual TLS for the RA API.
 2. **Keys under control.** HSM-backed CA keys through PKCS #11 (FIPS 140-3 Level 3), HSM-level Cloud KMS keys,
    multi-person control for key ceremonies, export and destruction.
 3. **Nothing happens unseen.** A tamper-evident audit trail with signed checkpoints and auditor export; the

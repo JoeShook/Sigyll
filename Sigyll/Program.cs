@@ -271,6 +271,7 @@ try
     app.UseStaticFiles();
     app.MapStaticAssets();
     app.UseAuthentication();
+    app.UseOperatorMfaEnrollment();
     app.UseAuthorization();
     app.UseAntiforgery();
     if (useServiceDefaults)

@@ -8,6 +8,8 @@
 @inject UserManager<SigyllUser> UserManager
 @inject SignInManager<SigyllUser> SignInManager
 @inject IdentityRedirectManager RedirectManager
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment Environment
 
 <PageTitle>Manage your passkeys</PageTitle>
 
@@ -167,6 +169,16 @@ else
         catch (FormatException)
         {
             RedirectManager.RedirectToCurrentPageWithStatus("Error: The specified passkey ID had an invalid format.", HttpContext);
+            return;
+        }
+
+        if (OperatorMfa.IsRequired(Configuration, Environment)
+            && !await UserManager.GetTwoFactorEnabledAsync(user)
+            && (await UserManager.GetPasskeysAsync(user)).Count <= 1)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus(
+                "Error: Sigyll requires a second factor. Set up an authenticator app or add another passkey before removing this one.",
+                HttpContext);
             return;
         }
 

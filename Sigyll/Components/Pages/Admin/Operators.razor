@@ -43,6 +43,7 @@
             <th style="padding: 0.5rem;">Email</th>
             <th style="padding: 0.5rem;">Display Name</th>
             <th style="padding: 0.5rem;">Roles</th>
+            <th style="padding: 0.5rem;">Second factor</th>
             <th style="padding: 0.5rem;">Lockout</th>
             <th style="padding: 0.5rem;"></th>
         </tr>
@@ -54,6 +55,7 @@
                 <td style="padding: 0.5rem;">@row.User.Email</td>
                 <td style="padding: 0.5rem;">@row.User.DisplayName</td>
                 <td style="padding: 0.5rem;">@string.Join(", ", row.Roles)</td>
+                <td style="padding: 0.5rem;">@row.SecondFactor</td>
                 <td style="padding: 0.5rem;">
                     @(row.User.LockoutEnd > DateTimeOffset.UtcNow ? "Locked" : "—")
                 </td>
@@ -70,6 +72,22 @@
                                   OnClick="@(() => ShowSetPasswordDialog(row.User))"
                                   title="Set a new password for this operator">
                         Set Password
+                    </FluentButton>
+                    @if (row.User.LockoutEnd > DateTimeOffset.UtcNow)
+                    {
+                        <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                      IconStart="@(new Icons.Regular.Size16.LockOpen())"
+                                      OnClick="@(() => UnlockAsync(row.User))"
+                                      title="End this operator's lockout">
+                            Unlock
+                        </FluentButton>
+                    }
+                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                  IconStart="@(new Icons.Regular.Size16.ShieldDismiss())"
+                                  OnClick="@(() => ResetSecondFactorAsync(row.User))"
+                                  Disabled="@(row.User.Id == currentUserId || row.SecondFactor == "None")"
+                                  title="@(row.User.Id == currentUserId ? "Another Admin must reset your second factor" : "Remove this operator's authenticator app and passkeys; they set up a new one at next sign-in")">
+                        Reset 2nd factor
                     </FluentButton>
                     <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                   IconStart="@(new Icons.Regular.Size16.Delete())"
@@ -155,7 +173,7 @@
 </FluentDialog>
 
 @code {
-    private record OperatorRow(SigyllUser User, IList<string> Roles);
+    private record OperatorRow(SigyllUser User, IList<string> Roles, string SecondFactor);
 
     private List<OperatorRow> operators = new();
     private string? currentUserId;
@@ -192,7 +210,14 @@
         var users = await UserManager.Users.OrderBy(u => u.Email).ToListAsync();
         var rows = new List<OperatorRow>();
         foreach (var user in users)
-            rows.Add(new OperatorRow(user, await UserManager.GetRolesAsync(user)));
+        {
+            var factors = new List<string>();
+            if (await UserManager.GetTwoFactorEnabledAsync(user)) factors.Add("Authenticator app");
+            var passkeys = (await UserManager.GetPasskeysAsync(user)).Count;
+            if (passkeys > 0) factors.Add(passkeys == 1 ? "1 passkey" : $"{passkeys} passkeys");
+            rows.Add(new OperatorRow(user, await UserManager.GetRolesAsync(user),
+                factors.Count > 0 ? string.Join(", ", factors) : "None"));
+        }
         operators = rows;
     }
 
@@ -313,6 +338,43 @@
         {
             ToastService.ShowCopyableError(string.Join("; ", result.Errors.Select(e => e.Description)));
         }
+    }
+
+    private async Task UnlockAsync(SigyllUser user)
+    {
+        await UserManager.SetLockoutEndDateAsync(user, null);
+        await UserManager.ResetAccessFailedCountAsync(user);
+        await RecordAsync(AuditActions.OperatorUnlocked, user, "Lockout ended by an Admin.");
+        ToastService.ShowSuccess($"'{user.Email}' unlocked");
+        await LoadOperatorsAsync();
+    }
+
+    /// <summary>For an operator who lost their authenticator or passkeys: they set up a new factor at next sign-in.</summary>
+    private async Task ResetSecondFactorAsync(SigyllUser user)
+    {
+        var dialog = await DialogService.ShowConfirmationAsync(
+            $"Remove the authenticator app and passkeys of '{user.Email}'? They are signed out now and must set up a new second factor when they next sign in.",
+            "Reset", "Cancel", "Reset second factor");
+        if ((await dialog.Result).Cancelled) return;
+
+        var removed = new List<string>();
+        if (await UserManager.GetTwoFactorEnabledAsync(user))
+        {
+            await UserManager.SetTwoFactorEnabledAsync(user, false);
+            removed.Add("authenticator app");
+        }
+        await UserManager.ResetAuthenticatorKeyAsync(user);
+        var passkeys = await UserManager.GetPasskeysAsync(user);
+        foreach (var passkey in passkeys)
+            await UserManager.RemovePasskeyAsync(user, passkey.CredentialId);
+        if (passkeys.Count > 0) removed.Add(passkeys.Count == 1 ? "1 passkey" : $"{passkeys.Count} passkeys");
+        // A new security stamp ends the operator's open sessions.
+        await UserManager.UpdateSecurityStampAsync(user);
+
+        await RecordAsync(AuditActions.OperatorSecondFactorReset, user,
+            $"Removed: {(removed.Count > 0 ? string.Join(", ", removed) : "nothing")}; sessions ended.");
+        ToastService.ShowSuccess($"Second factor reset for '{user.Email}'");
+        await LoadOperatorsAsync();
     }
 
     private async Task DeleteOperatorAsync(SigyllUser user)

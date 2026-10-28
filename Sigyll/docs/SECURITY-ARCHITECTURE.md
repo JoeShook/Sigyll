@@ -77,10 +77,21 @@ key isn't returned.
 
 ## Operator authentication
 
-Operators sign in with ASP.NET Core Identity: a password plus an authenticator app (TOTP), or a passkey
-(WebAuthn/FIDO2). The CA has no self-registration; an Admin creates operator accounts, and a role change rotates
-the operator's security stamp so open sessions pick it up. Download endpoints that return private keys require the
-KeyCustodian policy.
+Operators sign in with ASP.NET Core Identity: a password plus an authenticator app (time-based codes, RFC 6238, from
+any authenticator app), or a passkey (WebAuthn/FIDO2). The CA has no self-registration; an Admin creates operator
+accounts.
+
+- **A second factor is required.** Until an operator has an authenticator app or a passkey, every page sends them
+  to set one up, and API calls are refused; they can't remove their last one (`OperatorMfa.cs`). Outside
+  Development this can't be turned off.
+- **Lockout:** five failed passwords or codes in a row lock the account for 15 minutes.
+- **Session limits:** a session ends after 30 minutes without activity and 8 hours after sign-in, however active
+  (`Auth:Session`). The server enforces both, for requests and for open interactive pages; nothing is remembered
+  between browser sessions, and there is no "remember this machine".
+- **Admin recovery:** an Admin can unlock an account, or reset an operator's second factor when they lose it, which
+  signs them out; both are recorded in the audit trail. A role change also ends the operator's open sessions.
+
+Download endpoints that return private keys require the KeyCustodian policy.
 
 ## Audit trail
 
