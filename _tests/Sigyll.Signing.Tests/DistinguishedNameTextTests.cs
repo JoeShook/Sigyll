@@ -29,7 +29,9 @@ public class DistinguishedNameTextTests
     [Fact]
     public void OpenSslEmailAddress_IsRejectedByDotNetUntilNormalized()
     {
-        Should.Throw<CryptographicException>(() => new X500DistinguishedName(OpenSslDn));
+        // Windows parses names with CertStrToName, which doesn't know emailAddress; Linux and macOS accept it.
+        if (OperatingSystem.IsWindows())
+            Should.Throw<CryptographicException>(() => new X500DistinguishedName(OpenSslDn));
 
         var name = new X500DistinguishedName(DistinguishedNameText.Normalize(OpenSslDn));
 

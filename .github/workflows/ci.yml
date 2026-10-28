@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore Sigyll.slnx
+
+      # Any package, direct or transitive, with a published advisory fails the build.
+      - name: Refuse vulnerable packages
+        run: |
+          dotnet list Sigyll.slnx package --vulnerable --include-transitive | tee vulnerable.txt
+          if grep -q "has the following vulnerable packages" vulnerable.txt; then
+            echo "::error::Vulnerable packages found; update them before merging."
+            exit 1
+          fi
+
+      - name: Build
+        run: dotnet build Sigyll.slnx --no-restore -c Release
+
+      - name: Test
+        run: dotnet test _tests/Sigyll.Signing.Tests --no-build -c Release --logger "trx;LogFileName=results.trx" --results-directory test-results
+
+      - name: Keep test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: test-results
+          if-no-files-found: ignore
+
+  sbom:
+    name: Software bill of materials
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: |
+          dotnet tool restore
+          dotnet restore Sigyll.slnx
+
+      # One CycloneDX BOM per deployable application, listing every package it ships with.
+      - name: Generate CycloneDX BOMs
+        run: |
+          for app in Sigyll Sigyll.Portal Sigyll.Certificate.Server; do
+            dotnet dotnet-CycloneDX "$app/$app.csproj" -o sbom -F Json -fn "$app.cdx.json"
+          done
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom
