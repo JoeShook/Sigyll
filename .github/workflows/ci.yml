@@ -81,3 +81,31 @@ jobs:
         with:
           name: sbom
           path: sbom
+
+  container:
+    name: Container image scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the Sigyll image
+        run: docker build -f Sigyll/Dockerfile -t sigyll:ci .
+
+      - name: Refuse running as root
+        run: |
+          user=$(docker image inspect sigyll:ci --format '{{.Config.User}}')
+          if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            echo "::error::The Sigyll image runs as root."
+            exit 1
+          fi
+
+      # High or critical vulnerabilities that already have a fix fail the build.
+      - uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: sigyll:ci
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: true
+          output-format: table

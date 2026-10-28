@@ -149,7 +149,7 @@ switch (hostMode)
         WithSigyllVault(dockerResource, signingProvider);
 
         if (hostMode == "docker-gcp")
-            dockerResource.WithVolume("sigil-gcloud-config", "/root/.config/gcloud");
+            dockerResource.WithVolume("sigil-gcloud-config", "/home/app/.config/gcloud");
 
         // GCP KMS configuration — project/location/keyring passed via env vars
         if (signingProvider == "gcp-kms")

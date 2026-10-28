@@ -1,0 +1,9 @@
+# Keep local build output, editor state and history out of image builds.
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/*.user
+**/node_modules/
+.git/
+_tests/
