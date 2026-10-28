@@ -27,12 +27,6 @@
                 <label for="Input.TwoFactorCode" class="form-label">Authenticator code</label>
                 <ValidationMessage For="() => Input.TwoFactorCode" class="text-danger" />
             </div>
-            <div class="checkbox mb-3">
-                <label for="remember-machine" class="form-label">
-                    <InputCheckbox @bind-Value="Input.RememberMachine" />
-                    Remember this machine
-                </label>
-            </div>
             <div>
                 <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
             </div>
@@ -69,7 +63,8 @@
     private async Task OnValidSubmitAsync()
     {
         var authenticatorCode = Input.TwoFactorCode!.Replace(" ", string.Empty).Replace("-", string.Empty);
-        var result = await SignInManager.TwoFactorAuthenticatorSignInAsync(authenticatorCode, RememberMe, Input.RememberMachine);
+        // Every sign-in asks for the code: no remembered machines, no persistent sessions.
+        var result = await SignInManager.TwoFactorAuthenticatorSignInAsync(authenticatorCode, isPersistent: false, rememberClient: false);
         var userId = await UserManager.GetUserIdAsync(user);
 
         if (result.Succeeded)

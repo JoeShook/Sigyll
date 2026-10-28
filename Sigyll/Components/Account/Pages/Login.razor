@@ -35,12 +35,6 @@
                     <label for="Input.Password" class="form-label">Password</label>
                     <ValidationMessage For="() => Input.Password" class="text-danger" />
                 </div>
-                <div class="checkbox mb-3">
-                    <label class="form-label">
-                        <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
-                        Remember me
-                    </label>
-                </div>
                 <div>
                     <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
                 </div>
@@ -92,11 +86,17 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
+    [SupplyParameterFromQuery(Name = "expired")]
+    private string? Expired { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         Input ??= new();
 
         editContext = new EditContext(Input);
+
+        if (Expired == "1")
+            errorMessage = "You were signed out after a period of inactivity, or because your session reached its time limit.";
 
         if (Environment.IsDevelopment())
         {
@@ -132,9 +132,8 @@
                 return;
             }
 
-            // This doesn't count login failures towards account lockout
-            // To enable password failures to trigger account lockout, set lockoutOnFailure: true
-            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+            // Failed passwords count towards lockout (Auth:Session). Sessions never outlive the browser.
+            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: false, lockoutOnFailure: true);
         }
 
         if (result.Succeeded)
@@ -146,7 +145,7 @@
         {
             RedirectManager.RedirectTo(
                 "Account/LoginWith2fa",
-                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = false });
         }
         else if (result.IsLockedOut)
         {
@@ -176,7 +175,6 @@
         public string Password { get; set; } = "";
 
         [Display(Name = "Remember me?")]
-        public bool RememberMe { get; set; }
 
         public PasskeyInputModel? Passkey { get; set; }
     }

@@ -76,6 +76,8 @@ try
             options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
         })
         .AddIdentityCookies();
+    // Lockout, idle timeout and maximum session length (Auth:Session).
+    builder.Services.AddOperatorSession(builder.Configuration);
 
     builder.Services.AddIdentityCore<SigyllUser>(options =>
         {
@@ -285,6 +287,7 @@ try
 
     // Non-component endpoints required by the Identity /Account pages (logout, passkey options)
     app.MapAdditionalIdentityEndpoints();
+    app.MapOperatorSessionEndpoints();
 
     // Download endpoints
     app.MapGet("/api/ca/{id}/download/cer", async (int id, IDbContextFactory<SigyllDbContext> dbFactory) =>

@@ -12,14 +12,22 @@ namespace Sigyll.Components.Account;
 internal sealed class IdentityRevalidatingAuthenticationStateProvider(
         ILoggerFactory loggerFactory,
         IServiceScopeFactory scopeFactory,
-        IOptions<IdentityOptions> options)
+        IOptions<IdentityOptions> options,
+        OperatorSessionOptions session,
+        CircuitActivity activity)
     : RevalidatingServerAuthenticationStateProvider(loggerFactory)
 {
-    protected override TimeSpan RevalidationInterval => TimeSpan.FromMinutes(30);
+    // Often enough that an idle or over-long session ends within a minute of its limit.
+    protected override TimeSpan RevalidationInterval => TimeSpan.FromMinutes(1);
 
     protected override async Task<bool> ValidateAuthenticationStateAsync(
         AuthenticationState authenticationState, CancellationToken cancellationToken)
     {
+        // An open page keeps its circuit without making requests, so the cookie's limits don't reach it.
+        if (DateTimeOffset.UtcNow - activity.LastActivity > session.IdleTimeout
+            || OperatorSession.IsPastMaxLength(authenticationState.User, session))
+            return false;
+
         // Get the user manager from a new scope to ensure it fetches fresh data
         await using var scope = scopeFactory.CreateAsyncScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<SigyllUser>>();

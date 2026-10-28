@@ -347,3 +347,32 @@ document.addEventListener('click', function (e) {
     document.getElementById('Input.Email').value = btn.dataset.demoEmail;
     document.getElementById('Input.Password').value = btn.dataset.demoPassword;
 });
+
+// Operator sessions end after a period of inactivity. An interactive page makes no requests of its own, so while the
+// operator is active this pings the server to keep the sign-in cookie sliding, and once idle for the configured time
+// (App.razor's sigyll-idle-minutes) it signs out. The server enforces the same limits without this script.
+(function () {
+    var meta = document.querySelector('meta[name="sigyll-idle-minutes"]');
+    if (!meta) return;
+    var idleMs = parseFloat(meta.content) * 60000;
+    if (!(idleMs > 0)) return;
+    var pingMs = Math.min(5 * 60000, idleMs / 3);
+    var lastActivity = Date.now();
+    var lastPing = Date.now();
+    ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'].forEach(function (name) {
+        document.addEventListener(name, function () { lastActivity = Date.now(); }, { passive: true });
+    });
+    setInterval(function () {
+        var now = Date.now();
+        if (now - lastActivity >= idleMs) {
+            location.href = '/Account/SessionExpired';
+            return;
+        }
+        if (lastActivity > lastPing && now - lastPing >= pingMs) {
+            lastPing = now;
+            fetch('/Account/KeepAlive', { method: 'POST', credentials: 'same-origin' }).then(function (response) {
+                if (response.redirected || response.status === 401) location.href = '/Account/SessionExpired';
+            }, function () { });
+        }
+    }, 15000);
+})();
