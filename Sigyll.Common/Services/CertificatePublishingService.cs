@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Sigyll.Common.Data;
 using Sigyll.Common.Security;
 using Sigyll.Common.Services.Jobs;
+using Sigyll.Common.Services.Publishing;
 
 namespace Sigyll.Common.Services;
 
@@ -25,17 +26,20 @@ public class CertificatePublishingService
     private readonly IOperatorContext _operator;
     private readonly ILogger<CertificatePublishingService> _logger;
     private readonly CrlGenerationService _crlGenService;
+    private readonly PublishingPathPolicy _publishingPaths;
 
     public CertificatePublishingService(
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
         ILogger<CertificatePublishingService> logger,
-        CrlGenerationService crlGenService)
+        CrlGenerationService crlGenService,
+        PublishingPathPolicy? publishingPaths = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
         _crlGenService = crlGenService;
+        _publishingPaths = publishingPaths ?? PublishingPathPolicy.Unrestricted;
     }
 
     public async Task<PublishResult> PublishAiaCertificateAsync(int caId, CancellationToken ct = default)
@@ -60,7 +64,15 @@ public class CertificatePublishingService
         {
             if (string.IsNullOrEmpty(baseUrl.PublishingBasePath)) continue;
 
-            var certPath = Path.GetFullPath(Path.Combine(baseUrl.PublishingBasePath, "certs", $"{ca.Name}.cer"));
+            string certPath;
+            try
+            {
+                certPath = _publishingPaths.Resolve(baseUrl.PublishingBasePath, "certs", $"{ca.Name}.cer");
+            }
+            catch (PublishingPathException ex)
+            {
+                return new PublishResult(false, published, ex.Message);
+            }
             var certDir = Path.GetDirectoryName(certPath);
             if (!string.IsNullOrEmpty(certDir))
                 Directory.CreateDirectory(certDir);
@@ -94,7 +106,7 @@ public class CertificatePublishingService
         {
             if (string.IsNullOrEmpty(baseUrl.PublishingBasePath)) continue;
 
-            var certPath = Path.GetFullPath(Path.Combine(baseUrl.PublishingBasePath, "certs", $"{ca.Name}.cer"));
+            var certPath = _publishingPaths.Resolve(baseUrl.PublishingBasePath, "certs", $"{ca.Name}.cer");
             if (!File.Exists(certPath))
             {
                 var certDir = Path.GetDirectoryName(certPath);
@@ -106,7 +118,7 @@ public class CertificatePublishingService
                 File.Move(tempPath, certPath, overwrite: true);
             }
 
-            var crlPath = Path.GetFullPath(Path.Combine(baseUrl.PublishingBasePath, "crls", $"{ca.Name}.crl"));
+            var crlPath = _publishingPaths.Resolve(baseUrl.PublishingBasePath, "crls", $"{ca.Name}.crl");
             if (!File.Exists(crlPath))
             {
                 await _crlGenService.GenerateCrlAsync(issuingCaId);

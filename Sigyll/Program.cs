@@ -119,12 +119,19 @@ try
     builder.Services.AddScoped<CertificateManagementService>();
     builder.Services.AddScoped<Sigyll.Common.Services.Audit.AuditTrail>();
     builder.Services.AddScoped<CertificatePublishingService>();
+    // Publishing folders an Admin sets must sit under the deployment's allowed roots; Development without
+    // configured roots allows any folder (warned at startup).
+    var publishingRoots = builder.Configuration.GetSection("Publishing:AllowedRoots").Get<string[]>() ?? [];
+    builder.Services.AddSingleton(publishingRoots.Length == 0 && builder.Environment.IsDevelopment()
+        ? Sigyll.Common.Services.Publishing.PublishingPathPolicy.Unrestricted
+        : new Sigyll.Common.Services.Publishing.PublishingPathPolicy(publishingRoots, requireAllowedRoot: true));
     builder.Services.AddSingleton<IssuanceValidator>();
     builder.Services.AddScoped<SanListService>();
     // A CRL fetch either answers or it doesn't: retrying an unreachable CDP only stalls chain validation.
 #pragma warning disable EXTEXP0001
 #pragma warning disable EXTEXP0001
-    builder.Services.AddHttpClient("SigyllCrl").RemoveAllResilienceHandlers();
+    // AIA and CRL URLs come from certificates, so their fetches go through the outbound fetch policy.
+    builder.Services.AddOutboundFetchClient("SigyllCrl", builder.Configuration).RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
 #pragma warning restore EXTEXP0001
     builder.Services.AddHttpClient();
@@ -207,6 +214,14 @@ try
     builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(365));
 
     var app = builder.Build();
+
+    if (publishingRoots.Length == 0)
+    {
+        if (app.Environment.IsDevelopment())
+            Log.Warning("Publishing:AllowedRoots is empty: publishing may write to any folder a trust domain names (Development only)");
+        else
+            Log.Warning("Publishing:AllowedRoots is empty: publishing to trust-domain folders is refused until it is set");
+    }
 
     await UseKeyPasswordMasterKeyAsync(app.Services, builder.Configuration);
 

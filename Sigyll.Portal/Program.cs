@@ -63,7 +63,8 @@ builder.Services.Configure<IdentityPasskeyOptions>(options =>
 // Portal services: catalog (cached), classification policy, http-01 validation, CA client, workflow.
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
 builder.Services.AddMemoryCache();
-builder.Services.AddHttpClient("dv"); // plain client for fetching http-01 challenge URLs
+// http-01 challenge URLs name the requester's host, so their fetches go through the outbound fetch policy.
+builder.Services.AddOutboundFetchClient("dv", builder.Configuration);
 builder.Services.AddHttpClient<CaApiClient>((sp, client) =>
     {
         var opts = sp.GetRequiredService<IOptions<PortalOptions>>().Value;

@@ -17,6 +17,7 @@ using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
 using Sigyll.Common.Services.Audit;
+using Sigyll.Common.Services.Publishing;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using Sigyll.Common.Validators;
@@ -45,15 +46,19 @@ public class CertificateIssuanceService
         ILogger<CertificateIssuanceService> logger,
         ISigningProvider? signingProvider = null,
         IssuanceValidator? validator = null,
-        AuditTrail? audit = null)
+        AuditTrail? audit = null,
+        PublishingPathPolicy? publishingPaths = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
+        _publishingPaths = publishingPaths ?? PublishingPathPolicy.Unrestricted;
         _signingProvider = signingProvider ?? new LocalSigningProvider();
         _validator = validator ?? new IssuanceValidator();
         _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
     }
+
+    private readonly PublishingPathPolicy _publishingPaths;
 
     public IssuanceValidator Validator => _validator;
 
@@ -1528,7 +1533,7 @@ public class CertificateIssuanceService
 
             try
             {
-                var certPath = Path.GetFullPath(Path.Combine(baseUrl.PublishingBasePath, "certs", $"{certName}.cer"));
+                var certPath = _publishingPaths.Resolve(baseUrl.PublishingBasePath, "certs", $"{certName}.cer");
                 var certDir = Path.GetDirectoryName(certPath);
                 if (!string.IsNullOrEmpty(certDir))
                     Directory.CreateDirectory(certDir);

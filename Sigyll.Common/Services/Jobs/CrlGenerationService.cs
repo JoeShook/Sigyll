@@ -24,6 +24,7 @@ using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
 using Sigyll.Common.Services.Audit;
+using Sigyll.Common.Services.Publishing;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 using X509Extensions = Org.BouncyCastle.Asn1.X509.X509Extensions;
@@ -58,16 +59,19 @@ public class CrlGenerationService
         IOperatorContext operatorContext,
         ILogger<CrlGenerationService> logger,
         ISigningProvider signingProvider,
-        AuditTrail? audit = null)
+        AuditTrail? audit = null,
+        PublishingPathPolicy? publishingPaths = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
         _signingProvider = signingProvider;
         _audit = audit ?? new AuditTrail(dbFactory, operatorContext);
+        _publishingPaths = publishingPaths ?? PublishingPathPolicy.Unrestricted;
     }
 
     private readonly AuditTrail _audit;
+    private readonly PublishingPathPolicy _publishingPaths;
 
     /// <summary>
     /// Generates a new CRL for the specified CA certificate.
@@ -270,7 +274,7 @@ public class CrlGenerationService
 
             try
             {
-                var crlPath = Path.GetFullPath(Path.Combine(baseUrl.PublishingBasePath, "crls", $"{ca.Name}.crl"));
+                var crlPath = _publishingPaths.Resolve(baseUrl.PublishingBasePath, "crls", $"{ca.Name}.crl");
                 var crlDir = Path.GetDirectoryName(crlPath);
                 if (!string.IsNullOrEmpty(crlDir))
                     Directory.CreateDirectory(crlDir);

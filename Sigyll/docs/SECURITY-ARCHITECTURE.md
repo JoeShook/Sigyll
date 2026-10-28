@@ -114,6 +114,19 @@ AIA and CDP URLs written into each certificate.
 `Sigyll.Certificate.Server` is a lab tool for that role: it lists the published folders and serves only
 `.cer`, `.crt`, `.crl`, `.p7c` and `.pem` files with their RFC 2585 media types, over GET and HEAD.
 
+A trust domain's publishing folder is set by an Admin, but the folders it may point into are set by the deployment
+(`Publishing:AllowedRoots`), so a database change alone can't make Sigyll write elsewhere. Published file names are
+the CA's name and must be plain names that stay inside the folder (`PublishingPathPolicy`).
+
+## Outbound requests
+
+Chain validation fetches AIA certificates and CRLs from URLs written in certificates, including imported ones, and
+the RA portal fetches http-01 challenges from requesters' hosts. Both go through one policy
+(`Sigyll.ServiceDefaults/OutboundFetch.cs`), checked when each connection is made, after DNS resolution and on every
+redirect: link-local (cloud metadata), multicast and unspecified addresses are always refused; private, loopback and
+carrier-grade NAT addresses are refused unless the host is listed in `OutboundFetch:AllowedHosts`; responses are
+capped in size and redirects in number.
+
 ## Platform and web hardening
 
 - **Containers** run as an unprivileged user (uid 1654), from base images pinned by digest.

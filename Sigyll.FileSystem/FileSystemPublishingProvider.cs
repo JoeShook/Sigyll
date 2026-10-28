@@ -47,8 +47,14 @@ public sealed class FileSystemPublishingProvider : IPublishingProvider
 
     private string ResolvePath(Uri targetUrl)
     {
-        var relativePath = targetUrl.AbsolutePath.TrimStart('/');
-        return Path.GetFullPath(Path.Combine(_baseDirectory, relativePath));
+        // The URL's path decides the file, so it must stay inside the base directory.
+        var relativePath = Uri.UnescapeDataString(targetUrl.AbsolutePath).TrimStart('/');
+        var fullPath = Path.GetFullPath(Path.Combine(_baseDirectory, relativePath));
+        var root = Path.EndsInDirectorySeparator(_baseDirectory) ? _baseDirectory : _baseDirectory + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!fullPath.StartsWith(root, comparison))
+            throw new InvalidOperationException($"Publishing target '{targetUrl}' resolves outside '{_baseDirectory}'.");
+        return fullPath;
     }
 
     private static async Task WriteFileAsync(string fullPath, byte[] bytes, CancellationToken ct)
