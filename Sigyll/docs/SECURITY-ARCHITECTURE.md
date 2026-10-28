@@ -114,9 +114,9 @@ written into each certificate.
 - **Browser responses** carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, a same-origin referrer and
   opener policy, a Permissions-Policy that disables camera, microphone, location, payment and USB, and HSTS for a
   year outside Development. Requests are redirected to HTTPS.
-- **Content Security Policy** allows only the application's own scripts (`script-src 'self'`). It is currently
-  report-only, with violations logged, and is switched to enforcing with
-  `SecurityHeaders:EnforceContentSecurityPolicy`.
+- **Content Security Policy** allows only the application's own scripts (`script-src 'self'`). The CA enforces it;
+  the RA portal runs it report-only until its pages are checked. Violations are logged either way; each app's
+  `SecurityHeaders:EnforceContentSecurityPolicy` setting picks the mode.
 - **Errors** outside Development show a generic page with a request ID; exception details stay in the log.
 
 ## Secure development

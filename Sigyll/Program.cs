@@ -262,7 +262,8 @@ try
     }
 
     app.MapRazorComponents<App>()
-        .AddInteractiveServerRenderMode()
+        // Blazor sends its own frame-ancestors policy ('self' by default); match the app's: never framed.
+        .AddInteractiveServerRenderMode(options => options.ContentSecurityFrameAncestorsPolicy = "'none'")
         .AddAdditionalAssemblies(
             typeof(FluentButton).Assembly,
             typeof(Sigyll.UI.Components.Pages.Home).Assembly);
