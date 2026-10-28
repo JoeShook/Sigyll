@@ -136,6 +136,25 @@
 - [ ] Email notifications on request state changes
 - [ ] Account scoping: a logged-in user may only request under authorized communities/trust domains
 
+### 12a-sec: RA ↔ CA mutual TLS (replaces the shared RA API key)
+Today the portal proves itself to the CA's RA API (`/api/ra/catalog`, `/api/ra/issue`) with a shared key in the
+`X-RA-ApiKey` header. The mTLS mode in `RaAuth` can't work yet: Kestrel never requests a client certificate, the
+portal attaches none, nothing issues one, and in Development the portal accepts any server certificate. Goal: mTLS in
+every environment, Development included, so the shared key can be deleted. *Changes how the portal signs in to the
+CA and where a private key is held — design to be agreed with Joe before building.*
+- [ ] A dedicated HTTPS endpoint on Sigyll for the RA API (e.g. 7201) with `ClientCertificateMode.RequireCertificate`;
+      `/api/ra/*` answers only there, so operators' browsers on 7200 are never asked for a certificate
+- [ ] Sigyll issues the portal's client certificate from an RA CA it holds; the RA API accepts a caller only if its
+      certificate chains to that CA, carries the clientAuth EKU, is in date and not revoked (allow-list as a backstop).
+      Issuance and revocation are recorded in the audit trail
+- [ ] The portal's private key lives in Vault KV (no key files, no copied passwords): on first run the AppHost has
+      Sigyll issue the certificate into Vault, and the portal loads it at startup
+- [ ] The portal validates Sigyll's server certificate (drop `DangerousAcceptAnyServerCertificateValidator`); trust the
+      Aspire development certificate in Development
+- [ ] Renewal before expiry, and revocation that takes effect without a restart
+- [ ] Delete `X-RA-ApiKey`, `Ra:ApiKey`, `Portal:RaApiKey` and `RaApiKey.cs`
+- [ ] Tests: no certificate, wrong CA, expired, revoked and wrong-EKU callers are refused; the portal's calls succeed
+
 ### 12b: ACME Server (RFC 8555)
 - [ ] ACME directory + newNonce endpoints
 - [ ] Account management (newAccount, JWS-signed requests, key rollover)
