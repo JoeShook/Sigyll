@@ -101,7 +101,9 @@ jobs:
             exit 1
           fi
 
-      # High or critical vulnerabilities that already have a fix fail the build.
+      # Anchore's scan action downloads and runs the Grype scanner against the image (operating-system
+      # packages, OpenSSL, the .NET runtime and the app's own packages). High or critical vulnerabilities that
+      # already have a fix fail the build.
       - uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
           image: sigyll:ci

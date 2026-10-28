@@ -2,6 +2,9 @@
 
 **Vision**: A modern, .NET-native Certificate Authority and PKI management platform with first-class UDAP/FHIR support. Lightweight enough for dev/test, capable enough for production.
 
+**Audit readiness**: the controls CA audits examine, their status and the plan for the rest are tracked in
+[Sigyll/docs/AUDIT-READINESS.md](Sigyll/docs/AUDIT-READINESS.md).
+
 ## Phase 1: Foundation (Complete)
 - [x] Project scaffolding (Blazor Server, FluentUI v4, PostgreSQL, Serilog)
 - [x] Data model: Community, CaCertificate (self-ref hierarchy), IssuedCertificate, CRL, CertificateRevocation, CertificateProfile, Job/JobExecution
@@ -25,16 +28,16 @@
 - [x] Certificate renewal (re-key with new key pair, re-sign with same key)
 
 ## Phase 3: Revocation & CRL Management
-- [ ] Revoke certificate action from Explorer (select reason code)
-- [ ] CRL generation using BouncyCastle X509V2CrlGenerator
-- [ ] Auto-increment CRL number from last known CRL
-- [ ] CRL publishing endpoint (HTTP GET returns DER-encoded CRL)
+- [x] Revoke certificate action from Explorer (select reason code)
+- [x] CRL generation using BouncyCastle X509V2CrlGenerator
+- [x] Auto-increment CRL number from last known CRL
+- [x] CRL publishing endpoint (HTTP GET returns DER-encoded CRL) — `Sigyll.Certificate.Server`
 - [ ] CRL viewer in Explorer (show revoked serials, dates, reasons)
 - [ ] Delta CRL support
 
 ## Phase 4: Job Scheduler & Monitoring
-- [ ] BackgroundJobScheduler (IHostedService + PeriodicTimer)
-- [ ] CRL auto-renewal job (regenerate before NextUpdate)
+- [x] BackgroundJobScheduler — `RecurringJobHostedService` with cron schedules in the `RecurringJobs` table
+- [x] CRL auto-renewal job (regenerate before NextUpdate)
 - [ ] Certificate expiry reminder job (configurable window: 30/60/90 days)
 - [ ] Jobs page: CRUD, execution history, manual "Run Now"
 - [ ] Dashboard integration: expiring certs widget, overdue CRLs, job status
@@ -80,11 +83,14 @@
 
 ## Phase 9: Security & Compliance
 - [x] Role-based access control (RBAC) — Admin, CaOperator, Auditor, KeyCustodian (key export only; Admin does not include it). RA roles come with the portal
-- [ ] Full audit logging (who did what, when, to which cert) — see **Phase 13** for the key-egress audit subset, which is sequenced earlier because revocation safety depends on it
-- [ ] Audit log viewer/export
+- [x] Full audit logging (who did what, when, to which cert) — append-only `AuditEvents` table, enforced by the database
+- [x] Audit log viewer (Audit Trail page); export and tamper-evident checkpoints still to come
+- [ ] Multi-person control for CA key generation, key export or destruction, and CA deletion
+- [ ] Mandatory MFA for operators, account lockout, idle session timeout
 - [ ] RA (Registration Authority) workflows — request/approve/reject
 - [ ] Key escrow / key recovery
-- [ ] FIPS 140-3 compliance mode (HSM-only key generation)
+- [ ] FIPS 140-3 compliance mode (HSM-only key generation) — PKCS #11 provider and HSM-level Cloud KMS keys
+- [ ] Certificate Policy / Certification Practice Statement (RFC 3647), key ceremony scripts
 - [ ] **CAA record checking at issuance (RFC 8659)** — enforce `issue`/`issuewild`/`iodef` for every issuance path (portal + ACME), with DNSSEC-validated lookups (SC-085v2, mandatory Mar 2026 for public CAs). *Baseline CAA was a roadmap gap; see Phase 12b for the ACME-specific RFC 8657 extensions.*
 - [ ] Certificate transparency (CT) log submission — record precerts/SCTs (effectively mandatory in browsers since 2018); consider exposing high-assurance CT *monitoring* (known-good inventory vs. CT stream) as a product feature
 - [ ] Policy constraints enforcement (name constraints, path length)
@@ -156,8 +162,8 @@
 
 **Sequencing matters** — each item depends on the previous:
 
-1. [ ] **Authentication on the CA app** — the main Sigyll host currently has no login; download endpoints (including `.p12` with private keys) are anonymous. Prerequisite for any "who did this" attribution, and closes an open key-disclosure hole. Reuse the 12a Identity/passkey stack or the RA endpoints' mTLS/API-key pattern.
-2. [ ] **Key-egress / download audit table** — record every artifact that leaves the CA: cert id + entity type, artifact kind (`p12`, `p12+chain`, `cer`, `pem`, `key-clipboard`), whether it contained private key material, authenticated user, remote IP, user agent, timestamp. Download counts fall out as queries.
+1. [x] **Authentication on the CA app** — the main Sigyll host currently has no login; download endpoints (including `.p12` with private keys) are anonymous. Prerequisite for any "who did this" attribution, and closes an open key-disclosure hole. Reuse the 12a Identity/passkey stack or the RA endpoints' mTLS/API-key pattern.
+2. [x] **Key-egress / download audit table** — part of the audit trail (`key.exported`, recorded before the key is released) — record every artifact that leaves the CA: cert id + entity type, artifact kind (`p12`, `p12+chain`, `cer`, `pem`, `key-clipboard`), whether it contained private key material, authenticated user, remote IP, user agent, timestamp. Download counts fall out as queries.
    - "Copy Key" (clipboard PKCS#8 export) is a release event, same as a download
    - CSR-issued and portal-issued certs are **released at birth** — the CA never held the key
    - Remote-key certs (Vault/KMS, no PFX) are provably contained unless the cert itself was exported
@@ -167,11 +173,11 @@
 5. [ ] **CA-deletion hardening** — block CA deletion while any unexpired issued serial exists (including archived/tombstoned); never delete `CertificateRevocations` history; make remote key destruction its own explicit, loudly-confirmed step instead of a delete side effect (a destroyed CA key = permanent loss of CRL signing for the whole subtree).
 6. [ ] **UI posture** — archive as the prominent action; hard delete demoted to a danger zone gated on the rules above.
 
-## Upcoming: Rename "Community" to "Trust Domain"
-- [ ] Rename entity `Community` → `TrustDomain` and `CommunityBaseUrl` → `TrustDomainBaseUrl`
-- [ ] Rename `CommunityId` foreign keys across all entities (CaCertificate, IssuedCertificate, etc.)
-- [ ] EF Core migration to rename tables and columns in PostgreSQL
-- [ ] Update all services, ViewModels, and UI references
+## Done: Rename "Community" to "Trust Domain"
+- [x] Rename entity `Community` → `TrustDomain` and `CommunityBaseUrl` → `TrustDomainBaseUrl`
+- [x] Rename `CommunityId` foreign keys across all entities (CaCertificate, IssuedCertificate, etc.)
+- [x] Rename tables and columns in PostgreSQL
+- [x] Update all services, ViewModels, and UI references
 - [ ] **Rationale**: "Community" conflicts with the UDAP specification's use of the same term. "Trust Domain" is standard PKI terminology for a group of entities sharing a common trust anchor and policy.
 
 ## Standards Watch (CA/Browser Forum mandates)
@@ -190,7 +196,7 @@ Background reading (Red Sift, Ivan Ristic):
 
 ## Architecture Notes
 - **Stack**: .NET 10+, Blazor Server (InteractiveServer), FluentUI v4, PostgreSQL, BouncyCastle, Serilog
-- **Location**: `examples/CA/` in udap-dotnet repo
+- **Location**: its own repository (extracted from udap-dotnet's `examples/CA/` with history)
 - **UI patterns**: Follow TouchStoneNginxProxy and MimeScope (FluentUI v4, code-behind, dark theme)
 - **Trust Domains**: Generic PKI hierarchy separator (formerly "Communities"), not tied to UDAP semantics
 - **Key principle**: Import-first + generate. Support both bringing in existing PKI and creating new hierarchies.

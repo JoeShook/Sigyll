@@ -4,6 +4,26 @@ Sigyll is a modern Certificate Authority (CA) and PKI management platform built 
 
 Designed as a lightweight alternative to enterprise CA tools like EJBCA, Sigyll is suitable for development, testing, and production PKI workflows — with first-class support for [UDAP](https://www.udap.org/) (Unified Data Access Profiles) healthcare security.
 
+## Built for audited PKI
+
+Sigyll is a Certificate Authority with a separate Registration Authority, built to run a CA that can pass the
+audits CAs are held to (WebTrust for CAs, ETSI EN 319 411, and healthcare frameworks such as DirectTrust).
+
+- **CA and RA separation.** The RA portal vets requesters and never holds CA keys; only the CA signs.
+- **Keys outside the application.** CA keys can live in HashiCorp Vault Transit or Google Cloud KMS and never leave
+  them; locally held keys are encrypted with a master key kept in Vault.
+- **Least privilege.** Auditor, CA Operator, Admin and Key Custodian roles; private-key export is its own role.
+- **An append-only audit trail** of every issuance, revocation, key export and operator change, enforced by the
+  database.
+- **Secure development.** Every change is built, tested, scanned with CodeQL, checked for vulnerable packages and
+  container vulnerabilities, and gets a software bill of materials.
+
+| Read | For |
+|---|---|
+| [Security architecture](Sigyll/docs/SECURITY-ARCHITECTURE.md) | How Sigyll protects keys, issuance, revocation and the audit record |
+| [Audit readiness](Sigyll/docs/AUDIT-READINESS.md) | The controls CA audits examine, what is in place, and the plan for the rest |
+| [Security policy](SECURITY.md) | How to report a vulnerability |
+
 ## Features
 
 - **Certificate Explorer** — Hierarchical tree view of Root CA > Intermediate CA > End-entity > CRL chains with detail panel, ASN.1 viewer, and chain validation
@@ -12,27 +32,35 @@ Designed as a lightweight alternative to enterprise CA tools like EJBCA, Sigyll 
 - **Import & Auto-Detection** — Drag-and-drop import of .pfx, .cer, .pem, .crl files with automatic role detection and chain matching
 - **Chain Validation** — Offline and online validation with CRL checking, AIA issuer resolution, and CDP CRL fetching
 - **Renewal** — Re-key (new key pair) and re-sign (same key, new validity) with in-place entity update to preserve child relationships
-- **Vault Transit Signing** — Remote signing via HashiCorp Vault Transit secrets engine (private keys never leave Vault)
+- **Remote Signing** — HashiCorp Vault Transit or Google Cloud KMS (private keys never leave them)
 - **Hybrid Signing** — Issue end-entity certs with local PFX private keys signed by Vault-backed CAs
-- **Dashboard** — Community health, expiring/expired certs, overdue CRLs, and deep-link navigation
-- **Multi-Community** — Independent PKI namespaces per community (trust domains, tenants, environments)
-- **Download API** — REST endpoints for .cer, .pfx, .pem, and .crl downloads
+- **Revocation & CRLs** — RFC 5280 reason codes, CRL generation and scheduled renewal, public CRL and AIA publishing
+- **Registration Authority** — Request portal with passkey sign-in, domain validation and an RA approval queue
+- **Audit Trail** — Append-only record of every CA operation and operator change
+- **Dashboard** — Trust domain health, expiring/expired certs, overdue CRLs, and deep-link navigation
+- **Trust Domains** — Independent PKI hierarchies (communities, tenants, environments) — see [docs/NAMING.md](Sigyll/docs/NAMING.md)
+- **Download API** — REST endpoints for .cer, .pfx, .pem, and .crl downloads, with key export limited to Key Custodians
 
 See [FEATURES.md](Sigyll/docs/FEATURES.md) for the complete feature list and [ROADMAP.md](ROADMAP.md) for planned phases.
 
 ## Architecture
 
 ```
-examples/CA/
-├── Sigyll/                  # Blazor Server host (Program.cs, DI, config)
-├── Sigyll.Common/           # Class library (entities, services, ViewModels)
-│   ├── Data/Entities/      # EF Core entities (Community, CaCertificate, IssuedCertificate, Crl, ...)
-│   ├── Services/           # Issuance, validation, parsing, import, CRL, ASN.1
-│   └── Services/Signing/   # ISigningProvider, LocalSigningProvider, VaultTransitSigningProvider
-├── Sigyll.UI/               # Razor Class Library (all Blazor components and pages)
-├── Sigyll.AppHost/           # .NET Aspire orchestrator (Vault + Sigyll)
-├── Sigyll.ServiceDefaults/   # Aspire service defaults (OpenTelemetry, health checks)
-└── Sigyll.Vault.Hosting/     # Aspire hosting integration for HashiCorp Vault
+Sigyll/                       # The CA: Blazor Server host (Program.cs, DI, config, RA and download APIs)
+Sigyll.Common/                # Entities, services, ViewModels (no UI dependencies)
+│   ├── Data/Entities/        # TrustDomain, CaCertificate, IssuedCertificate, Crl, AuditEvent, ...
+│   ├── Security/             # Roles, permissions and the operator context
+│   ├── Services/             # Issuance, validation, parsing, import, CRL, audit trail, ASN.1
+│   └── Services/Signing/     # ISigningProvider, LocalSigningProvider
+Sigyll.UI/                    # Razor Class Library (all CA pages and components)
+Sigyll.Portal/                # The RA: request portal, domain validation, RA approval queue
+Sigyll.Certificate.Server/    # Publishes CA certificates (AIA) and CRLs (CDP)
+Sigyll.Vault/                 # Vault Transit signing, AppRole login, KV export
+Sigyll.Gcp/                   # Google Cloud KMS signing and publishing
+Sigyll.Did/, Sigyll.Vc/       # DID documents and Verifiable Credentials
+Sigyll.AppHost/               # .NET Aspire orchestrator (PostgreSQL, Flyway, Vault, apps)
+Sigyll.ServiceDefaults/       # OpenTelemetry, health checks, security headers
+dist/AlloyDB/                 # Flyway schema migrations
 ```
 
 **Key design principle:** `Sigyll.Common` has zero UI dependencies and can be consumed by CLI tools, APIs, or test harnesses independently.
@@ -77,7 +105,7 @@ upgrading a database created by older (EF-migrated) builds.
 ### 3. Run Sigyll (Standalone)
 
 ```bash
-dotnet run --project examples/CA/Sigyll
+dotnet run --project Sigyll
 ```
 
 Sigyll will be available at **https://localhost:7200**.
@@ -89,7 +117,7 @@ All certificate signing uses local PFX-based keys by default.
 To enable remote signing via HashiCorp Vault Transit:
 
 ```bash
-dotnet run --project examples/CA/Sigyll.AppHost
+dotnet run --project Sigyll.AppHost
 ```
 
 This starts:
@@ -121,8 +149,9 @@ When running via Aspire AppHost, these are set automatically:
 |----------|-------------|---------|
 | `Signing__Provider` | `local` or `vault-transit` | `local` |
 | `Vault__Address` | Vault HTTP address | `http://localhost:8200` |
-| `Vault__Token` | Vault authentication token | — |
+| `Vault__RoleId` / `Vault__SecretId` | AppRole credentials Sigyll logs in with | — |
 | `Vault__MountPath` | Transit engine mount path | `transit` |
+| `Vault__KeyProtectionPath` | KV v2 path of the key-password master key | — |
 
 ### Signing Modes
 
@@ -137,7 +166,7 @@ This enables a hybrid workflow: Vault-backed CAs can issue end-entity certificat
 
 ## Quick Start Workflow
 
-1. **Create a Community** — Go to Communities page, add a new PKI namespace
+1. **Create a Trust Domain** — Go to the Trust Domains page and add a new PKI hierarchy
 2. **Create a Root CA** — In Certificate Explorer, click "New Root CA", select a Root CA profile
 3. **Create an Intermediate CA** — Select the Root CA, click "Issue Certificate", pick an Intermediate CA profile
 4. **Issue End-Entity Certs** — Select the Intermediate CA, issue client or server certificates
@@ -156,4 +185,4 @@ This enables a hybrid workflow: Vault-backed CAs can issue end-entity certificat
 
 ## License
 
-See [LICENSE](../../LICENSE) in the repository root.
+See [LICENSE](LICENSE).
