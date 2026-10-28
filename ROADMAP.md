@@ -180,6 +180,18 @@
 - [x] Update all services, ViewModels, and UI references
 - [ ] **Rationale**: "Community" conflicts with the UDAP specification's use of the same term. "Trust Domain" is standard PKI terminology for a group of entities sharing a common trust anchor and policy.
 
+## Backlog: Fluent UI 5 migration
+Fluent UI Blazor 5 (`Microsoft.FluentUI.AspNetCore.Components` 5.x) rewrote the component API, so moving to it is a
+UI migration rather than a package bump. Dependabot holds the packages at 4.x (`.github/dependabot.yml`) until then.
+- [ ] Inventory the breaking changes against Sigyll's use: 46 Razor files across `Sigyll`, `Sigyll.UI` and
+      `Sigyll.Portal` (heaviest: FluentButton, FluentTextField, FluentSelect, FluentDialog, FluentDataGrid, FluentTreeView)
+- [ ] Known breaks from the first attempt: `FluentSelect` needs `TValue`, `bind-Value`/`bind-Mode` bindings changed,
+      `DesignThemeModes` and the theme toggle (`MainLayout.razor`, the Portal's `ThemeToggle.razor`)
+- [ ] Recheck the DataGrid resize workaround (`sigilFreezeResizableGrids`, `.actual-resize-handle`) and the tree's
+      shadow-DOM hooks in `wwwroot/js/sigyll.js` (context menu, highlight, drag-to-renew)
+- [ ] Recheck the content security policy: no new inline scripts
+- [ ] Remove the Fluent UI ignore rule from `.github/dependabot.yml`
+
 ## Standards Watch (CA/Browser Forum mandates)
 Tracked because they shape Phase 9 (CAA/CT) and Phase 12b (ACME). These are **Baseline Requirements for publicly-trusted CAs** — they do not legally bind private UDAP/FHIR trust, but matter for UDAP server certs needing public trust and as an EJBCA differentiator.
 
