@@ -1,0 +1,31 @@
+@* (c) 2026 Joseph Shook. All rights reserved.
+   Authors: Joseph Shook   JoeShook@Gmail.com
+                            Joseph.Shook@Surescripts.com
+   See LICENSE in the project root for license information. *@
+
+@page "/Error"
+@using System.Diagnostics
+@attribute [ExcludeFromInteractiveRouting]
+@layout Sigyll.Components.Layout.AccountLayout
+
+@* The exception handler re-executes here outside Development. It never shows exception details: those are in
+   the log, under the request ID. *@
+<PageTitle>Error</PageTitle>
+
+<h1 class="text-danger">Something went wrong</h1>
+<p>Sigyll couldn't complete that request. Nothing was changed by the part that failed.</p>
+@if (!string.IsNullOrEmpty(RequestId))
+{
+    <p>If you report it, include this request ID: <code>@RequestId</code></p>
+}
+<p><a href="/">Back to Sigyll</a></p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

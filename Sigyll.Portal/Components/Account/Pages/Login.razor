@@ -71,18 +71,11 @@
                         @foreach (var demo in demoLogins)
                         {
                             <button type="button" class="btn btn-outline-secondary btn-sm"
-                                    data-demo-email="@demo.Email" data-demo-password="@demo.Password"
-                                    onclick="sigyllFillDemoLogin(this)">
+                                    data-demo-email="@demo.Email" data-demo-password="@demo.Password">
                                 Fill @demo.Email
                             </button>
                         }
                     </div>
-                    <script>
-                        function sigyllFillDemoLogin(btn) {
-                            document.getElementById('Input.Email').value = btn.dataset.demoEmail;
-                            document.getElementById('Input.Password').value = btn.dataset.demoPassword;
-                        }
-                    </script>
                 }
             </EditForm>
         </section>

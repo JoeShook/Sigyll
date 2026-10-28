@@ -88,6 +88,8 @@ builder.Services.AddScoped<RequestWorkflowService>();
 
 builder.Services.AddSingleton<IEmailSender<PortalUser>, IdentityNoOpEmailSender>();
 
+builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(365));
+
 var app = builder.Build();
 
 // Seed data. The schema is Flyway's (dist/AlloyDB/portal), applied before the portal starts.
@@ -129,11 +131,11 @@ if (app.Environment.IsDevelopment())
 else
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
+app.UseSecurityHeaders();
 
 app.UseAntiforgery();
 

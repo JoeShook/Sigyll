@@ -204,6 +204,8 @@ try
         .AddInteractiveServerComponents();
     builder.Services.AddFluentUIComponents();
 
+    builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(365));
+
     var app = builder.Build();
 
     await UseKeyPasswordMasterKeyAsync(app.Services, builder.Configuration);
@@ -239,6 +241,15 @@ try
             return Serilog.Events.LogEventLevel.Information;
         };
     });
+
+    if (!app.Environment.IsDevelopment())
+    {
+        // A generic error page instead of a bare 500; the exception stays in the log.
+        app.UseExceptionHandler("/Error", createScopeForErrors: true);
+        app.UseHsts();
+    }
+    app.UseHttpsRedirection();
+    app.UseSecurityHeaders();
 
     app.UseStaticFiles();
     app.MapStaticAssets();
