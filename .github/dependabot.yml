@@ -11,6 +11,11 @@ updates:
         patterns: ["Aspire.*"]
       microsoft:
         patterns: ["Microsoft.*", "System.*"]
+    ignore:
+      # Fluent UI 5 rewrote the component API (FluentSelect, theme modes, bindings); moving to it is a UI
+      # migration of its own, not a dependency bump. Minor and patch releases of 4.x still come through.
+      - dependency-name: "Microsoft.FluentUI.AspNetCore.Components*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
