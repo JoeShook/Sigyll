@@ -33,7 +33,7 @@ The criteria used below come from those audit schemes and from the standards the
 | Operator authentication | Partial | No self-registration; passkeys and authenticator-app MFA available; role changes end open sessions. **Gap:** MFA required for every operator, account lockout, idle session timeout | `Sigyll/Components/Account` |
 | Certificate content control | Partial | Certificate profiles fix key algorithm, extensions, key usage and SAN types; CSR proof of possession checked; DNS names must be domain-validated unless an RA approved the request. **Gap:** verify RA approval references, validate every SAN type | `CertificateIssuanceService`, `DomainValidationService` |
 | Serial and lifecycle integrity | Partial | Archive instead of delete; renewal lineage kept; revocation history kept. **Gap:** revoke-before-delete, tombstones so no issued serial is ever forgotten, CA deletion blocked while unexpired certificates exist | [ROADMAP.md](../../ROADMAP.md) Phase 13 |
-| System hardening | Partial | Non-root containers with pinned images; security headers, HSTS, HTTPS redirect; generic error pages. **Gap:** content security policy enforced on the RA portal (enforced on the CA), RA API key rules and working mTLS, allow-lists for outbound fetches and publishing paths | `Sigyll.ServiceDefaults/SecurityHeaders.cs`, `Sigyll/Dockerfile` |
+| System hardening | Partial | Non-root containers with pinned images; security headers, HSTS, HTTPS redirect; generic error pages; the RA API's shared key is compared in constant time, and outside Development Sigyll won't start with the published placeholder or a short key. **Gap:** content security policy enforced on the RA portal (enforced on the CA), working mTLS for the RA API, allow-lists for outbound fetches and publishing paths | `Sigyll.ServiceDefaults/SecurityHeaders.cs`, `Sigyll/Dockerfile` |
 | Multi-person control | Planned | Two authorized people required for CA key generation, CA key export or destruction, and CA deletion | |
 | Tamper-evident audit | Planned | Hash-chained audit records with periodic checkpoints signed by an HSM key; export for the auditor; retention policy | |
 | Certificate status (OCSP) | Planned | RFC 6960 OCSP responder alongside CRLs | [ROADMAP.md](../../ROADMAP.md) Phase 7 |
@@ -44,7 +44,7 @@ The criteria used below come from those audit schemes and from the standards the
 The remaining work is sequenced so each step leaves Sigyll more defensible than the last.
 
 1. **Secure foundation.** CI gates and container and web hardening are done. Still to do: enforce the content
-   security policy; require MFA, with lockout and an idle timeout; fix the RA API's authentication; add outbound
+   security policy; require MFA, with lockout and an idle timeout; mutual TLS for the RA API; add outbound
    and publishing allow-lists.
 2. **Keys under control.** HSM-backed CA keys through PKCS #11 (FIPS 140-3 Level 3), HSM-level Cloud KMS keys,
    multi-person control for key ceremonies, export and destruction.

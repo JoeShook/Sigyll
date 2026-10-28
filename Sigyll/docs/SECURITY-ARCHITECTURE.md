@@ -45,7 +45,10 @@ the record of who did what. For how these controls line up with the criteria CA 
 
 **CA and RA are separate applications.** The RA vets requesters and requests; only the CA signs. The RA reaches
 the CA through two endpoints, `GET /api/ra/catalog` and `POST /api/ra/issue`, and acts as a system identity
-that holds a single permission, `IssueFromRa`: it can ask for CSR-based issuance and nothing else.
+that holds a single permission, `IssueFromRa`: it can ask for CSR-based issuance and nothing else. The RA
+authenticates with a shared key, compared in constant time; outside Development Sigyll refuses to start with the
+published placeholder or a key shorter than 32 characters, and with no key configured the RA API refuses every
+call. Client-certificate (mutual TLS) authentication for the RA is planned ([AUDIT-READINESS.md](AUDIT-READINESS.md)).
 
 **Operators hold roles, and roles map to permissions in one place** (`Sigyll.Common/Security/SigyllRoles.cs`):
 

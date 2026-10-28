@@ -344,6 +344,15 @@ try
     // submit CSR-based issuance requests. The portal never holds CA keys; only the CA signs.
     // Authentication is mTLS (production) or a shared API key (dev), see RaAuth/RaOptions below.
     var raOptions = builder.Configuration.GetSection("Ra").Get<RaOptions>() ?? new RaOptions();
+    if (!raOptions.UseMtls)
+    {
+        if (RaApiKey.Problem(raOptions.ApiKey, app.Environment.IsDevelopment()) is { } raKeyProblem)
+            throw new InvalidOperationException(raKeyProblem);
+        if (string.IsNullOrEmpty(raOptions.ApiKey))
+            Log.Information("RA API is off: no Ra:ApiKey and Ra:UseMtls is false");
+        else if (raOptions.ApiKey == RaApiKey.DevelopmentPlaceholder)
+            Log.Warning("RA API accepts the development placeholder key; this is refused outside Development");
+    }
 
     // The RA can only ask for CSR-based issuance; every other service call from its requests is refused.
     var RaClient = OperatorIdentity.System("ra-client", Permission.IssueFromRa);
@@ -817,7 +826,9 @@ class RaOptions
     /// the dev API key instead. Always set true in production.</summary>
     public bool UseMtls { get; set; }
 
-    /// <summary>Dev fallback shared secret expected in the <c>X-RA-ApiKey</c> header.</summary>
+    /// <summary>Shared secret expected in the <c>X-RA-ApiKey</c> header when mTLS is off. Unset turns the RA API
+    /// off; outside Development it must be a random key of at least <see cref="RaApiKey.MinimumLength"/>
+    /// characters (checked at startup).</summary>
     public string? ApiKey { get; set; }
 
     /// <summary>Allow-listed RA client-certificate thumbprints (mTLS mode).</summary>
@@ -840,9 +851,8 @@ static class RaAuth
                 .Any(tp => string.Equals(tp, clientCert.Thumbprint, StringComparison.OrdinalIgnoreCase));
         }
 
-        // Development fallback: shared API key. Refuse if no key is configured.
-        if (string.IsNullOrEmpty(opts.ApiKey)) return false;
+        // Shared API key; no configured key refuses every call.
         return http.Request.Headers.TryGetValue("X-RA-ApiKey", out var provided)
-            && string.Equals(provided.ToString(), opts.ApiKey, StringComparison.Ordinal);
+            && RaApiKey.Matches(provided.ToString(), opts.ApiKey);
     }
 }
