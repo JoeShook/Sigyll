@@ -86,7 +86,7 @@
 - [x] Full audit logging (who did what, when, to which cert) — append-only `AuditEvents` table, enforced by the database
 - [x] Audit log viewer (Audit Trail page); export and tamper-evident checkpoints still to come
 - [ ] Multi-person control for CA key generation, key export or destruction, and CA deletion
-- [ ] Mandatory MFA for operators, account lockout, idle session timeout
+- [x] Mandatory MFA for operators (authenticator app or passkey), account lockout, idle and maximum session length
 - [ ] RA (Registration Authority) workflows — request/approve/reject
 - [ ] Key escrow / key recovery
 - [ ] FIPS 140-3 compliance mode (HSM-only key generation) — PKCS #11 provider and HSM-level Cloud KMS keys
@@ -94,6 +94,27 @@
 - [ ] **CAA record checking at issuance (RFC 8659)** — enforce `issue`/`issuewild`/`iodef` for every issuance path (portal + ACME), with DNSSEC-validated lookups (SC-085v2, mandatory Mar 2026 for public CAs). *Baseline CAA was a roadmap gap; see Phase 12b for the ACME-specific RFC 8657 extensions.*
 - [ ] Certificate transparency (CT) log submission — record precerts/SCTs (effectively mandatory in browsers since 2018); consider exposing high-assurance CT *monitoring* (known-good inventory vs. CT stream) as a product feature
 - [ ] Policy constraints enforcement (name constraints, path length)
+
+### 9a: Operator single sign-on (OpenID Connect)
+Let operators sign in through the organization's identity provider (Entra ID, Okta, ADFS, Keycloak, Ping) so the
+provider's own MFA, such as an enforced Duo prompt, applies, and leaving the organization ends Sigyll access.
+Generic OpenID Connect only: no provider names or tenant details in the repository; they come from configuration
+and Vault. *Changes how operators sign in — design to be agreed with Joe before building.*
+- [ ] OpenID Connect sign-in (authorization code + PKCE) alongside local accounts; provider, client ID and scopes
+      from configuration, the client secret from Vault
+- [ ] Accept the provider's MFA: require an `amr`/`acr` value that shows a second factor (configurable), and refuse
+      the sign-in otherwise rather than falling back to a password-only session
+- [ ] Map provider groups to Sigyll roles (Admin, CaOperator, Auditor, KeyCustodian), or keep role assignment in
+      Sigyll; decide which. KeyCustodian stays assignable only in Sigyll either way
+- [ ] Just-in-time operator records linked by the provider's subject, so the audit trail names the person
+- [ ] Break-glass: at least one local account with its own second factor stays usable when the provider is down,
+      and every break-glass sign-in is audited
+- [ ] Session limits (idle, maximum length) still apply to SSO sessions; sign-out ends the Sigyll session
+- [ ] Optional: OpenID Connect back-channel logout so disabling someone at the provider ends open sessions
+- [ ] Desktop integration testing: a Keycloak container in the AppHost (opt-in), with a realm imported from the
+      repository holding test users, groups and TOTP/WebAuthn required actions; automated tests drive sign-in
+      against it
+- [ ] Later: the same for the RA portal's staff (RA officers), separate from requesters' passkey sign-in
 
 ## Phase 10: Operations & Scale
 - [ ] High availability (multi-instance with shared DB)
