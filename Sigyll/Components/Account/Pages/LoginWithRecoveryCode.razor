@@ -43,6 +43,9 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
     protected override async Task OnInitializedAsync()
     {
         Input ??= new();
@@ -63,7 +66,11 @@
         if (result.Succeeded)
         {
             Logger.LogInformation("User with ID '{UserId}' logged in with a recovery code.", userId);
-            RedirectManager.RedirectTo(ReturnUrl);
+            // Each code works once: say so, and show how many are left where new ones are generated.
+            var left = await UserManager.CountRecoveryCodesAsync(user);
+            RedirectManager.RedirectToWithStatus("Account/Manage/TwoFactorAuthentication",
+                $"You signed in with a recovery code, and that code can't be used again. {left} recovery code{(left == 1 ? "" : "s")} left.",
+                HttpContext);
         }
         else if (result.IsLockedOut)
         {
