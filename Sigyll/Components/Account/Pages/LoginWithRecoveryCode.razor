@@ -58,7 +58,7 @@
 
     private async Task OnValidSubmitAsync()
     {
-        var recoveryCode = NormalizeRecoveryCode(Input.RecoveryCode);
+        var recoveryCode = RecoveryCodes.Normalize(Input.RecoveryCode);
 
         var result = await SignInManager.TwoFactorRecoveryCodeSignInAsync(recoveryCode);
 
@@ -83,14 +83,6 @@
             Logger.LogWarning("Invalid recovery code entered for user with ID '{UserId}' ", userId);
             message = "Error: Invalid recovery code entered.";
         }
-    }
-
-    // Identity issues codes as XXXXX-XXXXX in upper case and matches them exactly; accept them typed in any
-    // case, with or without the dash or spaces.
-    private static string NormalizeRecoveryCode(string input)
-    {
-        var code = new string(input.Where(c => c is not (' ' or '-')).ToArray()).ToUpperInvariant();
-        return code.Length == 10 ? $"{code[..5]}-{code[5..]}" : code;
     }
 
     private sealed class InputModel

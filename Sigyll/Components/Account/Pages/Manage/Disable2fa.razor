@@ -60,7 +60,7 @@
             return;
         }
 
-        if (OperatorMfa.IsRequired(Configuration, Environment) && (await UserManager.GetPasskeysAsync(user)).Count == 0)
+        if (OperatorMfa.IsRequired(Configuration, Environment) && !await OperatorMfa.CanTurnOffAuthenticatorAsync(UserManager, user))
         {
             RedirectManager.RedirectToWithStatus(
                 "Account/Manage/TwoFactorAuthentication",

@@ -16,6 +16,7 @@
 @using Sigyll.UI.Services
 
 @inject UserManager<SigyllUser> UserManager
+@inject Sigyll.Services.OperatorAccountService OperatorAccounts
 @inject AuditTrail Audit
 @inject IOperatorContext OperatorContext
 @inject IToastService ToastService
@@ -342,9 +343,7 @@
 
     private async Task UnlockAsync(SigyllUser user)
     {
-        await UserManager.SetLockoutEndDateAsync(user, null);
-        await UserManager.ResetAccessFailedCountAsync(user);
-        await RecordAsync(AuditActions.OperatorUnlocked, user, "Lockout ended by an Admin.");
+        await OperatorAccounts.UnlockAsync(user);
         ToastService.ShowSuccess($"'{user.Email}' unlocked");
         await LoadOperatorsAsync();
     }
@@ -357,22 +356,7 @@
             "Reset", "Cancel", "Reset second factor");
         if ((await dialog.Result).Cancelled) return;
 
-        var removed = new List<string>();
-        if (await UserManager.GetTwoFactorEnabledAsync(user))
-        {
-            await UserManager.SetTwoFactorEnabledAsync(user, false);
-            removed.Add("authenticator app");
-        }
-        await UserManager.ResetAuthenticatorKeyAsync(user);
-        var passkeys = await UserManager.GetPasskeysAsync(user);
-        foreach (var passkey in passkeys)
-            await UserManager.RemovePasskeyAsync(user, passkey.CredentialId);
-        if (passkeys.Count > 0) removed.Add(passkeys.Count == 1 ? "1 passkey" : $"{passkeys.Count} passkeys");
-        // A new security stamp ends the operator's open sessions.
-        await UserManager.UpdateSecurityStampAsync(user);
-
-        await RecordAsync(AuditActions.OperatorSecondFactorReset, user,
-            $"Removed: {(removed.Count > 0 ? string.Join(", ", removed) : "nothing")}; sessions ended.");
+        await OperatorAccounts.ResetSecondFactorAsync(user);
         ToastService.ShowSuccess($"Second factor reset for '{user.Email}'");
         await LoadOperatorsAsync();
     }

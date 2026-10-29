@@ -29,6 +29,14 @@ public static class OperatorMfa
     public static async Task<bool> HasSecondFactorAsync(UserManager<SigyllUser> users, SigyllUser user) =>
         await users.GetTwoFactorEnabledAsync(user) || (await users.GetPasskeysAsync(user)).Count > 0;
 
+    /// <summary>Whether turning off the authenticator app leaves a second factor: only if a passkey remains.</summary>
+    public static async Task<bool> CanTurnOffAuthenticatorAsync(UserManager<SigyllUser> users, SigyllUser user) =>
+        (await users.GetPasskeysAsync(user)).Count > 0;
+
+    /// <summary>Whether removing one passkey leaves a second factor: the authenticator app, or another passkey.</summary>
+    public static async Task<bool> CanRemovePasskeyAsync(UserManager<SigyllUser> users, SigyllUser user) =>
+        await users.GetTwoFactorEnabledAsync(user) || (await users.GetPasskeysAsync(user)).Count > 1;
+
     /// <summary>Sends signed-in operators without a second factor to set one up; API calls get 403.</summary>
     public static WebApplication UseOperatorMfaEnrollment(this WebApplication app)
     {

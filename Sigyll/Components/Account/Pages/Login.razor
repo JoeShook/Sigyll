@@ -5,8 +5,8 @@
 @using Microsoft.AspNetCore.Identity
 @using Sigyll.Data
 
-@inject UserManager<SigyllUser> UserManager
 @inject SignInManager<SigyllUser> SignInManager
+@inject OperatorSignIn OperatorSignIn
 @inject ILogger<Login> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
@@ -135,29 +135,16 @@
                 return;
             }
 
-            // Failed passwords count towards lockout (Auth:Session). Sessions never outlive the browser.
-            // A password alone is one factor. An operator whose second factor is a passkey (no authenticator app,
-            // so Identity would ask for nothing more) must finish with the passkey. Check the password without
-            // signing in (signing in here makes the cookie handler redirect straight to ReturnUrl), then start
-            // the passkey prompt.
-            if (OperatorMfa.IsRequired(Configuration, Environment)
-                && await UserManager.FindByEmailAsync(Input.Email) is { } user
-                && !await UserManager.GetTwoFactorEnabledAsync(user)
-                && (await UserManager.GetPasskeysAsync(user)).Count > 0)
+            // A passkey operator's correct password doesn't sign in: start the passkey prompt (OperatorSignIn).
+            var step = await OperatorSignIn.PasswordAsync(Input.Email, Input.Password);
+            if (step.PasskeyRequired)
             {
-                result = await SignInManager.CheckPasswordSignInAsync(user, Input.Password, lockoutOnFailure: true);
-                if (result.Succeeded)
-                {
-                    Logger.LogInformation("Password accepted for a passkey operator; passkey required to finish signing in.");
-                    passkeyRequired = true;
-                    errorMessage = "Password accepted. This account also needs your passkey: follow your browser's prompt, or use \"Log in with a passkey\" below.";
-                    return;
-                }
+                Logger.LogInformation("Password accepted for a passkey operator; passkey required to finish signing in.");
+                passkeyRequired = true;
+                errorMessage = "Password accepted. This account also needs your passkey: follow your browser's prompt, or use \"Log in with a passkey\" below.";
+                return;
             }
-            else
-            {
-                result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: false, lockoutOnFailure: true);
-            }
+            result = step.Result;
         }
 
         if (result.Succeeded)

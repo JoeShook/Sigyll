@@ -70,26 +70,8 @@ try
     builder.Services.AddScoped<IdentityRedirectManager>();
     builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 
-    builder.Services.AddAuthentication(options =>
-        {
-            options.DefaultScheme = IdentityConstants.ApplicationScheme;
-            options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
-        })
-        .AddIdentityCookies();
-    // Lockout, idle timeout and maximum session length (Auth:Session).
-    builder.Services.AddOperatorSession(builder.Configuration);
-
-    builder.Services.AddIdentityCore<SigyllUser>(options =>
-        {
-            // Operator accounts are created by an Admin — no self-registration, no email loop.
-            options.SignIn.RequireConfirmedAccount = false;
-            // Required for the AspNetUserPasskeys store (.NET 10 passkeys).
-            options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
-        })
-        .AddRoles<IdentityRole>()
-        .AddEntityFrameworkStores<SigyllAuthDbContext>()
-        .AddSignInManager()
-        .AddDefaultTokenProviders();
+    // Identity, sign-in cookies, lockout and session limits (Auth:Session), passkeys.
+    builder.Services.AddOperatorIdentity(builder.Configuration);
 
     builder.Services.AddAuthorization(options => options.AddSigyllPolicies());
 
@@ -100,13 +82,8 @@ try
     builder.Services.AddScoped<OperatorContext>();
     builder.Services.AddScoped<IOperatorContext>(sp => sp.GetRequiredService<OperatorContext>());
     builder.Services.AddScoped<OperatorAccess>();
+    builder.Services.AddScoped<OperatorAccountService>();
 
-    // Pin the passkey Relying Party ID explicitly. A CA must not infer the RP ID from the
-    // host header (credential-scoping risk).
-    builder.Services.Configure<IdentityPasskeyOptions>(options =>
-    {
-        options.ServerDomain = builder.Configuration["Auth:Passkey:ServerDomain"];
-    });
 
     // Services
     builder.Services.AddScoped<CertificateImportService>();

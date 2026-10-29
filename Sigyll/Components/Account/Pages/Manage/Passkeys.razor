@@ -172,9 +172,7 @@ else
             return;
         }
 
-        if (OperatorMfa.IsRequired(Configuration, Environment)
-            && !await UserManager.GetTwoFactorEnabledAsync(user)
-            && (await UserManager.GetPasskeysAsync(user)).Count <= 1)
+        if (OperatorMfa.IsRequired(Configuration, Environment) && !await OperatorMfa.CanRemovePasskeyAsync(UserManager, user))
         {
             RedirectManager.RedirectToCurrentPageWithStatus(
                 "Error: Sigyll requires a second factor. Set up an authenticator app or add another passkey before removing this one.",
