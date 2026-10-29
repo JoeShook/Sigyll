@@ -135,7 +135,13 @@ kbd, .recovery-code {
     padding: 0.15rem 0.4rem;
     font-family: Consolas, monospace;
     font-size: 0.9rem;
+    /* Fluent's reboot colours <code> with its accent token (dark blue here, where the theme never
+       runs) and site.css dims it; recovery codes must read clearly on the dark card. */
+    color: var(--acct-text);
+    opacity: 1;
 }
+
+.recovery-code { display: inline-block; margin-bottom: 0.35rem; font-size: 1rem; letter-spacing: 0.03em; }
 
 .table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .table th, .table td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--acct-border); }
