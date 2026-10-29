@@ -15,6 +15,10 @@
     <header class="account-header">
         <a href="/">Sigyll</a>
         <span class="text-secondary">Certificate Authority</span>
+        @* Signed-in operators land here after setting up a second factor; give them an obvious way back. *@
+        <AuthorizeView>
+            <a class="account-back" href="/">Back to Sigyll &rarr;</a>
+        </AuthorizeView>
     </header>
     <div class="account-card">
         @Body
