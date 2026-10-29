@@ -18,6 +18,11 @@
         @* Signed-in operators land here after setting up a second factor; give them an obvious way back. *@
         <AuthorizeView>
             <a class="account-back" href="/">Back to Sigyll &rarr;</a>
+            <form class="account-signout" action="/Account/Logout" method="post">
+                <AntiforgeryToken />
+                <input type="hidden" name="ReturnUrl" value="" />
+                <button type="submit">Sign out</button>
+            </form>
         </AuthorizeView>
     </header>
     <div class="account-card">

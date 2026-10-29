@@ -155,6 +155,18 @@ details[open] > summary { margin-bottom: 0.5rem; }
 .account-header a { font-size: 1.35rem; font-weight: 600; color: var(--acct-text); text-decoration: none; }
 .account-header a.account-back { margin-left: auto; font-size: 0.95rem; font-weight: 500; color: var(--acct-accent-hover); }
 .account-header a.account-back:hover { text-decoration: underline; }
+.account-signout { margin: 0; }
+.account-signout button {
+    background: transparent;
+    border: 1px solid var(--acct-border);
+    border-radius: 4px;
+    color: var(--acct-text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.2rem 0.7rem;
+    cursor: pointer;
+}
+.account-signout button:hover { border-color: var(--acct-accent-hover); }
 .account-card {
     background: var(--acct-card);
     border: 1px solid var(--acct-border);
