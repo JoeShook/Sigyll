@@ -126,7 +126,7 @@ switch (hostMode)
     {
         var dockerfile = hostMode == "docker-gcp" ? "Sigyll/Dockerfile.gcp" : "Sigyll/Dockerfile";
 
-        var dockerResource = builder.AddDockerfile("sigil", "..", dockerfile)
+        var dockerResource = builder.AddDockerfile("Sigyll", "..", dockerfile)
             .WithHttpEndpoint(port: 5200, targetPort: 5200)
             .WithHttpsEndpoint(port: 7200, targetPort: 7200)
             .WithHttpsCertificateConfiguration(ctx =>
@@ -169,7 +169,7 @@ switch (hostMode)
     }
 
     default: // "project"
-        var projectResource = builder.AddProject<Projects.Sigyll>("sigil")
+        var projectResource = builder.AddProject<Projects.Sigyll>("Sigyll")
             .WithReference(sigilDb, connectionName: "SigyllDb");
         WithSigyllVault(projectResource, signingProvider);
 
@@ -193,7 +193,7 @@ switch (hostMode)
 // Certificate request portal (isolated RA). True RA/CA split: the portal holds no CA keys and
 // reaches the CA only via the internal RA API. CaBaseUrl is wired to the running CA endpoint;
 // the dev RA API key matches the CA's "Ra:ApiKey". The portal uses its own 'portal' database.
-builder.AddProject<Projects.Sigyll_Portal>("portal")
+builder.AddProject<Projects.Sigyll_Portal>("Sigyll-Portal")
     .WithReference(portalDb, connectionName: "PortalDb")
     .WithEnvironment("Portal__CaBaseUrl", sigil.GetEndpoint("https"))
     .WithEnvironment("Portal__UseMtls", "false")
