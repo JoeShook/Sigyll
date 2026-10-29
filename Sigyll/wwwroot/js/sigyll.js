@@ -7,6 +7,12 @@ window.sigilCopyText = function(text) {
     return navigator.clipboard.writeText(text).then(function() { return true; }, function() { return false; });
 };
 
+// The browser's IANA time zone (e.g. "America/Los_Angeles"), so "Local" times
+// follow the operator, not the server. Empty when the browser can't tell.
+window.sigilTimeZone = function() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+};
+
 window.sigilDownloadFile = function(url) {
     var a = document.createElement('a');
     a.href = url;

@@ -18,8 +18,9 @@ using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
-public partial class Credentials
+public partial class Credentials : IDisposable
 {
+    [Inject] private Services.TimeDisplayService TimeDisplay { get; set; } = null!;
     [Inject] private CredentialIssuanceService IssuanceService { get; set; } = null!;
     [Inject] private CredentialSchemaService SchemaService { get; set; } = null!;
     [Inject] private CredentialVerifier Verifier { get; set; } = null!;
@@ -49,6 +50,7 @@ public partial class Credentials
 
     protected override async Task OnInitializedAsync()
     {
+        TimeDisplay.OnChanged += StateHasChanged;
         await Access.LoadAsync();
         await LoadAsync();
         await LoadOptionsAsync();
@@ -150,4 +152,6 @@ public partial class Credentials
     private record TrustDomainOption(int Id, string Name);
     private record SchemaOption(int Id, string Label);
     private record DidOption(int Id, string Label);
+
+    public void Dispose() => TimeDisplay.OnChanged -= StateHasChanged;
 }

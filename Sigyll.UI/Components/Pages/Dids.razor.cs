@@ -18,8 +18,9 @@ using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
-public partial class Dids
+public partial class Dids : IDisposable
 {
+    [Inject] private Services.TimeDisplayService TimeDisplay { get; set; } = null!;
     [Inject] private DidIssuanceService IssuanceService { get; set; } = null!;
     [Inject] private DidTemplateService TemplateService { get; set; } = null!;
     [Inject] private IDbContextFactory<SigyllDbContext> DbFactory { get; set; } = null!;
@@ -43,6 +44,7 @@ public partial class Dids
 
     protected override async Task OnInitializedAsync()
     {
+        TimeDisplay.OnChanged += StateHasChanged;
         await Access.LoadAsync();
         await LoadAsync();
         await LoadOptionsAsync();
@@ -115,4 +117,6 @@ public partial class Dids
 
     private record TrustDomainOption(int Id, string Name);
     private record DidTemplateOption(int Id, string Label);
+
+    public void Dispose() => TimeDisplay.OnChanged -= StateHasChanged;
 }

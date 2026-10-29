@@ -93,7 +93,7 @@
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.75rem;
                                     padding-top: 0.5rem; border-top: 1px solid var(--neutral-stroke-rest);">
                             <span style="font-size: 0.75rem; opacity: 0.6;">
-                                Checked @status.CheckedAt.LocalDateTime.ToString("HH:mm:ss")
+                                Checked @TimeDisplay.Format(status.CheckedAt, "HH:mm:ss")
                             </span>
                             <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                                           OnClick="RefreshStatusAsync"
@@ -251,6 +251,8 @@
         if (firstRender && !hasLoadedTimeZone)
         {
             hasLoadedTimeZone = true;
+            // "Local" is the browser's zone, not the server's; it stays UTC if the browser can't say.
+            try { TimeDisplay.SetLocalTimeZone(await JS.InvokeAsync<string?>("sigilTimeZone")); } catch { }
             try
             {
                 var stored = await JS.InvokeAsync<string?>("localStorage.getItem", "sigil-timezone");

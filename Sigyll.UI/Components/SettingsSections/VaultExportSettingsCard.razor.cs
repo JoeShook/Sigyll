@@ -15,7 +15,7 @@ using Sigyll.Common.Services.Export;
 
 namespace Sigyll.UI.Components.SettingsSections;
 
-public partial class VaultExportSettingsCard
+public partial class VaultExportSettingsCard : IDisposable
 {
     [Inject] private VaultExportService VaultExport { get; set; } = null!;
     [Inject] private IToastService ToastService { get; set; } = null!;
@@ -33,6 +33,7 @@ public partial class VaultExportSettingsCard
 
     protected override async Task OnInitializedAsync()
     {
+        TimeDisplay.OnChanged += StateHasChanged;
         var settings = await VaultExport.GetSettingsAsync();
         enabled = settings.Enabled;
         address = settings.Address;
@@ -127,4 +128,6 @@ public partial class VaultExportSettingsCard
         public string? LastBackupBy { get; init; }
         public string? Error { get; set; }
     }
+
+    public void Dispose() => TimeDisplay.OnChanged -= StateHasChanged;
 }

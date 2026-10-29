@@ -26,6 +26,7 @@ namespace Sigyll.UI.Components.Pages;
 /// </summary>
 public partial class CsrTool : IDisposable
 {
+    [Inject] private Services.TimeDisplayService TimeDisplay { get; set; } = null!;
     [Inject] private CsrGenerationService CsrGenService { get; set; } = null!;
     [Inject] private Pkcs12BundleService BundleService { get; set; } = null!;
     [Inject] private CertificateParsingService ParsingService { get; set; } = null!;
@@ -61,6 +62,7 @@ public partial class CsrTool : IDisposable
 
     protected override async Task OnInitializedAsync()
     {
+        TimeDisplay.OnChanged += StateHasChanged;
         await Access.LoadAsync();
         await using var db = await DbFactory.CreateDbContextAsync();
         trustDomains = await db.TrustDomains
@@ -388,5 +390,9 @@ public partial class CsrTool : IDisposable
         loadedName = string.Empty;
     }
 
-    public void Dispose() => Clear();
+    public void Dispose()
+    {
+        TimeDisplay.OnChanged -= StateHasChanged;
+        Clear();
+    }
 }

@@ -87,7 +87,7 @@
             <strong>Thumbprint</strong>
             <code>@loadedCert.Thumbprint</code>
             <strong>Valid</strong>
-            <span>@loadedCert.NotBefore.ToUniversalTime():yyyy-MM-dd → @loadedCert.NotAfter.ToUniversalTime():yyyy-MM-dd UTC</span>
+            <span>@TimeDisplay.FormatShort(loadedCert.NotBefore) → @TimeDisplay.FormatShort(loadedCert.NotAfter) @TimeDisplay.Label</span>
         </div>
 
         <CsrBuilder Certificate="@loadedCert"
@@ -198,7 +198,7 @@
     {
         <FluentMessageBar Intent="MessageIntent.Success" Style="margin-top: 0.75rem;">
             Bundle ready — <code>@bundleResult.Subject</code>, @bundleResult.KeyAlgorithm @bundleResult.KeySize-bit,
-            valid until @bundleResult.NotAfter.ToString("yyyy-MM-dd") UTC, @bundleResult.ChainDer.Count chain certificate(s) included.
+            valid until @TimeDisplay.FormatShort(bundleResult.NotAfter) @TimeDisplay.Label, @bundleResult.ChainDer.Count chain certificate(s) included.
         </FluentMessageBar>
 
         <div style="display: grid; grid-template-columns: 140px 1fr; gap: 0.4rem; font-size: 0.85rem; margin-top: 0.5rem;">

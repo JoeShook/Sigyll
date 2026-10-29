@@ -28,7 +28,7 @@
             <code style="font-size: 12px;">@context.Did</code>
         </TemplateColumn>
         <PropertyColumn Property="@(d => d.TemplateName)" Title="Template" Class="multiline-text" />
-        <PropertyColumn Property="@(d => d.CreatedAt)" Title="Created" Format="yyyy-MM-dd HH:mm" />
+        <TemplateColumn Title="@($"Created ({TimeDisplay.Label})")">@TimeDisplay.FormatMedium(context.CreatedAt)</TemplateColumn>
         <TemplateColumn Title="Status">
             @if (context.Deactivated)
             {

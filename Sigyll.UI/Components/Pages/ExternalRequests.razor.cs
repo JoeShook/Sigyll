@@ -23,7 +23,7 @@ using Sigyll.UI.Security;
 
 namespace Sigyll.UI.Components.Pages;
 
-public partial class ExternalRequests
+public partial class ExternalRequests : IDisposable
 {
     [Inject] private ExternalCertificateRequestService RequestService { get; set; } = null!;
     [Inject] private IDbContextFactory<SigyllDbContext> DbFactory { get; set; } = null!;
@@ -137,6 +137,7 @@ public partial class ExternalRequests
 
     protected override async Task OnInitializedAsync()
     {
+        TimeDisplay.OnChanged += StateHasChanged;
         await Access.LoadAsync();
         await using var db = await DbFactory.CreateDbContextAsync();
         trustDomains = await db.TrustDomains
@@ -550,4 +551,6 @@ public partial class ExternalRequests
         completeChain.Clear();
         completeResult = null;
     }
+
+    public void Dispose() => TimeDisplay.OnChanged -= StateHasChanged;
 }

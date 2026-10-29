@@ -926,7 +926,7 @@ public partial class CertificateExplorer : IDisposable
             var result = await CrlGenService.GenerateCrlAsync(selectedNode.Id, validity);
             if (result.IsSuccess)
             {
-                ToastService.ShowSuccess($"CRL #{result.CrlNumber} generated (next update: {result.NextUpdate:yyyy-MM-dd HH:mm} UTC). Use Download CRL to save it.");
+                ToastService.ShowSuccess($"CRL #{result.CrlNumber} generated (next update: {TimeDisplay.FormatMedium(result.NextUpdate)} {TimeDisplay.Label}). Use Download CRL to save it.");
                 await ReloadTreeAndReselectAsync(caThumbprint);
             }
             else
