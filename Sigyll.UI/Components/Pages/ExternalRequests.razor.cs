@@ -334,7 +334,7 @@ public partial class ExternalRequests
 
             var result = await RequestService.CreateAsync(new CreateExternalCertificateRequest
             {
-                TrustDomainId = selectedTrustDomain.Id,
+                TrustDomainId = selectedTrustDomain!.Id,
                 Name = newName,
                 SubjectDn = newSubjectDn,
                 SubjectAltNames = newSans.Where(s => !string.IsNullOrWhiteSpace(s.Value))

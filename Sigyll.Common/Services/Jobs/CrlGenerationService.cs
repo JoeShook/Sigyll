@@ -454,7 +454,7 @@ public class CrlGenerationService
                     ? rsa.ExportSubjectPublicKeyInfo()
                     : ((ECDsa)publicKey).ExportSubjectPublicKeyInfo());
 
-            akiValue = new AuthorityKeyIdentifier(
+            akiValue = X509ExtensionUtilities.CreateAuthorityKeyIdentifier(
                 SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(bcPublicKey));
         }
         extGen.AddExtension(X509Extensions.AuthorityKeyIdentifier, false, akiValue);
@@ -548,7 +548,7 @@ public class CrlGenerationService
             return new AuthorityKeyIdentifier(ski.GetKeyIdentifier());
         }
 
-        return new AuthorityKeyIdentifierStructure(issuerCert.GetPublicKey());
+        return X509ExtensionUtilities.CreateAuthorityKeyIdentifier(issuerCert.GetPublicKey());
     }
 }
 

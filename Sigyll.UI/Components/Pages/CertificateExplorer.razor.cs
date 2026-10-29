@@ -3033,7 +3033,7 @@ public partial class CertificateExplorer : IDisposable
 
             var aki = Org.BouncyCastle.Asn1.X509.AuthorityKeyIdentifier.GetInstance(
                 Org.BouncyCastle.Asn1.Asn1Object.FromByteArray(akiOctets.GetOctets()));
-            var keyId = aki.GetKeyIdentifier();
+            var keyId = aki.KeyIdentifier?.GetOctets();
             return keyId != null ? Convert.ToHexString(keyId) : null;
         }
         catch

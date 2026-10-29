@@ -1036,7 +1036,7 @@ public class ChainValidationService
             {
                 var dp = DistributionPoint.GetInstance(dpEncodable);
                 var dpName = dp.DistributionPointName;
-                if (dpName?.PointType != DistributionPointName.FullName) continue;
+                if (dpName?.Type != DistributionPointName.FullName) continue;
 
                 var generalNames = GeneralNames.GetInstance(dpName.Name);
                 foreach (var gn in generalNames.GetNames())
@@ -1105,7 +1105,7 @@ public class ChainValidationService
             var ski = SubjectKeyIdentifier.GetInstance(
                 Asn1OctetString.GetInstance(skiValue.GetOctets()));
 
-            return aki.GetKeyIdentifier().SequenceEqual(ski.GetKeyIdentifier());
+            return aki.KeyIdentifier?.GetOctets() is { } akiKeyId && akiKeyId.SequenceEqual(ski.GetKeyIdentifier());
         }
         catch
         {
