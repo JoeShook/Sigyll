@@ -134,6 +134,19 @@
 
             // Failed passwords count towards lockout (Auth:Session). Sessions never outlive the browser.
             result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: false, lockoutOnFailure: true);
+
+            // A password alone is one factor. An operator whose second factor is a passkey (no authenticator app,
+            // so Identity asks for nothing more) must sign in with the passkey itself.
+            if (result.Succeeded && OperatorMfa.IsRequired(Configuration, Environment)
+                && await UserManager.FindByEmailAsync(Input.Email) is { } user
+                && !await UserManager.GetTwoFactorEnabledAsync(user)
+                && (await UserManager.GetPasskeysAsync(user)).Count > 0)
+            {
+                await SignInManager.SignOutAsync();
+                Logger.LogWarning("Password-only sign-in refused for a passkey operator.");
+                errorMessage = "Error: This account signs in with a passkey. Use \"Log in with a passkey\" below.";
+                return;
+            }
         }
 
         if (result.Succeeded)
