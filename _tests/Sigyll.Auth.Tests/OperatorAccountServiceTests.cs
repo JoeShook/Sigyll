@@ -90,6 +90,28 @@ public class OperatorAccountServiceTests
     }
 
     [Fact]
+    public async Task ResetSecondFactor_RevokesTheOldRecoveryCodes()
+    {
+        await using var identity = new TestIdentity();
+        await identity.CreateOperatorAsync(Email, authenticator: true);
+        string oldCode;
+        using (var request = identity.Request())
+            oldCode = (await request.Users.GenerateNewTwoFactorRecoveryCodesAsync(await request.UserAsync(Email), 10))!.First();
+
+        using (var request = identity.Request())
+            await Service(request, Admin).ResetSecondFactorAsync(await request.UserAsync(Email));
+
+        // The operator sets up a new authenticator app; setup only issues new codes when none are left.
+        using var check = identity.Request();
+        var user = await check.UserAsync(Email);
+        (await check.Users.CountRecoveryCodesAsync(user)).ShouldBe(0);
+        await check.Users.SetTwoFactorEnabledAsync(user, true);
+        (await check.Users.RedeemTwoFactorRecoveryCodeAsync(user, oldCode)).Succeeded.ShouldBeFalse();
+
+        (await AuditEventsAsync()).Single().Detail.ShouldBe("Removed: authenticator app, 10 recovery codes; sessions ended.");
+    }
+
+    [Fact]
     public async Task OnlyAnAdmin_CanUnlockOrReset()
     {
         await using var identity = new TestIdentity();

@@ -352,7 +352,7 @@
     private async Task ResetSecondFactorAsync(SigyllUser user)
     {
         var dialog = await DialogService.ShowConfirmationAsync(
-            $"Remove the authenticator app and passkeys of '{user.Email}'? They are signed out now and must set up a new second factor when they next sign in.",
+            $"Remove the authenticator app, recovery codes and passkeys of '{user.Email}'? They are signed out now and must set up a new second factor when they next sign in.",
             "Reset", "Cancel", "Reset second factor");
         if ((await dialog.Result).Cancelled) return;
 

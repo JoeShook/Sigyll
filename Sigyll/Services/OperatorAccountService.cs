@@ -41,8 +41,9 @@ public class OperatorAccountService
     }
 
     /// <summary>
-    /// For an operator who lost their authenticator or passkeys: removes both and ends their sessions, so they set up a
-    /// new factor at next sign-in.
+    /// For an operator who lost their authenticator or passkeys: removes both, with the recovery codes that go with the
+    /// authenticator, and ends their sessions, so they set up a new factor at next sign-in. Setting up the authenticator
+    /// again issues new codes only when none are left, so old ones would otherwise keep working.
     /// </summary>
     public async Task ResetSecondFactorAsync(SigyllUser user)
     {
@@ -55,6 +56,12 @@ public class OperatorAccountService
             removed.Add("authenticator app");
         }
         await _users.ResetAuthenticatorKeyAsync(user);
+        var recoveryCodes = await _users.CountRecoveryCodesAsync(user);
+        if (recoveryCodes > 0)
+        {
+            await _users.GenerateNewTwoFactorRecoveryCodesAsync(user, 0);
+            removed.Add(recoveryCodes == 1 ? "1 recovery code" : $"{recoveryCodes} recovery codes");
+        }
         var passkeys = await _users.GetPasskeysAsync(user);
         foreach (var passkey in passkeys)
             await _users.RemovePasskeyAsync(user, passkey.CredentialId);
