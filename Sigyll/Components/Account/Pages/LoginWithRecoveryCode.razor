@@ -24,7 +24,8 @@
             <DataAnnotationsValidator />
             <ValidationSummary class="text-danger" role="alert" />
             <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.RecoveryCode" id="Input.RecoveryCode" class="form-control" autocomplete="off" placeholder="XXXXX-XXXXX" />
+                <InputText @bind-Value="Input.RecoveryCode" id="Input.RecoveryCode" class="form-control recovery-code-input" autocomplete="off" placeholder="XXXXX-XXXXX"
+                           data-recovery-code maxlength="11" autocapitalize="characters" spellcheck="false" />
                 <label for="Input.RecoveryCode" class="form-label">Recovery Code</label>
                 <ValidationMessage For="() => Input.RecoveryCode" class="text-danger" />
             </div>

@@ -141,6 +141,7 @@ kbd, .recovery-code {
     opacity: 1;
 }
 
+.recovery-code-input { font-family: Consolas, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
 .recovery-code { display: inline-block; margin-bottom: 0.35rem; font-size: 1rem; letter-spacing: 0.03em; }
 
 .table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

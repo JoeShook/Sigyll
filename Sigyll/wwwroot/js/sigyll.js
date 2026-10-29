@@ -376,3 +376,23 @@ document.addEventListener('click', function (e) {
         }
     }, 15000);
 })();
+
+// Recovery code fields (data-recovery-code): type the code as XXXXX-XXXXX — letters upper-cased and the dash
+// put in as you go. Delegated, so it also works after enhanced navigation. The server normalizes the same way.
+(function () {
+    function format(value) {
+        var code = value.replace(/[^0-9a-z]/gi, '').toUpperCase().slice(0, 10);
+        return code.length > 5 ? code.slice(0, 5) + '-' + code.slice(5) : code;
+    }
+    document.addEventListener('input', function (e) {
+        var field = e.target;
+        if (!(field instanceof HTMLInputElement) || !field.hasAttribute('data-recovery-code')) return;
+        // Keep the caret after the same number of code characters it was after before formatting.
+        var before = field.value.slice(0, field.selectionStart || 0).replace(/[^0-9a-z]/gi, '').length;
+        var formatted = format(field.value);
+        if (formatted === field.value) return;
+        field.value = formatted;
+        var caret = before > 5 || (before === 5 && formatted.length > 5) ? before + 1 : before;
+        field.setSelectionRange(caret, caret);
+    });
+})();
