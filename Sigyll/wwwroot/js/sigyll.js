@@ -396,3 +396,11 @@ document.addEventListener('click', function (e) {
         field.setSelectionRange(caret, caret);
     });
 })();
+
+// After the password step for a passkey operator, the login page marks its passkey button
+// (data-passkey-autostart): start the passkey prompt straight away instead of waiting for a click.
+(function () {
+    var button = document.querySelector('button[data-passkey-autostart]');
+    if (!button || !window.customElements) return;
+    customElements.whenDefined('passkey-submit').then(function () { button.click(); });
+})();

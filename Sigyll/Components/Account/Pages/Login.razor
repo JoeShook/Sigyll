@@ -41,7 +41,9 @@
                 <hr />
                 <div class="d-flex flex-column">
                     <span class="text-secondary mx-auto mt-2">OR</span>
-                    <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email" class="btn btn-link mx-auto">Log in with a passkey</PasskeySubmit>
+                    <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email"
+                                   class="@(passkeyRequired ? "w-100 btn btn-lg btn-primary" : "btn btn-link mx-auto")"
+                                   data-passkey-autostart="@(passkeyRequired ? "true" : null)">Log in with a passkey</PasskeySubmit>
                 </div>
                 <hr />
                 <div>
@@ -74,6 +76,7 @@
 
 @code {
     private string? errorMessage;
+    private bool passkeyRequired;
     private EditContext editContext = default!;
     private List<DemoLogin> demoLogins = [];
 
@@ -133,19 +136,27 @@
             }
 
             // Failed passwords count towards lockout (Auth:Session). Sessions never outlive the browser.
-            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: false, lockoutOnFailure: true);
-
             // A password alone is one factor. An operator whose second factor is a passkey (no authenticator app,
-            // so Identity asks for nothing more) must sign in with the passkey itself.
-            if (result.Succeeded && OperatorMfa.IsRequired(Configuration, Environment)
+            // so Identity would ask for nothing more) must finish with the passkey. Check the password without
+            // signing in (signing in here makes the cookie handler redirect straight to ReturnUrl), then start
+            // the passkey prompt.
+            if (OperatorMfa.IsRequired(Configuration, Environment)
                 && await UserManager.FindByEmailAsync(Input.Email) is { } user
                 && !await UserManager.GetTwoFactorEnabledAsync(user)
                 && (await UserManager.GetPasskeysAsync(user)).Count > 0)
             {
-                await SignInManager.SignOutAsync();
-                Logger.LogWarning("Password-only sign-in refused for a passkey operator.");
-                errorMessage = "Error: This account signs in with a passkey. Use \"Log in with a passkey\" below.";
-                return;
+                result = await SignInManager.CheckPasswordSignInAsync(user, Input.Password, lockoutOnFailure: true);
+                if (result.Succeeded)
+                {
+                    Logger.LogInformation("Password accepted for a passkey operator; passkey required to finish signing in.");
+                    passkeyRequired = true;
+                    errorMessage = "Password accepted. This account also needs your passkey: follow your browser's prompt, or use \"Log in with a passkey\" below.";
+                    return;
+                }
+            }
+            else
+            {
+                result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: false, lockoutOnFailure: true);
             }
         }
 
