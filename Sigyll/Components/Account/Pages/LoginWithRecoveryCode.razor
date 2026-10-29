@@ -24,7 +24,7 @@
             <DataAnnotationsValidator />
             <ValidationSummary class="text-danger" role="alert" />
             <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.RecoveryCode" id="Input.RecoveryCode" class="form-control" autocomplete="off" placeholder="RecoveryCode" />
+                <InputText @bind-Value="Input.RecoveryCode" id="Input.RecoveryCode" class="form-control" autocomplete="off" placeholder="XXXXX-XXXXX" />
                 <label for="Input.RecoveryCode" class="form-label">Recovery Code</label>
                 <ValidationMessage For="() => Input.RecoveryCode" class="text-danger" />
             </div>
@@ -57,7 +57,7 @@
 
     private async Task OnValidSubmitAsync()
     {
-        var recoveryCode = Input.RecoveryCode.Replace(" ", string.Empty);
+        var recoveryCode = NormalizeRecoveryCode(Input.RecoveryCode);
 
         var result = await SignInManager.TwoFactorRecoveryCodeSignInAsync(recoveryCode);
 
@@ -82,6 +82,14 @@
             Logger.LogWarning("Invalid recovery code entered for user with ID '{UserId}' ", userId);
             message = "Error: Invalid recovery code entered.";
         }
+    }
+
+    // Identity issues codes as XXXXX-XXXXX in upper case and matches them exactly; accept them typed in any
+    // case, with or without the dash or spaces.
+    private static string NormalizeRecoveryCode(string input)
+    {
+        var code = new string(input.Where(c => c is not (' ' or '-')).ToArray()).ToUpperInvariant();
+        return code.Length == 10 ? $"{code[..5]}-{code[5..]}" : code;
     }
 
     private sealed class InputModel
