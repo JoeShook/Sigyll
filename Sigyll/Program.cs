@@ -461,7 +461,8 @@ try
 
     app.Run();
 }
-catch (Exception ex)
+// A test host stops startup once it has the app (HostAbortedException); that is not a failure.
+catch (Exception ex) when (ex is not HostAbortedException)
 {
     Log.Fatal(ex, "Application terminated unexpectedly");
 }
@@ -852,3 +853,6 @@ static class RaAuth
             && RaApiKey.Matches(provided.ToString(), opts.ApiKey);
     }
 }
+
+/// <summary>The app's entry point, visible to the integration tests' host.</summary>
+public partial class Program;

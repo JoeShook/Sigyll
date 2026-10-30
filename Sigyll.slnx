@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/_tests/">
     <Project Path="_tests/Sigyll.Auth.Tests/Sigyll.Auth.Tests.csproj" />
+    <Project Path="_tests/Sigyll.Integration.Tests/Sigyll.Integration.Tests.csproj" />
     <Project Path="_tests/Sigyll.Signing.Tests/Sigyll.Signing.Tests.csproj" />
   </Folder>
   <Project Path="Sigyll.AppHost/Sigyll.AppHost.csproj" />

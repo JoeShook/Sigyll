@@ -8,10 +8,9 @@
 // */
 #endregion
 
-using System.Buffers.Binary;
-using System.Security.Cryptography;
 using Sigyll.Common.Services.Audit;
 using Sigyll.Components.Account;
+using Sigyll.Tests;
 
 namespace Sigyll.Auth.Tests;
 
@@ -33,7 +32,7 @@ public class SignInAuditTests
             key = (await setup.Users.GetAuthenticatorKeyAsync(await setup.UserAsync(Email)))!;
 
         using var code = identity.Request(password);
-        (await code.SignIn.TwoFactorAuthenticatorSignInAsync(Totp(key), isPersistent: false, rememberClient: false))
+        (await code.SignIn.TwoFactorAuthenticatorSignInAsync(Totp.Code(key), isPersistent: false, rememberClient: false))
             .Succeeded.ShouldBeTrue();
 
         // The correct password alone is not a sign-in; the one event is the completed sign-in.
@@ -220,35 +219,5 @@ public class SignInAuditTests
         await using var identity = new TestIdentity();
         using var request = identity.Request();
         request.SignIn.ShouldBeOfType<OperatorSignInManager>();
-    }
-
-    /// <summary>The authenticator app's current code for <paramref name="base32Key"/> (RFC 6238: SHA-1, 30 s, 6 digits).</summary>
-    private static string Totp(string base32Key)
-    {
-        var key = Base32(base32Key);
-        Span<byte> counter = stackalloc byte[8];
-        BinaryPrimitives.WriteInt64BigEndian(counter, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30);
-        var hash = HMACSHA1.HashData(key, counter);
-        var offset = hash[^1] & 0x0f;
-        var value = (BinaryPrimitives.ReadInt32BigEndian(hash.AsSpan(offset)) & 0x7fffffff) % 1_000_000;
-        return value.ToString("D6");
-    }
-
-    private static byte[] Base32(string text)
-    {
-        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-        var bytes = new List<byte>();
-        int buffer = 0, bits = 0;
-        foreach (var c in text.TrimEnd('=').ToUpperInvariant())
-        {
-            buffer = (buffer << 5) | alphabet.IndexOf(c);
-            bits += 5;
-            if (bits >= 8)
-            {
-                bytes.Add((byte)(buffer >> (bits - 8)));
-                bits -= 8;
-            }
-        }
-        return [.. bytes];
     }
 }
