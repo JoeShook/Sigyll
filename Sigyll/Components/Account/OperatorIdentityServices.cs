@@ -15,8 +15,9 @@ namespace Sigyll.Components.Account;
 
 /// <summary>
 /// Operator accounts: Identity over <see cref="SigyllAuthDbContext"/> with passkeys, the sign-in cookies, lockout and
-/// session limits (<c>Auth:Session</c>), and the password step of sign-in. The host registers the database context;
-/// the tests register the same services over an in-memory one.
+/// session limits (<c>Auth:Session</c>), the password step of sign-in, and the audit of every sign-in
+/// (<see cref="OperatorSignInManager"/>). The host registers the database contexts and the audit trail; the tests
+/// register the same services over in-memory ones.
 /// </summary>
 public static class OperatorIdentityServices
 {
@@ -40,7 +41,7 @@ public static class OperatorIdentityServices
             })
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<SigyllAuthDbContext>()
-            .AddSignInManager()
+            .AddSignInManager<OperatorSignInManager>()
             .AddDefaultTokenProviders();
 
         // Pin the passkey Relying Party ID explicitly. A CA must not infer the RP ID from the

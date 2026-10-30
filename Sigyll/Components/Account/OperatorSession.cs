@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Identity;
+using Sigyll.Common.Services.Audit;
 
 namespace Sigyll.Components.Account;
 
@@ -89,6 +90,7 @@ public static class OperatorSession
                 {
                     context.RejectPrincipal();
                     await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+                    await RecordEndAsync(context.HttpContext, context.Principal, "Session reached its time limit");
                     return;
                 }
                 await validateStamp(context);
@@ -106,6 +108,14 @@ public static class OperatorSession
         return DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(seconds) > options.MaxSessionLength;
     }
 
+    /// <summary>Records the end of a session the operator didn't sign out of; one already over left nothing to end.</summary>
+    private static async Task RecordEndAsync(HttpContext http, ClaimsPrincipal? principal, string reason)
+    {
+        if (principal?.Identity is { IsAuthenticated: true, Name: { } account }
+            && http.RequestServices.GetService<AuditTrail>() is { } audit)
+            await OperatorSignInManager.RecordSessionEndAsync(audit, http, account, reason);
+    }
+
     /// <summary>The keep-alive and expiry endpoints the browser's idle tracker uses.</summary>
     public static void MapOperatorSessionEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -115,6 +125,7 @@ public static class OperatorSession
         endpoints.MapGet(ExpiredPath, async (HttpContext http) =>
         {
             await http.SignOutAsync(IdentityConstants.ApplicationScheme);
+            await RecordEndAsync(http, http.User, "Signed out after a period of inactivity");
             return Results.LocalRedirect("~/Account/Login?expired=1");
         });
     }

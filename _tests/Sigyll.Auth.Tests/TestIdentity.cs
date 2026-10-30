@@ -8,6 +8,7 @@
 // */
 #endregion
 
+using System.Net;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -18,6 +19,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Net.Http.Headers;
+using Sigyll.Common.Data;
+using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Security;
+using Sigyll.Common.Services.Audit;
 using Sigyll.Components.Account;
 using Sigyll.Data;
 
@@ -25,8 +30,9 @@ namespace Sigyll.Auth.Tests;
 
 /// <summary>
 /// Operator Identity registered as the host registers it (<see cref="OperatorIdentityServices.AddOperatorIdentity"/>),
-/// over an in-memory SQLite store (the in-memory EF provider can't read the passkeys' JSON column). Each <see cref="Request"/> is one HTTP request with its own scope; cookies the previous
-/// request set can be carried into the next, as a browser would.
+/// over an in-memory SQLite store (the in-memory EF provider can't read the passkeys' JSON column), with the audit
+/// trail in an in-memory database. Each <see cref="Request"/> is one HTTP request with its own scope; cookies the
+/// previous request set can be carried into the next, as a browser would.
 /// </summary>
 internal sealed class TestIdentity : IAsyncDisposable
 {
@@ -34,6 +40,7 @@ internal sealed class TestIdentity : IAsyncDisposable
 
     private readonly SqliteConnection _database;
     private readonly ServiceProvider _services;
+    private readonly DbContextOptions<SigyllDbContext> _auditDb = AuditDb();
 
     public TestIdentity(string environment = "Production", Dictionary<string, string?>? settings = null)
     {
@@ -46,6 +53,7 @@ internal sealed class TestIdentity : IAsyncDisposable
         services.AddHttpContextAccessor();
         _database = OpenDatabase();
         services.AddDbContext<SigyllAuthDbContext>(options => options.UseSqlite(_database));
+        AddAuditTrail(services, _auditDb);
         services.AddOperatorIdentity(configuration);
         _services = services.BuildServiceProvider();
         CreateSchema(_services);
@@ -57,6 +65,25 @@ internal sealed class TestIdentity : IAsyncDisposable
         var connection = new SqliteConnection("DataSource=:memory:");
         connection.Open();
         return connection;
+    }
+
+    public static DbContextOptions<SigyllDbContext> AuditDb() => new DbContextOptionsBuilder<SigyllDbContext>()
+        .UseInMemoryDatabase(Guid.NewGuid().ToString())
+        .Options;
+
+    /// <summary>The audit trail, as the host registers it, over <paramref name="auditDb"/>.</summary>
+    public static void AddAuditTrail(IServiceCollection services, DbContextOptions<SigyllDbContext> auditDb)
+    {
+        services.AddSingleton<IDbContextFactory<SigyllDbContext>>(new AuditDbFactory(auditDb));
+        services.AddScoped<IOperatorContext, OperatorContext>(_ => new OperatorContext());
+        services.AddScoped<AuditTrail>();
+    }
+
+    /// <summary>The audit trail so far, oldest first.</summary>
+    public async Task<List<AuditEvent>> AuditEventsAsync()
+    {
+        await using var db = new SigyllDbContext(_auditDb);
+        return await db.AuditEvents.OrderBy(e => e.Id).ToListAsync();
     }
 
     public static void CreateSchema(IServiceProvider services)
@@ -102,6 +129,11 @@ internal sealed class TestIdentity : IAsyncDisposable
         await _database.DisposeAsync();
     }
 
+    internal sealed class AuditDbFactory(DbContextOptions<SigyllDbContext> options) : IDbContextFactory<SigyllDbContext>
+    {
+        public SigyllDbContext CreateDbContext() => new(options);
+    }
+
     internal sealed class TestHostEnvironment(string environmentName) : IHostEnvironment
     {
         public string EnvironmentName { get; set; } = environmentName;
@@ -121,6 +153,7 @@ internal sealed class TestRequest : IDisposable
         Http = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
         Http.Request.Scheme = "https";
         Http.Request.Host = new HostString("sigyll.test");
+        Http.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.10");
         if (carriedCookies.Count > 0)
             Http.Request.Headers.Cookie = string.Join("; ", carriedCookies.Select(c => $"{c.Name}={c.Value}"));
         scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>().HttpContext = Http;

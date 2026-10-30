@@ -42,6 +42,10 @@ public static class AuditActions
     public const string OperatorPasswordSet = "operator.password-set";
     public const string OperatorUnlocked = "operator.unlocked";
     public const string OperatorSecondFactorReset = "operator.second-factor-reset";
+    public const string OperatorSignedIn = "operator.signed-in";
+    public const string OperatorSignInFailed = "operator.sign-in-failed";
+    public const string OperatorLockedOut = "operator.locked-out";
+    public const string OperatorSignedOut = "operator.signed-out";
 
     public static readonly string[] All =
     [
@@ -49,6 +53,7 @@ public static class AuditActions
         CertificateMoved, CrlGenerated, CrlImported, CrlDeleted, KeyExported, VaultExported, VaultBackedUp, VaultUpdated,
         VaultSecretsRemoved, RequestCreated, RequestFulfilled, RequestDeleted, TrustDomainDeleted, OperatorCreated,
         OperatorDeleted, OperatorRolesChanged, OperatorPasswordSet, OperatorUnlocked, OperatorSecondFactorReset,
+        OperatorSignedIn, OperatorSignInFailed, OperatorLockedOut, OperatorSignedOut,
     ];
 }
 

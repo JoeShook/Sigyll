@@ -164,6 +164,7 @@ public class MfaEnrollmentTests
             builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
             var database = TestIdentity.OpenDatabase();
             builder.Services.AddDbContext<SigyllAuthDbContext>(options => options.UseSqlite(database));
+            TestIdentity.AddAuditTrail(builder.Services, TestIdentity.AuditDb());
             builder.Services.AddOperatorIdentity(builder.Configuration);
 
             var app = builder.Build();
