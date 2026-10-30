@@ -45,11 +45,17 @@ builder.Services.AddIdentityCore<PortalUser>(options =>
     {
         options.SignIn.RequireConfirmedAccount = true;
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
+        // Five failed passwords or codes in a row lock an account for 15 minutes, as on the CA.
+        options.Lockout.AllowedForNewUsers = true;
+        options.Lockout.MaxFailedAccessAttempts = 5;
+        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
     })
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<PortalDbContext>()
-    .AddSignInManager()
+    // Every sign-in attempt, lockout and sign-out goes to the audit trail.
+    .AddSignInManager<PortalSignInManager>()
     .AddDefaultTokenProviders();
+builder.Services.AddScoped<PortalAuditTrail>();
 
 builder.Services.AddAuthorization();
 
@@ -97,16 +103,20 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
 
-    // Seed roles and dev accounts. Requesters only need to be authenticated (no role); RA/PortalAdmin
-    // gate the RA queue. Passkeys can be enrolled after first sign-in under Account → Manage.
+    // Seed roles and, in Development, demo accounts. Requesters only need to be authenticated (no role);
+    // RA/PortalAdmin gate the RA queue. Passkeys can be enrolled after first sign-in under Account → Manage.
     var roleMgr = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     foreach (var role in new[] { "Requester", "RA", "PortalAdmin" })
         if (!await roleMgr.RoleExistsAsync(role))
             await roleMgr.CreateAsync(new IdentityRole(role));
 
-    var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
-    await SeedUserAsync(userMgr, "admin@sigyll.local", "Passw0rd!", "RA", "PortalAdmin");
-    await SeedUserAsync(userMgr, "requester@sigyll.local", "Passw0rd!");
+    // The demo accounts have published passwords: Development only.
+    if (app.Environment.IsDevelopment())
+    {
+        var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
+        await SeedUserAsync(userMgr, "admin@sigyll.local", "Passw0rd!", "RA", "PortalAdmin");
+        await SeedUserAsync(userMgr, "requester@sigyll.local", "Passw0rd!");
+    }
 }
 
 static async Task SeedUserAsync(UserManager<PortalUser> userMgr, string email, string password, params string[] roles)
@@ -173,3 +183,6 @@ app.MapGet("/requests/{id:int}/download/chain", async (int id, HttpContext http,
 }).RequireAuthorization();
 
 app.Run();
+
+/// <summary>The app's entry point, visible to the integration tests' host.</summary>
+public partial class Program;

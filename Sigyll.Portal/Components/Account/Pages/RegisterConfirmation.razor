@@ -9,6 +9,7 @@
 @inject IEmailSender<PortalUser> EmailSender
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject IWebHostEnvironment Environment
 
 <PageTitle>Register confirmation</PageTitle>
 
@@ -55,9 +56,10 @@ else
             HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
             statusMessage = "Error finding user for unspecified email";
         }
-        else if (EmailSender is IdentityNoOpEmailSender)
+        else if (EmailSender is IdentityNoOpEmailSender && Environment.IsDevelopment())
         {
-            // Once you add a real email sender, you should remove this code that lets you confirm the account
+            // No email is sent, so Development shows the link here. Anywhere else that would let anyone confirm an
+            // address they don't own.
             var userId = await UserManager.GetUserIdAsync(user);
             var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
             code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));

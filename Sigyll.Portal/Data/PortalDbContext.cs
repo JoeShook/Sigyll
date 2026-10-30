@@ -28,6 +28,7 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
     public DbSet<CertificateRequest> CertificateRequests => Set<CertificateRequest>();
     public DbSet<RequestEvent> RequestEvents => Set<RequestEvent>();
     public DbSet<DomainValidationChallenge> DomainValidationChallenges => Set<DomainValidationChallenge>();
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -67,6 +68,17 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(c => c.RequestId);
             e.HasIndex(c => c.Token);
+        });
+
+        // Append-only; the database refuses updates and deletes and stamps OccurredAt (V3__audit_trail.sql).
+        builder.Entity<AuditEvent>(e =>
+        {
+            e.HasKey(ev => ev.Id);
+            e.HasIndex(ev => ev.OccurredAt);
+            e.HasIndex(ev => ev.Account);
+            e.Property(ev => ev.Actor).HasMaxLength(256).IsRequired();
+            e.Property(ev => ev.Action).HasMaxLength(64).IsRequired();
+            e.Property(ev => ev.Account).HasMaxLength(256);
         });
     }
 }
