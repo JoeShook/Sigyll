@@ -127,7 +127,6 @@ switch (hostMode)
         var dockerfile = hostMode == "docker-gcp" ? "Sigyll/Dockerfile.gcp" : "Sigyll/Dockerfile";
 
         var dockerResource = builder.AddDockerfile("Sigyll", "..", dockerfile)
-            .WithHttpEndpoint(port: 5200, targetPort: 5200)
             .WithHttpsEndpoint(port: 7200, targetPort: 7200)
             .WithHttpsCertificateConfiguration(ctx =>
             {
@@ -144,7 +143,7 @@ switch (hostMode)
                 }
                 return Task.CompletedTask;
             })
-            .WithEnvironment("ASPNETCORE_URLS", "https://+:7200;http://+:5200")
+            .WithEnvironment("ASPNETCORE_URLS", "https://+:7200")
             .WithReference(sigilDb, connectionName: "SigyllDb");
         WithSigyllVault(dockerResource, signingProvider);
 
