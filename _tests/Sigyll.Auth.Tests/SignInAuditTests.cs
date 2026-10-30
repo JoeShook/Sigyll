@@ -188,7 +188,7 @@ public class SignInAuditTests
 
         var e = (await identity.AuditEventsAsync()).ShouldHaveSingleItem();
         e.Action.ShouldBe(AuditActions.OperatorSignedIn);
-        e.Detail.ShouldBe("Password only (no second factor); from 192.0.2.10");
+        e.Detail.ShouldBe("Password only; from 192.0.2.10");
     }
 
     [Fact]
