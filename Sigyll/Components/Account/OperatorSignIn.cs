@@ -24,7 +24,11 @@ public sealed record PasswordStepResult(SignInResult Result, bool PasskeyRequire
 /// signing in; signing in here would make the cookie handler redirect straight to the return URL.
 /// </summary>
 public sealed class OperatorSignIn(
-    UserManager<SigyllUser> users, SignInManager<SigyllUser> signIn, IConfiguration configuration, IHostEnvironment environment)
+    UserManager<SigyllUser> users,
+    SignInManager<SigyllUser> signIn,
+    IConfiguration configuration,
+    IHostEnvironment environment,
+    ILogger<OperatorSignIn> logger)
 {
     public async Task<PasswordStepResult> PasswordAsync(string email, string password)
     {
@@ -39,5 +43,36 @@ public sealed class OperatorSignIn(
 
         return new PasswordStepResult(
             await signIn.PasswordSignInAsync(email, password, isPersistent: false, lockoutOnFailure: true));
+    }
+
+    /// <summary>
+    /// Signs in with the passkey the browser returned. Null when no passkey prompt is pending for this browser: it
+    /// timed out, or Sigyll restarted after the prompt began. Identity throws for that; the page asks for a retry.
+    /// </summary>
+    public async Task<SignInResult?> PasskeyAsync(string credentialJson)
+    {
+        try
+        {
+            return await signIn.PasskeySignInAsync(credentialJson);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning("Passkey sign-in refused: {Reason}", ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>Checks a passkey the browser created, to add it to the operator. Null as for <see cref="PasskeyAsync"/>.</summary>
+    public async Task<PasskeyAttestationResult?> AttestPasskeyAsync(string credentialJson)
+    {
+        try
+        {
+            return await signIn.PerformPasskeyAttestationAsync(credentialJson);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogWarning("Passkey not added: {Reason}", ex.Message);
+            return null;
+        }
     }
 }

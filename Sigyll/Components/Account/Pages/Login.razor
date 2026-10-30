@@ -125,7 +125,12 @@
         if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
         {
             // When performing passkey sign-in, don't perform form validation.
-            result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+            if (await OperatorSignIn.PasskeyAsync(Input.Passkey.CredentialJson) is not { } passkeyResult)
+            {
+                errorMessage = "Error: The passkey prompt expired. Try again.";
+                return;
+            }
+            result = passkeyResult;
         }
         else
         {

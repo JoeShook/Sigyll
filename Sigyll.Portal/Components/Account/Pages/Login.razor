@@ -133,7 +133,17 @@
         if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
         {
             // When performing passkey sign-in, don't perform form validation.
-            result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+            try
+            {
+                result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // No passkey prompt is pending for this browser: it timed out, or the portal restarted after it began.
+                Logger.LogWarning("Passkey sign-in refused: {Reason}", ex.Message);
+                errorMessage = "Error: The passkey prompt expired. Try again.";
+                return;
+            }
         }
         else
         {

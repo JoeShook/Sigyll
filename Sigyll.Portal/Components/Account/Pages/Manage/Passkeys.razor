@@ -116,7 +116,17 @@ else
             return;
         }
 
-        var attestationResult = await SignInManager.PerformPasskeyAttestationAsync(Input.CredentialJson);
+        PasskeyAttestationResult attestationResult;
+        try
+        {
+            attestationResult = await SignInManager.PerformPasskeyAttestationAsync(Input.CredentialJson);
+        }
+        catch (InvalidOperationException)
+        {
+            // No passkey prompt is pending for this browser: it timed out, or the portal restarted after it began.
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: The passkey prompt expired. Try again.", HttpContext);
+            return;
+        }
         if (!attestationResult.Succeeded)
         {
             RedirectManager.RedirectToCurrentPageWithStatus($"Error: Could not add the passkey: {attestationResult.Failure.Message}", HttpContext);
