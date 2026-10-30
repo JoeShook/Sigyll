@@ -65,6 +65,30 @@ public class RecoveryCodeTests
         request.StartedSession.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task TurningOffTheAuthenticator_RevokesTheCodes_SoSettingItUpAgainIssuesNewOnes()
+    {
+        await using var identity = new TestIdentity();
+        await identity.CreateOperatorAsync(Email, authenticator: true);
+        string oldCode;
+        using (var setup = identity.Request())
+            oldCode = (await setup.Users.GenerateNewTwoFactorRecoveryCodesAsync(await setup.UserAsync(Email), 10))!.First();
+
+        using (var turnOff = identity.Request())
+            (await OperatorMfa.TurnOffAuthenticatorAsync(turnOff.Users, await turnOff.UserAsync(Email))).ShouldBe(10);
+
+        // The operator sets the authenticator app up again.
+        using (var check = identity.Request())
+        {
+            var user = await check.UserAsync(Email);
+            (await check.Users.GetTwoFactorEnabledAsync(user)).ShouldBeFalse();
+            (await check.Users.CountRecoveryCodesAsync(user)).ShouldBe(0);
+            await check.Users.SetTwoFactorEnabledAsync(user, true);
+        }
+
+        (await SignInWithRecoveryCodeAsync(identity, oldCode)).Succeeded.ShouldBeFalse();
+    }
+
     private static async Task<Microsoft.AspNetCore.Identity.SignInResult> SignInWithRecoveryCodeAsync(TestIdentity identity, string typed)
     {
         using var password = identity.Request();

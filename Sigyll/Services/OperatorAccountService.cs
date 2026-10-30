@@ -11,6 +11,7 @@
 using Microsoft.AspNetCore.Identity;
 using Sigyll.Common.Security;
 using Sigyll.Common.Services.Audit;
+using Sigyll.Components.Account;
 using Sigyll.Data;
 
 namespace Sigyll.Services;
@@ -51,17 +52,11 @@ public class OperatorAccountService
 
         var removed = new List<string>();
         if (await _users.GetTwoFactorEnabledAsync(user))
-        {
-            await _users.SetTwoFactorEnabledAsync(user, false);
             removed.Add("authenticator app");
-        }
-        await _users.ResetAuthenticatorKeyAsync(user);
-        var recoveryCodes = await _users.CountRecoveryCodesAsync(user);
+        var recoveryCodes = await OperatorMfa.TurnOffAuthenticatorAsync(_users, user);
         if (recoveryCodes > 0)
-        {
-            await _users.GenerateNewTwoFactorRecoveryCodesAsync(user, 0);
             removed.Add(recoveryCodes == 1 ? "1 recovery code" : $"{recoveryCodes} recovery codes");
-        }
+        await _users.ResetAuthenticatorKeyAsync(user);
         var passkeys = await _users.GetPasskeysAsync(user);
         foreach (var passkey in passkeys)
             await _users.RemovePasskeyAsync(user, passkey.CredentialId);
