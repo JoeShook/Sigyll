@@ -108,7 +108,8 @@ upgrading a database created by older (EF-migrated) builds.
 dotnet run --project Sigyll
 ```
 
-Sigyll will be available at **https://localhost:7200**.
+Sigyll will be available at **https://sigyll.dev.localhost:7200** (any `*.localhost` name reaches your own machine,
+and the .NET development certificate covers `*.dev.localhost`).
 
 All certificate signing uses local PFX-based keys by default.
 

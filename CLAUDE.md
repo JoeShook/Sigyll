@@ -34,7 +34,7 @@ dotnet build Sigyll.slnx
 # Full stack via Aspire (Vault + Sigyll + cert server) — opens an Aspire dashboard
 dotnet run --project Sigyll.AppHost/Sigyll.AppHost.csproj
 
-# Standalone app (local signing, no Vault) — https://localhost:7200
+# Standalone app (local signing, no Vault) — https://sigyll.dev.localhost:7200 (portal: https://sigyll-portal.dev.localhost:7124)
 dotnet run --project Sigyll
 
 # Tests — use Shouldly, NOT FluentAssertions (see Conventions)

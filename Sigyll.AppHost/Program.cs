@@ -165,6 +165,7 @@ switch (hostMode)
         }
 
         sigil = dockerResource.WaitForCompletion(sigilFlyway);
+        WithDevHostName(dockerResource, "sigyll.dev.localhost");
         break;
     }
 
@@ -187,18 +188,33 @@ switch (hostMode)
         }
 
         sigil = projectResource.WaitForCompletion(sigilFlyway);
+        WithDevHostName(projectResource, "sigyll.dev.localhost");
         break;
 }
 
 // Certificate request portal (isolated RA). True RA/CA split: the portal holds no CA keys and
 // reaches the CA only via the internal RA API. CaBaseUrl is wired to the running CA endpoint;
 // the dev RA API key matches the CA's "Ra:ApiKey". The portal uses its own 'portal' database.
-builder.AddProject<Projects.Sigyll_Portal>("Sigyll-Portal")
+var portal = builder.AddProject<Projects.Sigyll_Portal>("Sigyll-Portal")
     .WithReference(portalDb, connectionName: "PortalDb")
     .WithEnvironment("Portal__CaBaseUrl", sigil.GetEndpoint("https"))
     .WithEnvironment("Portal__UseMtls", "false")
     .WithEnvironment("Portal__RaApiKey", "dev-ra-key-change-me")
     .WaitForCompletion(portalFlyway)
     .WaitFor(sigil);
+WithDevHostName(portal, "sigyll-portal.dev.localhost");
 
 builder.Build().Run();
+
+// Shows an app's links in the dashboard under its own name instead of localhost. Browsers and .NET resolve every
+// *.localhost name to loopback, and the .NET development certificate covers *.dev.localhost. Each app pins its passkey
+// Relying Party ID to this name (Auth:Passkey:ServerDomain, Portal:Passkey:ServerDomain in appsettings.Development.json).
+static void WithDevHostName<T>(IResourceBuilder<T> resource, string hostName) where T : IResourceWithEndpoints =>
+    resource.WithUrls(context =>
+    {
+        foreach (var url in context.Urls)
+        {
+            if (Uri.TryCreate(url.Url, UriKind.Absolute, out var uri) && uri.Host == "localhost")
+                url.Url = new UriBuilder(uri) { Host = hostName }.Uri.ToString().TrimEnd('/');
+        }
+    });
