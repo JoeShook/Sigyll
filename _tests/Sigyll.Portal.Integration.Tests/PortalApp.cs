@@ -33,6 +33,9 @@ public sealed class PortalApp : IAsyncLifetime
 {
     public const string Password = "Correct-horse-battery-1";
 
+    /// <summary>The first PortalAdmin, created at startup from configuration.</summary>
+    public const string BootstrapAdmin = "portal-admin@example.test";
+
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17.6")
         .WithDatabase("portal")
         .Build();
@@ -48,6 +51,8 @@ public sealed class PortalApp : IAsyncLifetime
         // variables, as a deployment's would.
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Production");
         Environment.SetEnvironmentVariable("ConnectionStrings__PortalDb", _postgres.GetConnectionString());
+        Environment.SetEnvironmentVariable("Auth__BootstrapAdmin__Email", BootstrapAdmin);
+        Environment.SetEnvironmentVariable("Auth__BootstrapAdmin__Password", Password);
         _factory = new WebApplicationFactory<Program>();
         _ = _factory.Server;   // start it now, not in the first test's time
     }
@@ -66,19 +71,48 @@ public sealed class PortalApp : IAsyncLifetime
         HandleCookies = true,
     });
 
-    /// <summary>A new confirmed requester, with the authenticator app if asked; returns its authenticator key.</summary>
-    public async Task<string?> CreateUserAsync(string email, bool authenticator = false)
+    /// <summary>
+    /// A new confirmed account in <paramref name="roles"/> (none: a requester), with the authenticator app and
+    /// passkeys if asked; returns its authenticator key.
+    /// </summary>
+    public async Task<string?> CreateUserAsync(
+        string email, bool authenticator = false, int passkeys = 0, params string[] roles)
     {
         using var scope = _factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
         var user = new PortalUser { UserName = email, Email = email, EmailConfirmed = true };
         (await users.CreateAsync(user, Password)).Succeeded.ShouldBeTrue();
+        if (roles.Length > 0)
+            (await users.AddToRolesAsync(user, roles)).Succeeded.ShouldBeTrue();
+        for (var i = 0; i < passkeys; i++)
+            (await users.AddOrUpdatePasskeyAsync(user, Passkey())).Succeeded.ShouldBeTrue();
         if (!authenticator)
             return null;
         await users.ResetAuthenticatorKeyAsync(user);
         await users.SetTwoFactorEnabledAsync(user, true);
         return await users.GetAuthenticatorKeyAsync(user);
     }
+
+    /// <summary>Runs <paramref name="work"/> against the account <paramref name="email"/> with the portal's UserManager.</summary>
+    public async Task<T> WithUserAsync<T>(string email, Func<UserManager<PortalUser>, PortalUser, Task<T>> work)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
+        return await work(users, (await users.FindByEmailAsync(email))!);
+    }
+
+    /// <summary>A passkey record, as a browser's registration would leave it (its keys are never used here).</summary>
+    private static UserPasskeyInfo Passkey() => new(
+        credentialId: Guid.NewGuid().ToByteArray(),
+        publicKey: [1, 2, 3],
+        createdAt: DateTimeOffset.UtcNow,
+        signCount: 0,
+        transports: ["internal"],
+        isUserVerified: true,
+        isBackupEligible: true,
+        isBackedUp: true,
+        attestationObject: [4],
+        clientDataJson: [5]);
 
     public async Task<IReadOnlyList<string>> RecoveryCodesAsync(string email)
     {
