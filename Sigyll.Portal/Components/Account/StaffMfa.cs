@@ -9,6 +9,7 @@
 #endregion
 
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.StaticAssets;
 using Sigyll.Portal.Data;
 
 namespace Sigyll.Portal.Components.Account;
@@ -83,7 +84,7 @@ public static class StaffMfa
         {
             if (context.User.Identity?.IsAuthenticated == true
                 && StaffRoles.Any(context.User.IsInRole)
-                && !IsExempt(context.Request.Path))
+                && !IsExempt(context))
             {
                 var users = context.RequestServices.GetRequiredService<UserManager<PortalUser>>();
                 if (await users.GetUserAsync(context.User) is { } user && !await HasSecondFactorAsync(users, user))
@@ -98,7 +99,12 @@ public static class StaffMfa
     }
 
     // Account pages (where the factor is set up, plus sign-out), static assets, health checks, the CSP report
-    // endpoint and the error pages stay reachable.
+    // endpoint and the error pages stay reachable. Static assets are recognized by their endpoint, since the page
+    // links them under content-hashed names (app.{hash}.css).
+    private static bool IsExempt(HttpContext context) =>
+        context.GetEndpoint()?.Metadata.GetMetadata<StaticAssetDescriptor>() is not null
+        || IsExempt(context.Request.Path);
+
     private static bool IsExempt(PathString path) =>
         path.StartsWithSegments("/Account")
         || path.StartsWithSegments("/_framework")

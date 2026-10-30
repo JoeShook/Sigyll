@@ -8,6 +8,7 @@
 // */
 #endregion
 
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -56,6 +57,36 @@ public class StaffMfaTests(PortalApp app)
 
         (await Browser.GetAsync(browser, RaQueue)).PathAndQuery.ShouldBe($"{Enroll}?required=1");
         (await Browser.GetAsync(browser, "/")).PathAndQuery.ShouldBe($"{Enroll}?required=1");
+    }
+
+    [Fact]
+    public async Task StaffWithoutASecondFactor_StillGetThePagesStylesAndScripts()
+    {
+        var email = NewEmail();
+        await app.CreateUserAsync(email, roles: "RA");
+        using var browser = app.Browser();
+        var setup = await SignInWithPasswordAsync(browser, email);
+        setup.Url.AbsolutePath.ShouldBe(Enroll);
+
+        var assets = Regex.Matches(setup.Html, """(?:href|src)="([^"]+\.(?:css|js))" """.TrimEnd())
+            .Select(m => m.Groups[1].Value)
+            .Distinct()
+            .ToList();
+        assets.ShouldContain(a => a.StartsWith("app.") && a.EndsWith(".css"));   // hashed names, not just app.css
+
+        // Each comes back as it does for a signed-out browser, not as a redirect to the setup page.
+        using var anonymous = app.Browser();
+        foreach (var asset in assets.Select(a => a.TrimStart('.', '/')))
+        {
+            var expected = await anonymous.GetAsync(asset);
+            var response = await browser.GetAsync(asset);
+            response.RequestMessage!.RequestUri!.AbsolutePath.ShouldBe("/" + asset, asset);
+            response.StatusCode.ShouldBe(expected.StatusCode, asset);
+            // (Package assets under _content aren't served by an unpublished test host, for anyone.)
+            if (expected.IsSuccessStatusCode)
+                (await response.Content.ReadAsStringAsync()).ShouldBe(await expected.Content.ReadAsStringAsync(), asset);
+        }
+        (await anonymous.GetAsync(assets.First(a => a.StartsWith("app.")))).IsSuccessStatusCode.ShouldBeTrue();
     }
 
     [Fact]
