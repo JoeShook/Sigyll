@@ -12,6 +12,14 @@
 
 <StatusMessage />
 <h3>Two-factor authentication (2FA)</h3>
+@if (Required == "1")
+{
+    <div class="alert alert-warning" role="alert">
+        <strong>RA staff need a second factor.</strong>
+        <p>Set up an authenticator app (any app that shows 6-digit codes), or <a href="Account/Manage/Passkeys">add a
+            passkey</a> (Windows Hello, a phone or a security key). You can work the RA queue once one is in place.</p>
+    </div>
+}
 @if (canTrack)
 {
     if (is2faEnabled)
@@ -70,6 +78,9 @@ else
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "required")]
+    private string? Required { get; set; }
+
     private bool canTrack;
     private bool hasAuthenticator;
     private int recoveryCodesLeft;

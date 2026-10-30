@@ -153,8 +153,24 @@
                 return;
             }
 
-            // Failed passwords count towards lockout, so passwords can't be guessed without limit.
-            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: true);
+            // A staff member whose second factor is a passkey finishes with it: their password alone doesn't sign in
+            // (StaffMfa). Failed passwords count towards lockout, so passwords can't be guessed without limit.
+            if (StaffMfa.IsRequired(Configuration, Environment)
+                && await UserManager.FindByEmailAsync(Input.Email) is { } staff
+                && await StaffMfa.NeedsPasskeyAfterPasswordAsync(UserManager, staff))
+            {
+                result = await SignInManager.CheckPasswordSignInAsync(staff, Input.Password, lockoutOnFailure: true);
+                if (result.Succeeded)
+                {
+                    Logger.LogInformation("Password accepted for RA staff; passkey required to finish signing in.");
+                    errorMessage = "Password accepted. This account also needs your passkey: use \"Log in with a passkey\" below.";
+                    return;
+                }
+            }
+            else
+            {
+                result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: true);
+            }
         }
 
         if (result.Succeeded)

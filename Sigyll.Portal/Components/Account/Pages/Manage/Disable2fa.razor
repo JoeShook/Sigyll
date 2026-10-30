@@ -6,6 +6,8 @@
 @inject UserManager<PortalUser> UserManager
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<Disable2fa> Logger
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment Environment
 
 <PageTitle>Disable two-factor authentication (2FA)</PageTitle>
 
@@ -14,9 +16,10 @@
 
 <div class="alert alert-warning" role="alert">
     <p>
-        <strong>This action only disables 2FA.</strong>
+        <strong>This action disables 2FA and revokes your recovery codes.</strong>
     </p>
     <p>
+        You get new recovery codes when you set up an authenticator app again.
         Disabling 2FA does not change the keys used in authenticator apps. If you wish to change the key
         used in an authenticator app you should <a href="Account/Manage/ResetAuthenticator">reset your authenticator keys.</a>
     </p>
@@ -58,11 +61,16 @@
             return;
         }
 
-        var disable2faResult = await UserManager.SetTwoFactorEnabledAsync(user, false);
-        if (!disable2faResult.Succeeded)
+        if (StaffMfa.IsRequired(Configuration, Environment) && !await StaffMfa.CanTurnOffAuthenticatorAsync(UserManager, user))
         {
-            throw new InvalidOperationException("Unexpected error occurred disabling 2FA.");
+            RedirectManager.RedirectToWithStatus(
+                "Account/Manage/TwoFactorAuthentication",
+                "Error: RA staff need a second factor. Add a passkey before turning off the authenticator app.",
+                HttpContext);
+            return;
         }
+
+        await StaffMfa.TurnOffAuthenticatorAsync(UserManager, user);
 
         var userId = await UserManager.GetUserIdAsync(user);
         Logger.LogInformation("User with ID '{UserId}' has disabled 2fa.", userId);

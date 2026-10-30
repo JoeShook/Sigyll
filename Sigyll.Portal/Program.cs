@@ -110,12 +110,44 @@ using (var scope = app.Services.CreateScope())
         if (!await roleMgr.RoleExistsAsync(role))
             await roleMgr.CreateAsync(new IdentityRole(role));
 
+    var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
     // The demo accounts have published passwords: Development only.
     if (app.Environment.IsDevelopment())
     {
-        var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
         await SeedUserAsync(userMgr, "admin@sigyll.local", "Passw0rd!", "RA", "PortalAdmin");
         await SeedUserAsync(userMgr, "requester@sigyll.local", "Passw0rd!");
+    }
+    await SeedBootstrapAdminAsync(userMgr, builder.Configuration, app.Logger);
+}
+
+// The first PortalAdmin comes from configuration (Auth:BootstrapAdmin:Email/Password, supplied by the deployment's
+// secret store) and is created only while no PortalAdmin exists. Like all staff, they must add a second factor
+// before they can do anything else.
+static async Task SeedBootstrapAdminAsync(UserManager<PortalUser> userMgr, IConfiguration config, ILogger logger)
+{
+    if ((await userMgr.GetUsersInRoleAsync("PortalAdmin")).Count > 0)
+        return;
+
+    var email = config["Auth:BootstrapAdmin:Email"];
+    var password = config["Auth:BootstrapAdmin:Password"];
+    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+    {
+        logger.LogWarning("No PortalAdmin account exists and Auth:BootstrapAdmin:Email/Password is not configured: "
+            + "nobody can work the RA queue until one is configured and the portal restarted.");
+        return;
+    }
+
+    var admin = new PortalUser { UserName = email, Email = email, EmailConfirmed = true, DisplayName = "Bootstrap Admin" };
+    var result = await userMgr.CreateAsync(admin, password);
+    if (result.Succeeded)
+    {
+        await userMgr.AddToRolesAsync(admin, ["RA", "PortalAdmin"]);
+        logger.LogWarning("Bootstrap admin '{Email}' created from configuration. Sign in, add a second factor, "
+            + "and change the password.", email);
+    }
+    else
+    {
+        logger.LogError("Failed to create bootstrap admin: {Errors}", string.Join("; ", result.Errors.Select(e => e.Description)));
     }
 }
 
@@ -148,6 +180,10 @@ app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages:
 app.UseHttpsRedirection();
 app.UseSecurityHeaders();
 
+app.UseAuthentication();
+// RA staff without a second factor can only set one up.
+app.UseStaffMfaEnrollment();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 if (useServiceDefaults)

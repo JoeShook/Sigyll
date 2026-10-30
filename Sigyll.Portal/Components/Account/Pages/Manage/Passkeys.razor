@@ -8,6 +8,8 @@
 @inject UserManager<PortalUser> UserManager
 @inject SignInManager<PortalUser> SignInManager
 @inject IdentityRedirectManager RedirectManager
+@inject IConfiguration Configuration
+@inject IWebHostEnvironment Environment
 
 <PageTitle>Manage your passkeys</PageTitle>
 
@@ -177,6 +179,14 @@ else
         catch (FormatException)
         {
             RedirectManager.RedirectToCurrentPageWithStatus("Error: The specified passkey ID had an invalid format.", HttpContext);
+            return;
+        }
+
+        if (StaffMfa.IsRequired(Configuration, Environment) && !await StaffMfa.CanRemovePasskeyAsync(UserManager, user))
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus(
+                "Error: RA staff need a second factor. Add another passkey or an authenticator app before removing this one.",
+                HttpContext);
             return;
         }
 
