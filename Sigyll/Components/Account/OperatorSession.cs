@@ -88,9 +88,10 @@ public static class OperatorSession
             {
                 if (IsPastMaxLength(context.Principal, options))
                 {
+                    var principal = context.Principal;   // RejectPrincipal clears it
                     context.RejectPrincipal();
                     await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
-                    await RecordEndAsync(context.HttpContext, context.Principal, "Session reached its time limit");
+                    await RecordEndAsync(context.HttpContext, principal, "Session reached its time limit");
                     return;
                 }
                 await validateStamp(context);
