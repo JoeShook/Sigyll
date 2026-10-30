@@ -49,6 +49,7 @@ jobs:
           dotnet test _tests/Sigyll.Signing.Tests --no-build -c Release --logger "trx;LogFileName=signing.trx" --results-directory test-results
           dotnet test _tests/Sigyll.Auth.Tests --no-build -c Release --logger "trx;LogFileName=auth.trx" --results-directory test-results
           dotnet test _tests/Sigyll.Integration.Tests --no-build -c Release --logger "trx;LogFileName=integration.trx" --results-directory test-results
+          dotnet test _tests/Sigyll.Portal.Integration.Tests --no-build -c Release --logger "trx;LogFileName=portal-integration.trx" --results-directory test-results
 
       - name: Keep test results
         if: always()

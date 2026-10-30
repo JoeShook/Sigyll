@@ -34,14 +34,14 @@ public class SignInAuditFlowTests(SigyllApp app)
         twoFactor.PathAndQuery.ShouldStartWith("/Account/LoginWith2fa");
         (await app.AuditEventsAsync(email)).ShouldBeEmpty();   // the password alone is not a sign-in
 
-        var home = await SigyllApp.SubmitAsync(browser, twoFactor.PathAndQuery, "login-with-2fa",
+        var home = await Browser.SubmitAsync(browser, twoFactor.PathAndQuery, "login-with-2fa",
             new Dictionary<string, string> { ["Input.TwoFactorCode"] = Totp.Code(key!) });
         home.Url.AbsolutePath.ShouldBe("/");
-        (await SigyllApp.GetAsync(browser, "/")).Url.AbsolutePath.ShouldBe("/");   // the session works
+        (await Browser.GetAsync(browser, "/")).Url.AbsolutePath.ShouldBe("/");   // the session works
 
-        await SigyllApp.PostWithTokenAsync(browser, "/Account/Manage", "/Account/Logout",
+        await Browser.PostWithTokenAsync(browser, "/Account/Manage", "/Account/Logout",
             new Dictionary<string, string> { ["ReturnUrl"] = "" });
-        (await SigyllApp.GetAsync(browser, "/")).Url.AbsolutePath.ShouldBe(Login);   // and is over
+        (await Browser.GetAsync(browser, "/")).Url.AbsolutePath.ShouldBe(Login);   // and is over
 
         var events = await app.AuditEventsAsync(email);
         events.Select(e => e.Action).ShouldBe([AuditActions.OperatorSignedIn, AuditActions.OperatorSignedOut]);
@@ -78,7 +78,7 @@ public class SignInAuditFlowTests(SigyllApp app)
         using var browser = app.Browser();
 
         var twoFactor = await SignInWithPasswordAsync(browser, email, SigyllApp.Password);
-        var page = await SigyllApp.SubmitAsync(browser, twoFactor.PathAndQuery, "login-with-2fa",
+        var page = await Browser.SubmitAsync(browser, twoFactor.PathAndQuery, "login-with-2fa",
             new Dictionary<string, string> { ["Input.TwoFactorCode"] = "000000" });
 
         page.Url.AbsolutePath.ShouldBe("/Account/LoginWith2fa");
@@ -97,7 +97,7 @@ public class SignInAuditFlowTests(SigyllApp app)
 
         var twoFactor = await SignInWithPasswordAsync(browser, email, SigyllApp.Password);
         var returnUrl = twoFactor.Url.Query;
-        var page = await SigyllApp.SubmitAsync(browser, $"/Account/LoginWithRecoveryCode{returnUrl}",
+        var page = await Browser.SubmitAsync(browser, $"/Account/LoginWithRecoveryCode{returnUrl}",
             "login-with-recovery-code", new Dictionary<string, string> { ["Input.RecoveryCode"] = codes[0] });
 
         // Signed in, and sent to where new codes are made, told how many are left.
@@ -153,7 +153,7 @@ public class SignInAuditFlowTests(SigyllApp app)
         var before = DateTime.UtcNow.AddSeconds(-1);
 
         // What the browser posts when a passkey prompt completes after its server-side state is gone.
-        var page = await SigyllApp.SubmitAsync(browser, Login, "login",
+        var page = await Browser.SubmitAsync(browser, Login, "login",
             new Dictionary<string, string> { ["Input.Passkey.CredentialJson"] = "{}" });
 
         page.Status.ShouldBe(HttpStatusCode.OK);
@@ -172,10 +172,10 @@ public class SignInAuditFlowTests(SigyllApp app)
         await SignInAsync(browser, email, key!);
 
         // What the browser's idle tracker does when the operator has been away too long.
-        var page = await SigyllApp.GetAsync(browser, "/Account/SessionExpired");
+        var page = await Browser.GetAsync(browser, "/Account/SessionExpired");
 
         page.Url.AbsolutePath.ShouldBe(Login);
-        (await SigyllApp.GetAsync(browser, "/")).Url.AbsolutePath.ShouldBe(Login);
+        (await Browser.GetAsync(browser, "/")).Url.AbsolutePath.ShouldBe(Login);
         var events = await app.AuditEventsAsync(email);
         events.Select(e => e.Action).ShouldBe([AuditActions.OperatorSignedIn, AuditActions.OperatorSignedOut]);
         events[1].Detail.ShouldStartWith("Signed out after a period of inactivity");
@@ -190,7 +190,7 @@ public class SignInAuditFlowTests(SigyllApp app)
         await SignInAsync(browser, email, key!);
 
         await Task.Delay(SigyllApp.MaxSessionLength + TimeSpan.FromSeconds(1));
-        var page = await SigyllApp.GetAsync(browser, "/");
+        var page = await Browser.GetAsync(browser, "/");
 
         page.Url.AbsolutePath.ShouldBe(Login);
         var events = await app.AuditEventsAsync(email);
@@ -217,7 +217,7 @@ public class SignInAuditFlowTests(SigyllApp app)
     private static string NewEmail() => $"op-{Guid.NewGuid():N}@sigyll.test";
 
     private static Task<Page> SignInWithPasswordAsync(HttpClient browser, string email, string password) =>
-        SigyllApp.SubmitAsync(browser, Login, "login", new Dictionary<string, string>
+        Browser.SubmitAsync(browser, Login, "login", new Dictionary<string, string>
         {
             ["Input.Email"] = email,
             ["Input.Password"] = password,
@@ -226,7 +226,7 @@ public class SignInAuditFlowTests(SigyllApp app)
     private static async Task SignInAsync(HttpClient browser, string email, string key)
     {
         var twoFactor = await SignInWithPasswordAsync(browser, email, SigyllApp.Password);
-        var home = await SigyllApp.SubmitAsync(browser, twoFactor.PathAndQuery, "login-with-2fa",
+        var home = await Browser.SubmitAsync(browser, twoFactor.PathAndQuery, "login-with-2fa",
             new Dictionary<string, string> { ["Input.TwoFactorCode"] = Totp.Code(key) });
         home.Url.AbsolutePath.ShouldBe("/");
     }
