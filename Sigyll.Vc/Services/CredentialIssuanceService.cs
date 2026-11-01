@@ -68,7 +68,7 @@ public class CredentialIssuanceService
             ?? throw new InvalidOperationException(
                 $"Issuer DID {issuerDoc.Did} has no verification method with purpose '{AssertionMethodPurpose}'.");
 
-        var validationError = CredentialSchemaService.ValidateClaims(schema.ClaimsSchemaJson, request.ClaimsJson);
+        var validationError = await CredentialSchemaService.ValidateClaimsAsync(schema.ClaimsSchemaJson, request.ClaimsJson);
         if (validationError != null)
             throw new InvalidOperationException($"Claims failed schema validation: {validationError}");
 
