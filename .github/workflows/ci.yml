@@ -82,6 +82,10 @@ jobs:
             dotnet dotnet-CycloneDX "$app/$app.csproj" -o sbom -F Json -fn "$app.cdx.json"
           done
 
+      # Sigyll is used commercially: every shipped package needs a permissive licence (tools/licence-check).
+      - name: Refuse packages without a permissive licence
+        run: python3 tools/licence-check/check_licences.py sbom/*.cdx.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom
