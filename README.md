@@ -13,10 +13,11 @@ audits CAs are held to (WebTrust for CAs, ETSI EN 319 411, and healthcare framew
 - **Keys outside the application.** CA keys can live in HashiCorp Vault Transit or Google Cloud KMS and never leave
   them; locally held keys are encrypted with a master key kept in Vault.
 - **Least privilege.** Auditor, CA Operator, Admin and Key Custodian roles; private-key export is its own role.
-- **An append-only audit trail** of every issuance, revocation, key export and operator change, enforced by the
-  database.
-- **Secure development.** Every change is built, tested, scanned with CodeQL, checked for vulnerable packages and
-  container vulnerabilities, and gets a software bill of materials.
+- **An append-only audit trail** of every issuance, revocation, key export, operator change and sign-in, enforced
+  by the database.
+- **Secure development.** Every change is built, tested, scanned with CodeQL, checked for vulnerable packages,
+  licences and container vulnerabilities, and gets a software bill of materials. Releases carry signed build
+  provenance (see [Verifying a release](#verifying-a-release)).
 
 | Read | For |
 |---|---|
@@ -183,6 +184,17 @@ This enables a hybrid workflow: Vault-backed CAs can issue end-entity certificat
 | Microsoft.FluentUI.AspNetCore.Components | Blazor UI component library |
 | Serilog.AspNetCore | Structured logging |
 | Aspire.Hosting (optional) | .NET Aspire orchestration |
+
+## Verifying a release
+
+Each release tag publishes the Sigyll container image to the GitHub container registry and the CycloneDX BOMs to the
+GitHub release, each with a signed statement of the workflow and commit that built it. With the
+[GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify oci://ghcr.io/joeshook/sigyll:<tag> --repo JoeShook/Sigyll
+gh attestation verify Sigyll.cdx.json --repo JoeShook/Sigyll
+```
 
 ## License
 
