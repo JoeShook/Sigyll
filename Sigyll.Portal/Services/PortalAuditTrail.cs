@@ -21,6 +21,7 @@ public static class PortalAuditActions
     public const string SignInFailed = "user.sign-in-failed";
     public const string LockedOut = "user.locked-out";
     public const string SignedOut = "user.signed-out";
+    public const string SecurityChanged = "user.security-changed";
 }
 
 /// <summary>
