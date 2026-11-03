@@ -10,7 +10,8 @@
     <link href="_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css" rel="stylesheet" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Sigyll.Portal.styles.css"]" />
-    <ImportMap />
+    @* No <ImportMap />: it is an inline script, which the content security policy refuses. Modules load by their
+       plain names, which static assets also serve. *@
     <link rel="icon" type="image/png" href="favicon.png" />
     @* FluentUI's anti-flash helper: <loading-theme> below hides the page, on a background in the saved theme's
        colour, until the Fluent web components are defined, then shows it fully styled. *@
