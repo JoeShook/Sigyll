@@ -29,6 +29,7 @@
     <Compile Include="..\Sigyll.Auth.Tests\Totp.cs" Link="Totp.cs" />
     <Compile Include="..\Sigyll.Integration.Tests\Browser.cs" Link="Browser.cs" />
     <Compile Include="..\Sigyll.Integration.Tests\FlywaySchema.cs" Link="FlywaySchema.cs" />
+    <Compile Include="..\Sigyll.Integration.Tests\InlineScripts.cs" Link="InlineScripts.cs" />
   </ItemGroup>
 
 </Project>

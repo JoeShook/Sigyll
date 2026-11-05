@@ -74,7 +74,11 @@ public class SecurityHeadersTests
 
     private static async Task<WebApplication> StartAsync(bool? enforce)
     {
-        var builder = WebApplication.CreateBuilder();
+        // An empty content root: the test output holds the apps' own appsettings.json, which set the policy.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            ContentRootPath = Directory.CreateTempSubdirectory("sigyll-headers-").FullName,
+        });
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         if (enforce is { } value)
             builder.Configuration["SecurityHeaders:EnforceContentSecurityPolicy"] = value.ToString();

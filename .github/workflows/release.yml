@@ -1,0 +1,152 @@
+name: Release
+
+# Pushing a version tag (v1.2.3) publishes a release: the Sigyll container image in the GitHub container
+# registry, the CycloneDX BOMs, and signed statements of how each was built (GitHub build attestations, signed
+# with Sigstore through the workflow's own identity). Anyone can check an image or a file came from this
+# workflow, at this commit, with:
+#   gh attestation verify oci://ghcr.io/<owner>/sigyll:<tag> --repo <owner>/Sigyll
+#   gh attestation verify Sigyll.cdx.json --repo <owner>/Sigyll
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # push the image
+      id-token: write       # sign the attestation
+      attestations: write   # record it
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sigyll" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The same gates as CI, on the exact image about to ship: not root, no fixable high or critical vulnerability.
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Sigyll/Dockerfile
+          load: true
+          tags: sigyll:release
+
+      - name: Refuse running as root
+        run: |
+          user=$(docker image inspect sigyll:release --format '{{.Config.User}}')
+          if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            echo "::error::The Sigyll image runs as root."
+            exit 1
+          fi
+
+      - uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: sigyll:release
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: true
+          output-format: table
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the image
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Sigyll/Dockerfile
+          push: true
+          tags: ${{ steps.name.outputs.image }}:${{ github.ref_name }}
+
+      - name: Attest how the image was built
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  release:
+    name: Release
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # create the release
+      packages: write       # store the SBOM attestation beside the image
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: |
+          dotnet tool restore
+          dotnet restore Sigyll.slnx
+
+      - name: Generate CycloneDX BOMs
+        run: |
+          for app in Sigyll Sigyll.Portal Sigyll.Certificate.Server; do
+            dotnet dotnet-CycloneDX "$app/$app.csproj" -o release -F Json -fn "$app.cdx.json"
+          done
+
+      - name: Refuse packages without a permissive licence
+        run: python3 tools/licence-check/check_licences.py release/*.cdx.json
+
+      - name: Checksums
+        working-directory: release
+        run: sha256sum -- *.cdx.json > SHA256SUMS
+
+      - name: Attest how the BOMs were built
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.cdx.json
+
+      - name: Attest the image's BOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ needs.image.outputs.image }}
+          subject-digest: ${{ needs.image.outputs.digest }}
+          sbom-path: release/Sigyll.cdx.json
+          push-to-registry: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ needs.image.outputs.image }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag \
+            --notes "Container image: \`$IMAGE:$GITHUB_REF_NAME\` (\`$DIGEST\`)
+
+          Verify the image and the BOMs were built by this repository's release workflow:
+
+          \`\`\`
+          gh attestation verify oci://$IMAGE:$GITHUB_REF_NAME --repo $GITHUB_REPOSITORY
+          gh attestation verify Sigyll.cdx.json --repo $GITHUB_REPOSITORY
+          \`\`\`"

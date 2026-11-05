@@ -52,7 +52,9 @@ builder.Services.AddIdentityCore<PortalUser>(options =>
     })
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<PortalDbContext>()
-    // Every sign-in attempt, lockout and sign-out goes to the audit trail.
+    // Every sign-in attempt, lockout and sign-out, and each change to one's own sign-in security, goes to the audit
+    // trail.
+    .AddUserManager<PortalUserManager>()
     .AddSignInManager<PortalSignInManager>()
     .AddDefaultTokenProviders();
 builder.Services.AddScoped<PortalAuditTrail>();

@@ -41,6 +41,8 @@ public static class OperatorIdentityServices
             })
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<SigyllAuthDbContext>()
+            // Operators' own changes to their sign-in security go to the audit trail.
+            .AddUserManager<OperatorUserManager>()
             .AddSignInManager<OperatorSignInManager>()
             .AddDefaultTokenProviders();
 
