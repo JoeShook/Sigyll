@@ -195,6 +195,13 @@ public partial class CertificateExplorer : IDisposable
     private string issuanceKeyStorage = "local";
     private List<string> availableKeyStorageProviders = new() { "local" };
     private bool isRenewMode;
+    // True from opening a renew/re-key dialog until OnProfileSelected has copied the old certificate's subject and
+    // SANs in. After that the operator's edits stand, even when the profile picker reports a selection again.
+    private bool renewalSeedPending;
+    // Renew and re-key keep the certificate's identity: the subject and SANs are shown but cannot be edited, and
+    // the profile list holds only profiles that issue the same kind of certificate (RenewalIdentity).
+    private bool IdentityLocked => isRenewMode;
+    private bool noCompatibleRenewalProfile;
     private int? renewalOfCertificateId;
     private int selectedNodeVersion = 1;
     private string? selectedNodeRenewalOfName;
@@ -422,6 +429,7 @@ public partial class CertificateExplorer : IDisposable
         isRenewMode = true;
         await ShowIssuanceDialog(targetCaId, targetCaName);
         isRenewMode = true;
+        renewalSeedPending = true;
 
         // Match profile from original cert
         await using var db = await DbFactory.CreateDbContextAsync();
@@ -443,6 +451,7 @@ public partial class CertificateExplorer : IDisposable
             if (match != null) selectedProfile = match;
         }
 
+        RestrictToRenewalProfiles(selectedCert);
         OnProfileSelected(selectedProfile);
         if (selectedProfile != null)
             await EnsureProfileSanListsLoadedAsync(selectedProfile);
@@ -2204,6 +2213,8 @@ public partial class CertificateExplorer : IDisposable
     private async Task ShowIssuanceDialog(int? issuingCaId, string? issuingCaName)
     {
         isRenewMode = false;
+        renewalSeedPending = false;
+        noCompatibleRenewalProfile = false;
         renewalOfCertificateId = null;
         urlChangeWarnings.Clear();
         issuingCaIdForIssuance = issuingCaId;
@@ -2347,8 +2358,12 @@ public partial class CertificateExplorer : IDisposable
 
         if (isRenewMode)
         {
-            issuanceSubjectDn = renewalSubjectDn;
-            issuanceSans = renewalSans.Select(s => new IssuanceSanEntry { Type = s.Type, Value = s.Value }).ToList();
+            if (renewalSeedPending)
+            {
+                issuanceSubjectDn = renewalSubjectDn;
+                issuanceSans = renewalSans.Select(s => new IssuanceSanEntry { Type = s.Type, Value = s.Value }).ToList();
+                renewalSeedPending = false;
+            }
         }
         else
         {
@@ -2676,6 +2691,7 @@ public partial class CertificateExplorer : IDisposable
         isRenewMode = true;
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
         isRenewMode = true;
+        renewalSeedPending = true;
 
         await PreselectRenewalProfileAsync(db);
 
@@ -2752,6 +2768,25 @@ public partial class CertificateExplorer : IDisposable
             ?? availableProfiles.FirstOrDefault(t => Compatible(t.CertificateType) && SameAlgorithm(t))
             ?? availableProfiles.FirstOrDefault(t => Compatible(t.CertificateType))
             ?? availableProfiles.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Narrows the profile list for a renew or re-key to profiles that issue the same kind of certificate as
+    /// <paramref name="cert"/>, keeping the preselected profile when it qualifies. When none qualifies the list is
+    /// left alone and a warning is shown, since the server still refuses any change to the subject or SANs.
+    /// </summary>
+    private void RestrictToRenewalProfiles(X509Certificate2? cert)
+    {
+        if (cert == null) return;
+
+        var sans = renewalSans.Select(s => new SanEntry(s.Type, s.Value)).ToList();
+        var compatible = availableProfiles.Where(p => RenewalIdentity.IsCompatibleProfile(p, cert, sans)).ToList();
+        noCompatibleRenewalProfile = compatible.Count == 0;
+        if (noCompatibleRenewalProfile) return;
+
+        availableProfiles = compatible;
+        if (selectedProfile == null || !compatible.Contains(selectedProfile))
+            selectedProfile = compatible[0];
     }
 
     private static List<string> ExtractExtensionUrls(X509Certificate2? cert, string oid)
@@ -2855,9 +2890,11 @@ public partial class CertificateExplorer : IDisposable
         isRenewMode = true;
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
         isRenewMode = true; // ShowIssuanceDialog resets it — restore
+        renewalSeedPending = true;
         renewalOfCertificateId = selectedNode.Id; // record lineage: new cert renews this one
 
         await PreselectRenewalProfileAsync(db);
+        RestrictToRenewalProfiles(selectedCert);
 
         // Always call OnProfileSelected with isRenewMode=true to restore subject/SANs
         OnProfileSelected(selectedProfile);

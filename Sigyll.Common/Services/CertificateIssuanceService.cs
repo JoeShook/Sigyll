@@ -132,7 +132,8 @@ public class CertificateIssuanceService
         // Renewal lineage: the predecessor determines the new certificate's version
         var (renewalVersion, renewalOfId, lineageError) = await ResolveRenewalLineageAsync(
             db, request.RenewalOfCertificateId,
-            isCaLineage: profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa);
+            isCaLineage: profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa,
+            request.SubjectDn, request.SubjectAltNames);
         if (lineageError != null)
             return CertificateIssuanceResult.Failure(lineageError);
 
@@ -418,21 +419,33 @@ public class CertificateIssuanceService
     /// <summary>
     /// Resolves renewal lineage for an issuance request: the new certificate's Version is the
     /// predecessor's + 1 and RenewalOfId links back to it. Returns an error when the
-    /// referenced predecessor doesn't exist in the expected table.
+    /// referenced predecessor doesn't exist in the expected table, or when the request would
+    /// change its subject or SANs (see <see cref="RenewalIdentity"/>).
     /// </summary>
     private static async Task<(int Version, int? RenewalOfId, string? Error)> ResolveRenewalLineageAsync(
-        SigyllDbContext db, int? renewalOfCertificateId, bool isCaLineage)
+        SigyllDbContext db, int? renewalOfCertificateId, bool isCaLineage,
+        string subjectDn, IEnumerable<SanEntry> subjectAltNames)
     {
         if (renewalOfCertificateId is not int predecessorId)
             return (1, null, null);
 
-        int? predecessorVersion = isCaLineage
-            ? (await db.CaCertificates.FindAsync(predecessorId))?.Version
-            : (await db.IssuedCertificates.FindAsync(predecessorId))?.Version;
+        var predecessor = isCaLineage
+            ? await db.CaCertificates.Where(c => c.Id == predecessorId)
+                .Select(c => new { c.Version, Pem = c.X509CertificatePem }).FirstOrDefaultAsync()
+            : await db.IssuedCertificates.Where(c => c.Id == predecessorId)
+                .Select(c => new { c.Version, Pem = c.X509CertificatePem }).FirstOrDefaultAsync();
 
-        return predecessorVersion == null
-            ? (1, null, "Renewal predecessor certificate not found.")
-            : (predecessorVersion.Value + 1, predecessorId, null);
+        if (predecessor == null)
+            return (1, null, "Renewal predecessor certificate not found.");
+
+        using var predecessorCert = X509Certificate2.CreateFromPem(predecessor.Pem);
+        var change = RenewalIdentity.FindChange(predecessorCert, subjectDn, subjectAltNames);
+        if (change != null)
+            return (1, null,
+                $"A renewal or re-key keeps the certificate's subject and SANs, but {change}. "
+                + "To issue under different names, issue a new certificate instead.");
+
+        return (predecessor.Version + 1, predecessorId, null);
     }
 
     /// <summary>
@@ -497,7 +510,7 @@ public class CertificateIssuanceService
 
         // Renewal lineage: the predecessor determines the new certificate's version
         var (renewalVersion, renewalOfId, lineageError) = await ResolveRenewalLineageAsync(
-            db, request.RenewalOfCertificateId, isCaLineage: false);
+            db, request.RenewalOfCertificateId, isCaLineage: false, csr.SubjectName.Name, request.SubjectAltNames);
         if (lineageError != null)
             return CsrIssuanceResult.Failure(lineageError);
 
