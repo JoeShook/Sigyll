@@ -273,7 +273,8 @@
   - P1363→DER ECDSA signature format conversion
   - Key lifecycle: create, get public key, sign, delete
 - **`Sigyll.Gcp.Kms`** — Google Cloud KMS
-  - Private keys never leave Cloud HSM/KMS
+  - Private keys never leave Cloud KMS; new keys are Cloud HSM keys unless `GcpKms:ProtectionLevel` is `SOFTWARE`
+  - Records each key's protection level as Cloud KMS reports it (`CloudHsm` or `CloudKms`)
   - Uses Application Default Credentials (gcloud CLI or service account)
   - Pre-computed digest signing via `AsymmetricSign` API
   - Key ring auto-creation, key version lifecycle management

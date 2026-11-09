@@ -156,11 +156,13 @@ switch (hostMode)
             var gcpProject = builder.Configuration["GcpKms:ProjectId"] ?? "";
             var gcpLocation = builder.Configuration["GcpKms:LocationId"] ?? "us-central1";
             var gcpKeyRing = builder.Configuration["GcpKms:KeyRingId"] ?? "sigil";
+            var gcpProtection = builder.Configuration["GcpKms:ProtectionLevel"] ?? "HSM";
 
             dockerResource
                 .WithEnvironment("GcpKms__ProjectId", gcpProject)
                 .WithEnvironment("GcpKms__LocationId", gcpLocation)
-                .WithEnvironment("GcpKms__KeyRingId", gcpKeyRing);
+                .WithEnvironment("GcpKms__KeyRingId", gcpKeyRing)
+                .WithEnvironment("GcpKms__ProtectionLevel", gcpProtection);
         }
 
         sigil = dockerResource.WaitForCompletion(sigilFlyway);
@@ -179,11 +181,13 @@ switch (hostMode)
             var gcpProject = builder.Configuration["GcpKms:ProjectId"] ?? "";
             var gcpLocation = builder.Configuration["GcpKms:LocationId"] ?? "us-central1";
             var gcpKeyRing = builder.Configuration["GcpKms:KeyRingId"] ?? "sigil";
+            var gcpProtection = builder.Configuration["GcpKms:ProtectionLevel"] ?? "HSM";
 
             projectResource
                 .WithEnvironment("GcpKms__ProjectId", gcpProject)
                 .WithEnvironment("GcpKms__LocationId", gcpLocation)
-                .WithEnvironment("GcpKms__KeyRingId", gcpKeyRing);
+                .WithEnvironment("GcpKms__KeyRingId", gcpKeyRing)
+                .WithEnvironment("GcpKms__ProtectionLevel", gcpProtection);
         }
 
         sigil = projectResource.WaitForCompletion(sigilFlyway);

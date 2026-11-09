@@ -40,6 +40,9 @@ public partial class TrustDomains
     private string editTrustDomainDescription = string.Empty;
     private int editTrustDomainExpiry = 7;
     private List<BaseUrlEntry> editTrustDomainBaseUrls = new();
+    private bool editRequireHardwareKeys;
+    private bool editOriginalRequireHardwareKeys;
+    private int editNonHardwareCaKeyCount;
 
     // Folder browser
     private bool folderBrowserHidden = true;
@@ -160,6 +163,8 @@ public partial class TrustDomains
         editTrustDomainBaseUrls = trustDomain.BaseUrls
             .Select(u => new BaseUrlEntry { Value = u.Url, PublishingBasePath = u.PublishingBasePath ?? string.Empty })
             .ToList();
+        editRequireHardwareKeys = editOriginalRequireHardwareKeys = trustDomain.RequireHardwareKeys;
+        editNonHardwareCaKeyCount = trustDomain.NonHardwareCaKeyCount;
         editDialogHidden = false;
     }
 
@@ -173,6 +178,8 @@ public partial class TrustDomains
             .ToList();
 
         await TrustDomainService.UpdateAsync(editTrustDomainId, editTrustDomainName, editTrustDomainDescription, baseUrls, editTrustDomainExpiry);
+        if (editRequireHardwareKeys != editOriginalRequireHardwareKeys)
+            await TrustDomainService.SetRequireHardwareKeysAsync(editTrustDomainId, editRequireHardwareKeys);
 
         editDialogHidden = true;
         await LoadTrustDomainsAsync();

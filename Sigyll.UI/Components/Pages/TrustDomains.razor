@@ -19,7 +19,7 @@
         </FluentButton>
     </FluentStack>
 
-    <FluentDataGrid Items="@trustDomains.AsQueryable()" Style="margin-top: 0.5rem;" ResizableColumns="true" GridTemplateColumns="minmax(120px, 1fr) minmax(120px, 1.5fr) minmax(200px, 3fr) 80px 80px 80px auto">
+    <FluentDataGrid Items="@trustDomains.AsQueryable()" Style="margin-top: 0.5rem;" ResizableColumns="true" GridTemplateColumns="minmax(120px, 1fr) minmax(120px, 1.5fr) minmax(200px, 3fr) 80px 100px 80px 80px auto">
         <PropertyColumn Property="@(c => c.Name)" Title="Name" Sortable="true" IsDefaultSortColumn="true" />
         <PropertyColumn Property="@(c => c.Description)" Title="Description" />
         <TemplateColumn Title="Certificate Server Base URLs">
@@ -38,6 +38,17 @@
             else
             {
                 <FluentBadge BackgroundColor="#666" Color="white">No</FluentBadge>
+            }
+        </TemplateColumn>
+        <TemplateColumn Title="CA keys">
+            @if (context.RequireHardwareKeys)
+            {
+                <FluentBadge BackgroundColor="#1565c0" Color="white"
+                             title="New CA keys must be held in an HSM; CAs with keys elsewhere cannot issue">HSM only</FluentBadge>
+            }
+            else
+            {
+                <FluentBadge BackgroundColor="#666" Color="white">Any</FluentBadge>
             }
         </TemplateColumn>
         <PropertyColumn Property="@(c => c.RootCaCount)" Title="Root CAs" />
@@ -125,6 +136,19 @@
         <FluentTextField @bind-Value="editTrustDomainDescription" Label="Description" Style="width: 100%; margin-top: 0.5rem;" />
         <FluentNumberField @bind-Value="editTrustDomainExpiry" Label="CRL Validity (Days)" Min="1" Max="365"
                            Style="width: 100%; margin-top: 0.5rem;" />
+        <FluentSwitch @bind-Value="editRequireHardwareKeys" Disabled="@(!Access.CanAdminister)"
+                      Label="Require CA keys held in an HSM" Style="margin-top: 0.75rem;" />
+        <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.25rem;">
+            New roots and intermediates need an HSM key, such as GCP Cloud KMS with protection level HSM. CAs whose
+            keys are held elsewhere can no longer issue or re-sign, but still sign CRLs.
+        </div>
+        @if (editRequireHardwareKeys && editNonHardwareCaKeyCount > 0)
+        {
+            <FluentMessageBar Id="hardware-keys-warning" Intent="@MessageIntent.Warning" AllowDismiss="false" Style="margin-top: 0.5rem;">
+                @editNonHardwareCaKeyCount @(editNonHardwareCaKeyCount == 1 ? "CA in this trust domain holds its key" : "CAs in this trust domain hold their keys")
+                outside an HSM and will stop issuing.
+            </FluentMessageBar>
+        }
         <FluentLabel Typo="Typography.Subject" Style="margin-top: 0.5rem;">Certificate Server Base URLs</FluentLabel>
         @foreach (var url in editTrustDomainBaseUrls)
         {

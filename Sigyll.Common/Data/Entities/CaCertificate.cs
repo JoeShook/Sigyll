@@ -10,11 +10,24 @@
 
 namespace Sigyll.Common.Data.Entities;
 
+/// <summary>Where a certificate's private key is held.</summary>
 public enum CertSecurityLevel : byte
 {
+    /// <summary>In a P12 file stored by Sigyll.</summary>
     Software = 0,
+    /// <summary>In a FIPS 140-3 hardware security module.</summary>
     Fips1403 = 1,
-    CloudKms = 2
+    /// <summary>In a remote key service (GCP Cloud KMS or Vault Transit) that protects it in software.</summary>
+    CloudKms = 2,
+    /// <summary>In GCP Cloud HSM: a Cloud KMS key with protection level HSM (FIPS 140-2 Level 3).</summary>
+    CloudHsm = 3,
+}
+
+public static class CertSecurityLevels
+{
+    /// <summary>Whether the key is held in a hardware security module.</summary>
+    public static bool IsHardware(this CertSecurityLevel level) =>
+        level is CertSecurityLevel.Fips1403 or CertSecurityLevel.CloudHsm;
 }
 
 public class CaCertificate

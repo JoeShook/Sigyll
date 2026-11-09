@@ -34,6 +34,13 @@ public class TrustDomain
     public DateTime? VaultLastBackupAt { get; set; }
     public string? VaultLastBackupBy { get; set; }
 
+    /// <summary>
+    /// Whether this trust domain's CA keys must be held in an HSM (<see cref="CertSecurityLevels.IsHardware"/>).
+    /// When set, a new root or intermediate needs an HSM-held key, and a CA whose key is held in software cannot
+    /// issue or re-sign. Only an Admin changes it.
+    /// </summary>
+    public bool RequireHardwareKeys { get; set; }
+
     public ICollection<TrustDomainBaseUrl> BaseUrls { get; set; } = new List<TrustDomainBaseUrl>();
     public ICollection<CaCertificate> CaCertificates { get; set; } = new List<CaCertificate>();
     public ICollection<DidDocument> DidDocuments { get; set; } = new List<DidDocument>();

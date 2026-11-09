@@ -218,6 +218,12 @@ public class CertificateIssuanceService
             }
         }
 
+        var (hardwareKeysRequired, keyPolicyError) = await CheckHardwareKeyPolicyAsync(db, trustDomain, issuingCaEntity,
+            issuesCaKey: profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa,
+            useRemoteSigning);
+        if (keyPolicyError != null)
+            return CertificateIssuanceResult.Failure(keyPolicyError);
+
         // Route to appropriate signing path:
         // 1. Full remote: new cert key AND signing both in remote provider
         // 2. Hybrid: new cert key is LOCAL (PFX), but issuer signs via remote provider (Vault Transit)
@@ -233,7 +239,7 @@ public class CertificateIssuanceService
         {
             return await IssueCertificateRemoteAsync(
                 db, profile, request, isSelfSigned, issuingCert, issuingCaEntity, issuerKeyRef,
-                renewalVersion, renewalOfId);
+                renewalVersion, renewalOfId, hardwareKeysRequired);
         }
 
         if (issuerKeyRef != null)
@@ -416,6 +422,47 @@ public class CertificateIssuanceService
         }
     }
 
+    private const string HardwareKeysRequired = "This trust domain requires CA keys held in an HSM.";
+
+    /// <summary>
+    /// Applies a trust domain's "CA keys in an HSM" rule (<see cref="TrustDomain.RequireHardwareKeys"/>), taken from
+    /// the request's trust domain or the issuing CA's: the issuing CA's key must be hardware-held, and so must a new
+    /// CA key, judged by the signing provider's configuration. Returns whether the rule applies and, when the
+    /// request breaks it, why.
+    /// </summary>
+    private async Task<(bool Required, string? Error)> CheckHardwareKeyPolicyAsync(
+        SigyllDbContext db, TrustDomain trustDomain, CaCertificate? issuingCa, bool issuesCaKey, bool useRemoteSigning)
+    {
+        var required = trustDomain.RequireHardwareKeys
+            || (issuingCa != null && issuingCa.TrustDomainId != trustDomain.Id
+                && (await db.TrustDomains.FindAsync(issuingCa.TrustDomainId))?.RequireHardwareKeys == true);
+        if (!required)
+            return (false, null);
+
+        if (issuingCa != null && !issuingCa.CertSecurityLevel.IsHardware())
+            return (true, $"{HardwareKeysRequired} The issuing CA '{issuingCa.Name}' has its key {DescribeKeyLocation(issuingCa.CertSecurityLevel)}.");
+
+        if (issuesCaKey)
+        {
+            var newKeyLevel = !useRemoteSigning ? CertSecurityLevel.Software
+                : _signingProvider is IKeyProtectionReporter reporter ? reporter.NewKeySecurityLevel
+                : CertSecurityLevel.CloudKms;
+            if (!newKeyLevel.IsHardware())
+                return (true, $"{HardwareKeysRequired} A new CA key would be held {DescribeKeyLocation(newKeyLevel)}. "
+                    + "Issue it with a signing provider that creates HSM keys, such as GCP Cloud KMS with protection level HSM.");
+        }
+
+        return (true, null);
+    }
+
+    private static string DescribeKeyLocation(CertSecurityLevel level) => level switch
+    {
+        CertSecurityLevel.Software => "in a P12 file stored by Sigyll",
+        CertSecurityLevel.CloudKms => "in a remote key service that protects it in software",
+        CertSecurityLevel.CloudHsm => "in GCP Cloud HSM",
+        _ => "in an HSM",
+    };
+
     /// <summary>
     /// Resolves renewal lineage for an issuance request: the new certificate's Version is the
     /// predecessor's + 1 and RenewalOfId links back to it. Returns an error when the
@@ -517,6 +564,11 @@ public class CertificateIssuanceService
         var issuingCaEntity = await db.CaCertificates.FindAsync(request.IssuingCaCertificateId);
         if (issuingCaEntity == null)
             return CsrIssuanceResult.Failure("Issuing CA not found.");
+
+        var (_, keyPolicyError) = await CheckHardwareKeyPolicyAsync(db, trustDomain, issuingCaEntity,
+            issuesCaKey: false, useRemoteSigning: false);
+        if (keyPolicyError != null)
+            return CsrIssuanceResult.Failure(keyPolicyError);
 
         X509Certificate2? issuingCert = null;
         SigningKeyReference? issuerKeyRef = null;
@@ -733,6 +785,11 @@ public class CertificateIssuanceService
         if (caEntity.EncryptedPfxBytes == null || string.IsNullOrEmpty(caEntity.PfxPassword))
             return CertificateIssuanceResult.Failure("Certificate does not have a private key.");
 
+        // Re-signing works only with keys in P12 files, which a trust domain requiring HSM keys does not allow.
+        if ((await db.TrustDomains.FindAsync(caEntity.TrustDomainId))?.RequireHardwareKeys == true)
+            return CertificateIssuanceResult.Failure(
+                $"{HardwareKeysRequired} Re-signing uses keys held in P12 files, so it is not available here.");
+
         // Load existing cert with private key
         X509Certificate2 existingCert;
         try
@@ -925,7 +982,8 @@ public class CertificateIssuanceService
         CaCertificate? issuingCaEntity,
         SigningKeyReference? issuerKeyRef,
         int renewalVersion,
-        int? renewalOfId)
+        int? renewalOfId,
+        bool hardwareKeysRequired)
     {
         try
         {
@@ -942,6 +1000,19 @@ public class CertificateIssuanceService
 
             // Get the public key to build extensions
             using var publicKey = await _signingProvider.GetPublicKeyAsync(newKeyRef);
+
+            // Record where the key really lives, as the key service reports it.
+            var newKeyLevel = _signingProvider is IKeyProtectionReporter reporter
+                ? await reporter.GetSecurityLevelAsync(newKeyRef)
+                : CertSecurityLevel.CloudKms;
+            if (hardwareKeysRequired && !newKeyLevel.IsHardware()
+                && profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa)
+            {
+                _logger.LogWarning("Key {KeyId} was created {Location}; not used for a CA in a trust domain that requires HSM keys",
+                    newKeyRef.KeyIdentifier, DescribeKeyLocation(newKeyLevel));
+                return CertificateIssuanceResult.Failure(
+                    $"{HardwareKeysRequired} The key service created key '{newKeyRef.KeyIdentifier}' {DescribeKeyLocation(newKeyLevel)}, so it was not used.");
+            }
 
             // Build extensions using the same logic as local path
             var extensions = BuildExtensionsForRemote(profile, request, publicKey, issuingCert);
@@ -1007,7 +1078,7 @@ public class CertificateIssuanceService
                         NotAfter = cert.NotAfter.ToUniversalTime(),
                         CrlDistributionPoint = request.CdpUrls.Count > 0 ? string.Join(";", request.CdpUrls) : null,
                         AuthorityInfoAccessUri = request.AiaUrls.Count > 0 ? string.Join(";", request.AiaUrls) : null,
-                        CertSecurityLevel = CertSecurityLevel.CloudKms,
+                        CertSecurityLevel = newKeyLevel,
                         StoreProviderHint = $"{_signingProvider.ProviderName}:{newKeyRef.KeyIdentifier}",
                         Version = renewalVersion,
                         RenewalOfId = renewalOfId,
@@ -1049,7 +1120,7 @@ public class CertificateIssuanceService
                         KeySize = keySize,
                         NotBefore = cert.NotBefore.ToUniversalTime(),
                         NotAfter = cert.NotAfter.ToUniversalTime(),
-                        CertSecurityLevel = CertSecurityLevel.CloudKms,
+                        CertSecurityLevel = newKeyLevel,
                         StoreProviderHint = $"{_signingProvider.ProviderName}:{newKeyRef.KeyIdentifier}",
                         Version = renewalVersion,
                         RenewalOfId = renewalOfId,
