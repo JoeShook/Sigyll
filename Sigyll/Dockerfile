@@ -5,6 +5,13 @@
 
 # Base images are pinned by digest; Dependabot proposes new digests as Microsoft publishes them.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:1a48394b6f29d3a32c79d9edecd4abda0ecbe8776d567dbfc4590ed6979c740c AS base
+
+# Ubuntu security updates not yet in the newest Microsoft image: apt and libapt-pkg (CVE-2026-109518) and
+# libpcre2. Drop a package from this list once a base image digest ships the fixed version.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends --only-upgrade apt libapt-pkg6.0t64 libpcre2-8-0 \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 EXPOSE 7200
 
