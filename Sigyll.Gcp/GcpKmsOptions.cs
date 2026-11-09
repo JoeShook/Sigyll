@@ -31,4 +31,11 @@ public class GcpKmsOptions
     /// Key ring name. All Sigyll-generated keys are created in this ring.
     /// </summary>
     public string KeyRingId { get; set; } = "sigil";
+
+    /// <summary>
+    /// How new keys are protected: "HSM" (Cloud HSM, FIPS 140-2 Level 3; the default) or "SOFTWARE". Cloud HSM is
+    /// not offered in every location (not in "global"), and HSM key versions cost more than software ones.
+    /// Existing keys keep the protection they were created with.
+    /// </summary>
+    public string ProtectionLevel { get; set; } = "HSM";
 }

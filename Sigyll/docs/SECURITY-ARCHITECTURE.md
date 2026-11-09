@@ -68,7 +68,12 @@ a new method does neither, so a page or endpoint can't reach CA data by forgetti
 | Where the key lives | How it is protected |
 |---|---|
 | **HashiCorp Vault Transit** | The CA key is generated in Vault and never leaves it; Sigyll sends a digest and gets a signature back |
-| **Google Cloud KMS** | Same model, with Cloud KMS keys. Sigyll creates them at the software protection level today; HSM-backed keys are on the roadmap ([AUDIT-READINESS.md](AUDIT-READINESS.md)) |
+| **Google Cloud KMS** | Same model, with Cloud KMS keys. Sigyll creates them in Cloud HSM (FIPS 140-2 Level 3) unless `GcpKms:ProtectionLevel` is `SOFTWARE`, and records each key's protection as Cloud KMS reports it |
+
+A trust domain can require HSM-held CA keys (an Admin setting, audited). New roots and intermediates in it then need
+an HSM key, checked against the signing provider's configuration before the key is made and against the key service's
+answer after; CAs whose keys are held elsewhere can't issue or re-sign, though they still sign CRLs so existing
+certificates keep a revocation status.
 | **Local (PKCS #12 in the database)** | Each key's password is wrapped with a 256-bit master key (AES-GCM envelope encryption). The master key is read at startup from Vault KV through an AppRole with a read-only policy; it is never stored in the database or in configuration |
 
 Keys signed remotely can't be exported at all. Exporting a local private key requires the KeyCustodian role, and

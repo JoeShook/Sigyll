@@ -89,7 +89,7 @@
 - [x] Mandatory MFA for operators (authenticator app or passkey), account lockout, idle and maximum session length
 - [ ] RA (Registration Authority) workflows — request/approve/reject
 - [ ] Key escrow / key recovery
-- [ ] FIPS 140-3 compliance mode (HSM-only key generation) — PKCS #11 provider and HSM-level Cloud KMS keys
+- [ ] FIPS 140-3 compliance mode (HSM-only key generation) — Cloud HSM keys and per-trust-domain "CA keys in an HSM" rule done; PKCS #11 provider still to come
 - [ ] Certificate Policy / Certification Practice Statement (RFC 3647), key ceremony scripts
 - [ ] **CAA record checking at issuance (RFC 8659)** — enforce `issue`/`issuewild`/`iodef` for every issuance path (portal + ACME), with DNSSEC-validated lookups (SC-085v2, mandatory Mar 2026 for public CAs). *Baseline CAA was a roadmap gap; see Phase 12b for the ACME-specific RFC 8657 extensions.*
 - [ ] Certificate transparency (CT) log submission — record precerts/SCTs (effectively mandatory in browsers since 2018); consider exposing high-assurance CT *monitoring* (known-good inventory vs. CT stream) as a product feature

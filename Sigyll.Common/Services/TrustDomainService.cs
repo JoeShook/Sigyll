@@ -58,7 +58,12 @@ public class TrustDomainService
                 CreatedAt = c.CreatedAt,
                 RootCaCount = c.CaCertificates.Count(ca => ca.ParentId == null),
                 TotalCertCount = c.CaCertificates.Count()
-                    + c.CaCertificates.SelectMany(ca => ca.IssuedCertificates).Count()
+                    + c.CaCertificates.SelectMany(ca => ca.IssuedCertificates).Count(),
+                RequireHardwareKeys = c.RequireHardwareKeys,
+                NonHardwareCaKeyCount = c.CaCertificates.Count(ca =>
+                    (ca.EncryptedPfxBytes != null || ca.StoreProviderHint != null)
+                    && ca.CertSecurityLevel != CertSecurityLevel.Fips1403
+                    && ca.CertSecurityLevel != CertSecurityLevel.CloudHsm),
             })
             .OrderBy(c => c.Name)
             .ToListAsync(ct);
@@ -139,6 +144,26 @@ public class TrustDomainService
         }
 
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Turns the "CA keys in an HSM" rule on or off for a trust domain. With it on, a new root or intermediate needs
+    /// an HSM-held key, and CAs whose keys are held elsewhere can no longer issue or re-sign; CRLs are still signed
+    /// so existing certificates keep a revocation status.
+    /// </summary>
+    public async Task SetRequireHardwareKeysAsync(int id, bool required, CancellationToken ct = default)
+    {
+        var identity = await _operator.DemandAsync(Permission.Administer);
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var entity = await db.TrustDomains.FindAsync([id], ct)
+            ?? throw new ArgumentException("Trust domain not found.");
+        if (entity.RequireHardwareKeys == required) return;
+
+        entity.RequireHardwareKeys = required;
+        await db.SaveChangesAsync(ct);
+        await _audit.RecordAsync(identity, AuditActions.TrustDomainKeyPolicyChanged, AuditTarget.Of(entity),
+            required ? "CA keys must now be held in an HSM." : "CA keys no longer need to be held in an HSM.", ct: ct);
     }
 
     public async Task DeleteAsync(int id, CancellationToken ct = default)

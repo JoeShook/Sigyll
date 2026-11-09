@@ -22,6 +22,12 @@ public class TrustDomainViewModel
     public int RootCaCount { get; set; }
     public int TotalCertCount { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>Whether CA keys in this trust domain must be held in an HSM.</summary>
+    public bool RequireHardwareKeys { get; set; }
+
+    /// <summary>CAs in this trust domain that hold a private key outside an HSM.</summary>
+    public int NonHardwareCaKeyCount { get; set; }
 }
 
 public class BaseUrlViewModel

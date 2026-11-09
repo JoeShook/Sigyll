@@ -14,17 +14,18 @@ using Google.Cloud.Kms.V1;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 
 namespace Sigyll.Gcp;
 
 /// <summary>
-/// Signing provider that delegates to Google Cloud KMS.
-/// Private keys never leave Cloud HSM/KMS — only the signature is returned.
-/// Authentication uses Application Default Credentials (gcloud CLI or service account).
+/// Signing provider that delegates to Google Cloud KMS. New keys are created with the configured protection level
+/// (<see cref="GcpKmsOptions.ProtectionLevel"/>, Cloud HSM by default); private keys never leave Cloud KMS, which
+/// returns only the signature. Authentication uses Application Default Credentials (gcloud CLI or service account).
 /// </summary>
-public sealed class GcpKmsSigningProvider : ISigningProvider
+public sealed class GcpKmsSigningProvider : ISigningProvider, IKeyProtectionReporter
 {
     public string ProviderName => "gcp-kms";
 
@@ -65,23 +66,49 @@ public sealed class GcpKmsSigningProvider : ISigningProvider
         var cryptoKeyId = $"sigil-{Guid.NewGuid():N}";
         var algorithm = MapToKmsAlgorithm(keyAlgorithm, keySize, ecdsaCurve);
 
+        var protection = ParseProtectionLevel(_options.ProtectionLevel);
+
         var cryptoKey = new CryptoKey
         {
             Purpose = CryptoKey.Types.CryptoKeyPurpose.AsymmetricSign,
             VersionTemplate = new CryptoKeyVersionTemplate
             {
-                Algorithm = algorithm
+                Algorithm = algorithm,
+                ProtectionLevel = protection,
             }
         };
 
-        var created = await client.CreateCryptoKeyAsync(keyRingName, cryptoKeyId, cryptoKey, ct);
+        await client.CreateCryptoKeyAsync(keyRingName, cryptoKeyId, cryptoKey, ct);
 
         _logger.LogInformation(
-            "Created GCP KMS key '{KeyId}' (algorithm: {Algorithm}) in {KeyRing}",
-            cryptoKeyId, algorithm, keyRingName);
+            "Created GCP KMS key '{KeyId}' (algorithm: {Algorithm}, protection: {Protection}) in {KeyRing}",
+            cryptoKeyId, algorithm, protection, keyRingName);
 
         return new SigningKeyReference("gcp-kms", cryptoKeyId, keyAlgorithm, keySize);
     }
+
+    public CertSecurityLevel NewKeySecurityLevel => ToSecurityLevel(ParseProtectionLevel(_options.ProtectionLevel));
+
+    public async Task<CertSecurityLevel> GetSecurityLevelAsync(SigningKeyReference keyRef, CancellationToken ct = default)
+    {
+        var version = await _client.Value.GetCryptoKeyVersionAsync(BuildKeyVersionName(keyRef.KeyIdentifier), ct);
+        return ToSecurityLevel(version.ProtectionLevel);
+    }
+
+    /// <summary>
+    /// Cloud HSM keys are hardware-held. Software keys, and keys in an external key manager (EKM), whose protection
+    /// Sigyll cannot see, are recorded as a remote key service.
+    /// </summary>
+    internal static CertSecurityLevel ToSecurityLevel(ProtectionLevel protection) =>
+        protection == ProtectionLevel.Hsm ? CertSecurityLevel.CloudHsm : CertSecurityLevel.CloudKms;
+
+    internal static ProtectionLevel ParseProtectionLevel(string? value) => value?.Trim().ToUpperInvariant() switch
+    {
+        null or "" or "HSM" => ProtectionLevel.Hsm,
+        "SOFTWARE" => ProtectionLevel.Software,
+        _ => throw new InvalidOperationException(
+            $"GcpKms:ProtectionLevel '{value}' is not supported. Use \"HSM\" (the default) or \"SOFTWARE\"."),
+    };
 
     public Task<RawPublicKey> GetRawPublicKeyAsync(
         SigningKeyReference keyRef, CancellationToken ct = default)

@@ -36,6 +36,7 @@ public static class AuditActions
     public const string RequestFulfilled = "request.fulfilled";
     public const string RequestDeleted = "request.deleted";
     public const string TrustDomainDeleted = "trust-domain.deleted";
+    public const string TrustDomainKeyPolicyChanged = "trust-domain.key-policy-changed";
     public const string OperatorCreated = "operator.created";
     public const string OperatorDeleted = "operator.deleted";
     public const string OperatorRolesChanged = "operator.roles-changed";
@@ -52,7 +53,7 @@ public static class AuditActions
     [
         CertificateIssued, CertificateImported, CertificateRevoked, CertificateDeleted, CertificateArchived,
         CertificateMoved, CrlGenerated, CrlImported, CrlDeleted, KeyExported, VaultExported, VaultBackedUp, VaultUpdated,
-        VaultSecretsRemoved, RequestCreated, RequestFulfilled, RequestDeleted, TrustDomainDeleted, OperatorCreated,
+        VaultSecretsRemoved, RequestCreated, RequestFulfilled, RequestDeleted, TrustDomainDeleted, TrustDomainKeyPolicyChanged, OperatorCreated,
         OperatorDeleted, OperatorRolesChanged, OperatorPasswordSet, OperatorUnlocked, OperatorSecondFactorReset,
         OperatorSignedIn, OperatorSignInFailed, OperatorLockedOut, OperatorSignedOut, OperatorSecurityChanged,
     ];
