@@ -379,8 +379,16 @@
                         {
                             <p style="font-size: 0.8rem; opacity: 0.6; margin: -0.25rem 0 0;">@selectedProfile.Description</p>
                         }
+                        @if (noCompatibleRenewalProfile && IdentityLocked)
+                        {
+                            <FluentMessageBar Intent="@MessageIntent.Warning" AllowDismiss="false">
+                                No profile issues the same kind of certificate (CA flag, key usages, extended key usages
+                                and required SAN types). Check the profile before issuing.
+                            </FluentMessageBar>
+                        }
                         <FluentTextField @bind-Value="issuanceSubjectDn"
-                                         Label="Subject Distinguished Name (required)"
+                                         ReadOnly="@IdentityLocked"
+                                         Label="@(IdentityLocked ? "Subject Distinguished Name (kept from the certificate)" : "Subject Distinguished Name (required)")"
                                          Required="true"
                                          Placeholder="CN=My Certificate, O=My Org, C=US"
                                          Style="width: 100%;" />
@@ -486,7 +494,14 @@
                             </FluentButton>
                         }
                         <FluentLabel Typo="Typography.Subject" Style="margin-top: 0.25rem;">Subject Alternative Names</FluentLabel>
-                        @if (profileSanLists.Count > 0)
+                        @if (IdentityLocked)
+                        {
+                            <div id="renewal-identity-note" style="font-size: 0.8rem; opacity: 0.7;">
+                                Renewing and re-keying keep the certificate's subject and SANs. To change them, use
+                                Similar, which issues a new certificate.
+                            </div>
+                        }
+                        @if (profileSanLists.Count > 0 && !IdentityLocked)
                         {
                             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
                                 @foreach (var sl in profileSanLists)
@@ -506,19 +521,26 @@
                                               Items="@sanTypeOptions"
                                               OptionText="@(s => s.ToString())"
                                               @bind-SelectedOption="san.Type"
+                                              Disabled="@IdentityLocked"
                                               Style="width: 120px;" />
-                                <FluentTextField @bind-Value="san.Value" Style="flex: 1;"
+                                <FluentTextField @bind-Value="san.Value" Style="flex: 1;" ReadOnly="@IdentityLocked"
                                                  Placeholder="@GetSanPlaceholder(san.Type)" />
-                                <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
-                                              IconStart="@(new Icons.Regular.Size16.Delete())"
-                                              OnClick="@(() => RemoveSanEntry(san))" />
+                                @if (!IdentityLocked)
+                                {
+                                    <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                                  IconStart="@(new Icons.Regular.Size16.Delete())"
+                                                  OnClick="@(() => RemoveSanEntry(san))" />
+                                }
                             </FluentStack>
                         }
-                        <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
-                                      IconStart="@(new Icons.Regular.Size16.Add())"
-                                      OnClick="AddSanEntry">
-                            Add SAN
-                        </FluentButton>
+                        @if (!IdentityLocked)
+                        {
+                            <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
+                                          IconStart="@(new Icons.Regular.Size16.Add())"
+                                          OnClick="AddSanEntry">
+                                Add SAN
+                            </FluentButton>
+                        }
                         @if (MissingRequiredSanTypes().Count > 0)
                         {
                             <div style="color: #e94560; font-size: 0.8rem;">
