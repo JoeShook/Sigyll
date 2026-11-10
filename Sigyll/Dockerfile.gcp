@@ -68,6 +68,12 @@ COPY Sigyll.FileSystem/    Sigyll.FileSystem/
 ARG BUILD_CONFIGURATION=Release
 RUN dotnet publish Sigyll/Sigyll.csproj -c $BUILD_CONFIGURATION -o /app/publish
 
+# The licences and notices of the packages Sigyll ships with travel with it, as /app/THIRD-PARTY-NOTICES.txt.
+COPY LICENSE /app/publish/LICENSE
+COPY tools/third-party-notices/ tools/third-party-notices/
+RUN dotnet run tools/third-party-notices/ThirdPartyNotices.cs -- \
+      /app/publish/THIRD-PARTY-NOTICES.txt /app/publish/Sigyll.deps.json
+
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .

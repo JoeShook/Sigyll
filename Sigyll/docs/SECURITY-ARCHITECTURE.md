@@ -166,6 +166,7 @@ Every push and pull request runs ([`.github/workflows`](../../.github/workflows)
 | CodeQL | Static analysis of the C# code with the security-extended queries; also weekly |
 | Container scan | Builds the image, fails if it runs as root, and scans it with [Grype](https://github.com/anchore/grype); fails on high or critical vulnerabilities that have a fix |
 | SBOM | A CycloneDX software bill of materials for each deployable application |
+| Licences | Fails on a package without a permissive licence, and writes `THIRD-PARTY-NOTICES.txt` (each shipped package's licence, copyright and notice files) from what the applications publish; fails if a licence text can't be found. The image must contain it |
 | SQL style | Every schema migration follows the Flyway style rules |
 
 Every GitHub Action is pinned to a commit, workflow tokens are read-only except where CodeQL uploads results, and

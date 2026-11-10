@@ -57,6 +57,9 @@ jobs:
             exit 1
           fi
 
+      - name: Refuse an image without its licence and third-party notices
+        run: docker run --rm --entrypoint sh sigyll:release -c 'test -s /app/LICENSE && test -s /app/THIRD-PARTY-NOTICES.txt'
+
       - uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
           image: sigyll:release
@@ -118,9 +121,20 @@ jobs:
       - name: Refuse packages without a permissive licence
         run: python3 tools/licence-check/check_licences.py release/*.cdx.json
 
+      # The licences and notices of every package the applications ship with (tools/third-party-notices).
+      - name: Write the third-party notices
+        run: |
+          inputs=""
+          for app in Sigyll Sigyll.Portal Sigyll.Certificate.Server; do
+            dotnet publish "$app/$app.csproj" -c Release -o "publish/$app" -nologo
+            inputs="$inputs publish/$app/$app.deps.json"
+          done
+          dotnet run tools/third-party-notices/ThirdPartyNotices.cs -- release/THIRD-PARTY-NOTICES.txt \
+            $inputs tools/third-party-notices/vendored/bootstrap.txt
+
       - name: Checksums
         working-directory: release
-        run: sha256sum -- *.cdx.json > SHA256SUMS
+        run: sha256sum -- *.cdx.json THIRD-PARTY-NOTICES.txt > SHA256SUMS
 
       - name: Attest how the BOMs were built
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
