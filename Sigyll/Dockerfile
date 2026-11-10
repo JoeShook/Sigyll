@@ -28,6 +28,7 @@ COPY Sigyll.UI/Sigyll.UI.csproj                            Sigyll.UI/
 COPY Sigyll.ServiceDefaults/Sigyll.ServiceDefaults.csproj  Sigyll.ServiceDefaults/
 COPY Sigyll.Vault/Sigyll.Vault.csproj                      Sigyll.Vault/
 COPY Sigyll.Gcp/Sigyll.Gcp.csproj                          Sigyll.Gcp/
+COPY Sigyll.Pkcs11/Sigyll.Pkcs11.csproj                    Sigyll.Pkcs11/
 COPY Sigyll.FileSystem/Sigyll.FileSystem.csproj             Sigyll.FileSystem/
 
 RUN dotnet restore Sigyll/Sigyll.csproj
@@ -41,6 +42,7 @@ COPY Sigyll.UI/            Sigyll.UI/
 COPY Sigyll.ServiceDefaults/ Sigyll.ServiceDefaults/
 COPY Sigyll.Vault/         Sigyll.Vault/
 COPY Sigyll.Gcp/           Sigyll.Gcp/
+COPY Sigyll.Pkcs11/        Sigyll.Pkcs11/
 COPY Sigyll.FileSystem/    Sigyll.FileSystem/
 
 ARG BUILD_CONFIGURATION=Release

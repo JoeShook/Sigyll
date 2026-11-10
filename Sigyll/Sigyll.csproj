@@ -32,6 +32,7 @@
     <ProjectReference Include="..\Sigyll.Vc\Sigyll.Vc.csproj" />
     <ProjectReference Include="..\Sigyll.FileSystem\Sigyll.FileSystem.csproj" />
     <ProjectReference Include="..\Sigyll.Gcp\Sigyll.Gcp.csproj" />
+    <ProjectReference Include="..\Sigyll.Pkcs11\Sigyll.Pkcs11.csproj" />
     <ProjectReference Include="..\Sigyll.ServiceDefaults\Sigyll.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Sigyll.UI\Sigyll.UI.csproj" />
     <ProjectReference Include="..\Sigyll.Vault\Sigyll.Vault.csproj" />

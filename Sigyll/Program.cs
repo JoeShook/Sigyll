@@ -122,12 +122,15 @@ try
         builder.Configuration.GetSection("Vault"));
     builder.Services.Configure<GcpKmsOptions>(
         builder.Configuration.GetSection("GcpKms"));
+    builder.Services.Configure<Sigyll.Pkcs11.Pkcs11Options>(
+        builder.Configuration.GetSection("Pkcs11"));
     builder.Services.AddHttpClient("VaultTransit");
     builder.Services.AddSingleton<VaultTokenSource>();
     builder.Services.AddSingleton<VaultKeyProtectionLoader>();
     builder.Services.AddSingleton<LocalSigningProvider>();
     builder.Services.AddSingleton<VaultTransitSigningProvider>();
     builder.Services.AddSingleton<GcpKmsSigningProvider>();
+    builder.Services.AddSingleton<Sigyll.Pkcs11.Pkcs11SigningProvider>();
     builder.Services.AddSingleton<ISigningProvider>(sp =>
     {
         var options = sp.GetRequiredService<IOptions<SigningProviderOptions>>().Value;
@@ -135,6 +138,7 @@ try
         {
             "vault-transit" => sp.GetRequiredService<VaultTransitSigningProvider>(),
             "gcp-kms" => sp.GetRequiredService<GcpKmsSigningProvider>(),
+            Sigyll.Pkcs11.Pkcs11SigningProvider.Name => sp.GetRequiredService<Sigyll.Pkcs11.Pkcs11SigningProvider>(),
             _ => sp.GetRequiredService<LocalSigningProvider>()
         };
     });

@@ -572,7 +572,7 @@
                         {
                             <FluentSelect TOption="string"
                                           Items="@availableKeyStorageProviders"
-                                          OptionText="@(s => s switch { "vault-transit" => "Vault Transit (remote signing)", "gcp-kms" => "GCP Cloud KMS (remote signing)", _ => "Local (PFX)" })"
+                                          OptionText="@(s => s switch { "vault-transit" => "Vault Transit (remote signing)", "gcp-kms" => "GCP Cloud KMS (remote signing)", "pkcs11" => "PKCS #11 token (HSM signing)", _ => "Local (PFX)" })"
                                           @bind-SelectedOption="issuanceKeyStorage"
                                           Label="Key Storage"
                                           Style="width: 100%;" />

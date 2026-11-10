@@ -12,6 +12,7 @@
     "Unlicense"
   ],
   "exceptions": {
-    "Microsoft.VisualStudio.Azure.Containers.Tools.Targets": "Visual Studio's Docker build tooling: used at build time on a developer machine, never part of what Sigyll ships"
+    "Microsoft.VisualStudio.Azure.Containers.Tools.Targets": "Visual Studio's Docker build tooling: used at build time on a developer machine, never part of what Sigyll ships",
+    "Pkcs11Interop": "Apache-2.0: the package ships its licence as LICENSE.txt (<license type=\"file\">) instead of an SPDX expression, so the BOM records none; checked in 5.3.0, re-check on upgrade"
   }
 }

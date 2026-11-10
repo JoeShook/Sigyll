@@ -3207,6 +3207,7 @@ public partial class CertificateExplorer : IDisposable
     {
         "vault-transit" => "Vault Transit",
         "gcp-kms" => "GCP Cloud KMS",
+        "pkcs11" => "PKCS #11 token",
         _ => "Local (PFX)"
     };
 

@@ -272,6 +272,10 @@
   - Private keys never leave Vault; signs via REST API
   - P1363→DER ECDSA signature format conversion
   - Key lifecycle: create, get public key, sign, delete
+- **`Sigyll.Pkcs11`** — PKCS #11 tokens (HSMs; SoftHSM in development and CI)
+  - Keys generated on the token as sensitive and never extractable; RSA (PKCS #1 v1.5) and ECDSA P-256/384/521
+  - Configured by `Pkcs11:LibraryPath`, `Pkcs11:TokenLabel`, `Pkcs11:UserPin` (from a secret store) and
+    `Pkcs11:HardwareProtected` (set only for a FIPS 140-3 HSM; SoftHSM is never recorded as hardware)
 - **`Sigyll.Gcp.Kms`** — Google Cloud KMS
   - Private keys never leave Cloud KMS; new keys are Cloud HSM keys unless `GcpKms:ProtectionLevel` is `SOFTWARE`
   - Records each key's protection level as Cloud KMS reports it (`CloudHsm` or `CloudKms`)

@@ -13,6 +13,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
 
@@ -22,9 +23,16 @@ namespace Sigyll.Vault;
 /// Signing provider that delegates to HashiCorp Vault's Transit secrets engine.
 /// Private keys never leave Vault — only the signature is returned.
 /// </summary>
-public sealed class VaultTransitSigningProvider : ISigningProvider
+public sealed class VaultTransitSigningProvider : ISigningProvider, IKeyProtectionReporter
 {
     public string ProviderName => "vault-transit";
+
+    // Transit keys live in Vault's encrypted storage, not in an HSM, so they never satisfy a trust domain that
+    // requires HSM-held CA keys.
+    public CertSecurityLevel NewKeySecurityLevel => CertSecurityLevel.CloudKms;
+
+    public Task<CertSecurityLevel> GetSecurityLevelAsync(SigningKeyReference keyRef, CancellationToken ct = default) =>
+        Task.FromResult(CertSecurityLevel.CloudKms);
 
     private readonly VaultTokenSource _tokens;
     private readonly VaultTransitOptions _options;

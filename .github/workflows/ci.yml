@@ -44,6 +44,17 @@ jobs:
       - name: Build
         run: dotnet build Sigyll.slnx --no-restore -c Release
 
+      # A SoftHSM token store for the PKCS #11 signing tests; without it they skip.
+      - name: Install SoftHSM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq softhsm2
+          mkdir -p "$RUNNER_TEMP/softhsm/tokens"
+          printf 'directories.tokendir = %s\nobjectstore.backend = file\nlog.level = ERROR\n' \
+            "$RUNNER_TEMP/softhsm/tokens" > "$RUNNER_TEMP/softhsm/softhsm2.conf"
+          echo "SOFTHSM2_CONF=$RUNNER_TEMP/softhsm/softhsm2.conf" >> "$GITHUB_ENV"
+          echo "SIGYLL_TEST_PKCS11_LIB=/usr/lib/softhsm/libsofthsm2.so" >> "$GITHUB_ENV"
+
       - name: Test
         run: |
           dotnet test _tests/Sigyll.Signing.Tests --no-build -c Release --logger "trx;LogFileName=signing.trx" --results-directory test-results
