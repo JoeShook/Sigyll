@@ -199,3 +199,8 @@ gh attestation verify Sigyll.cdx.json --repo JoeShook/Sigyll
 ## License
 
 See [LICENSE](LICENSE).
+
+Sigyll ships with third-party packages under their own permissive licences. Their licences, copyright notices and
+notice files are collected into `THIRD-PARTY-NOTICES.txt` whenever Sigyll is built: it is in the container image at
+`/app/THIRD-PARTY-NOTICES.txt` and attached to each GitHub release (see
+[tools/third-party-notices](tools/third-party-notices/ThirdPartyNotices.cs)).
