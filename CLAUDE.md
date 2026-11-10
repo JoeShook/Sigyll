@@ -40,6 +40,9 @@ dotnet run --project Sigyll
 # Tests — use Shouldly, NOT FluentAssertions (see Conventions)
 dotnet test _tests/Sigyll.Signing.Tests
 
+# PKCS #11 token tests against SoftHSM in a Linux container (they skip in a plain run without SoftHSM)
+./tools/softhsm/run-token-tests.ps1
+
 # SQL style check for Flyway migrations
 python tools/sql-lint/check_sql.py
 ```
