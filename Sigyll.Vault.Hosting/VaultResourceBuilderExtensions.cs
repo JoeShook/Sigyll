@@ -43,7 +43,8 @@ public static class VaultResourceBuilderExtensions
     /// <param name="persistent">
     /// false (default) = dev mode: in-memory storage, all keys lost on every restart.
     /// true = server mode: file-backed storage in a Docker volume, auto-init + auto-unseal,
-    /// signing keys survive container restarts. Init state (root token + unseal keys) stored
+    /// signing keys survive container restarts, and the container keeps running between AppHost runs.
+    /// Init state (root token + unseal keys) stored
     /// on the host filesystem at %LOCALAPPDATA%/Sigyll/vault-{name}-init.json.
     /// </param>
     public static IResourceBuilder<VaultResource> AddVaultDev(
@@ -81,10 +82,14 @@ public static class VaultResourceBuilderExtensions
         {
             // Server mode: file-backed storage, auto-init + auto-unseal handled by VaultServerConfigurator.
             // VAULT_LOCAL_CONFIG is read by the Vault entrypoint and written to /vault/config/local.json.
+            // The container outlives the AppHost and is reused by the next run, like the PostgreSQL container. A
+            // container removed with each run is left behind when the AppHost stops uncleanly, and the next run
+            // then can't create one with the same name until it is started by hand.
             resourceBuilder
                 .WithEnvironment("VAULT_LOCAL_CONFIG", PersistentConfigJson)
                 .WithArgs("server")
-                .WithVolume($"vault-{name}-data", "/vault/file");
+                .WithVolume($"vault-{name}-data", "/vault/file")
+                .WithLifetime(ContainerLifetime.Persistent);
         }
         else
         {
