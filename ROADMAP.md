@@ -47,7 +47,7 @@
 - [ ] ICertificateStoreProvider interface finalization
 - [ ] File system provider (read/write PFX/PEM on disk)
 - [ ] Database provider (current default — PFX bytes in PostgreSQL)
-- [ ] PKCS#11 / HSM provider (private keys never leave HSM)
+- [x] PKCS#11 / HSM provider (private keys never leave HSM) — `Sigyll.Pkcs11`, tested against SoftHSM in CI
 - [ ] Google Cloud KMS provider
 - [ ] HashiCorp Vault provider (Transit secrets engine for signing, PKI engine for issuance)
 - [x] Export to Vault KV, per file: the `.cer`/`.p12`/`.crl` buttons write to a KV v2 secret that mirrors the trust domain hierarchy
@@ -89,7 +89,7 @@
 - [x] Mandatory MFA for operators (authenticator app or passkey), account lockout, idle and maximum session length
 - [ ] RA (Registration Authority) workflows — request/approve/reject
 - [ ] Key escrow / key recovery
-- [ ] FIPS 140-3 compliance mode (HSM-only key generation) — Cloud HSM keys and per-trust-domain "CA keys in an HSM" rule done; PKCS #11 provider still to come
+- [ ] FIPS 140-3 compliance mode (HSM-only key generation) — Cloud HSM keys, the per-trust-domain "CA keys in an HSM" rule and the PKCS #11 provider are done; tests against the chosen HSM model still to come
 - [ ] Certificate Policy / Certification Practice Statement (RFC 3647), key ceremony scripts
 - [ ] **CAA record checking at issuance (RFC 8659)** — enforce `issue`/`issuewild`/`iodef` for every issuance path (portal + ACME), with DNSSEC-validated lookups (SC-085v2, mandatory Mar 2026 for public CAs). *Baseline CAA was a roadmap gap; see Phase 12b for the ACME-specific RFC 8657 extensions.*
 - [ ] Certificate transparency (CT) log submission — record precerts/SCTs (effectively mandatory in browsers since 2018); consider exposing high-assurance CT *monitoring* (known-good inventory vs. CT stream) as a product feature

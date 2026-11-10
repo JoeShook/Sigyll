@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sigyll.Signing.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PKCS #11 bindings (Apache-2.0). Loads the HSM vendor's library, or SoftHSM in development and CI. -->
+    <PackageReference Include="Pkcs11Interop" Version="5.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sigyll.Common\Sigyll.Common.csproj" />
+  </ItemGroup>
+
+</Project>

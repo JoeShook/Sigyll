@@ -181,21 +181,10 @@ public class CertificateIssuanceService
                 return CertificateIssuanceResult.Failure("Issuing CA not found.");
 
             // Check if the issuing CA uses a remote signing provider
-            if (issuingCaEntity.StoreProviderHint?.StartsWith("vault-transit:") == true)
+            issuerKeyRef = RemoteKeyReference(issuingCaEntity);
+            if (issuerKeyRef != null)
             {
-                var vaultKeyName = issuingCaEntity.StoreProviderHint["vault-transit:".Length..];
-                issuerKeyRef = new SigningKeyReference(
-                    "vault-transit", vaultKeyName, issuingCaEntity.KeyAlgorithm, issuingCaEntity.KeySize);
-
                 // Load the cert (public only) for issuer DN and extensions
-                issuingCert = X509Certificate2.CreateFromPem(issuingCaEntity.X509CertificatePem);
-            }
-            else if (issuingCaEntity.StoreProviderHint?.StartsWith("gcp-kms:") == true)
-            {
-                var kmsKeyId = issuingCaEntity.StoreProviderHint["gcp-kms:".Length..];
-                issuerKeyRef = new SigningKeyReference(
-                    "gcp-kms", kmsKeyId, issuingCaEntity.KeyAlgorithm, issuingCaEntity.KeySize);
-
                 issuingCert = X509Certificate2.CreateFromPem(issuingCaEntity.X509CertificatePem);
             }
             else
@@ -422,6 +411,19 @@ public class CertificateIssuanceService
         }
     }
 
+    /// <summary>
+    /// The remote key a CA signs with, from its store-provider hint ("provider:key", e.g. "gcp-kms:sigil-…" or
+    /// "pkcs11:sigyll-…"), or null when its key is a local P12 file. The configured signing provider does the signing.
+    /// </summary>
+    private static SigningKeyReference? RemoteKeyReference(CaCertificate ca)
+    {
+        var hint = ca.StoreProviderHint;
+        var colon = hint?.IndexOf(':') ?? -1;
+        if (hint == null || colon <= 0 || colon == hint.Length - 1)
+            return null;
+        return new SigningKeyReference(hint[..colon], hint[(colon + 1)..], ca.KeyAlgorithm, ca.KeySize);
+    }
+
     private const string HardwareKeysRequired = "This trust domain requires CA keys held in an HSM.";
 
     /// <summary>
@@ -458,7 +460,7 @@ public class CertificateIssuanceService
     private static string DescribeKeyLocation(CertSecurityLevel level) => level switch
     {
         CertSecurityLevel.Software => "in a P12 file stored by Sigyll",
-        CertSecurityLevel.CloudKms => "in a remote key service that protects it in software",
+        CertSecurityLevel.CloudKms => "in a key service or token that protects it in software",
         CertSecurityLevel.CloudHsm => "in GCP Cloud HSM",
         _ => "in an HSM",
     };
@@ -575,18 +577,9 @@ public class CertificateIssuanceService
         try
         {
             // Resolve the issuer's signing material (local PFX vs remote key reference).
-            if (issuingCaEntity.StoreProviderHint?.StartsWith("vault-transit:") == true)
+            issuerKeyRef = RemoteKeyReference(issuingCaEntity);
+            if (issuerKeyRef != null)
             {
-                var vaultKeyName = issuingCaEntity.StoreProviderHint["vault-transit:".Length..];
-                issuerKeyRef = new SigningKeyReference(
-                    "vault-transit", vaultKeyName, issuingCaEntity.KeyAlgorithm, issuingCaEntity.KeySize);
-                issuingCert = X509Certificate2.CreateFromPem(issuingCaEntity.X509CertificatePem);
-            }
-            else if (issuingCaEntity.StoreProviderHint?.StartsWith("gcp-kms:") == true)
-            {
-                var kmsKeyId = issuingCaEntity.StoreProviderHint["gcp-kms:".Length..];
-                issuerKeyRef = new SigningKeyReference(
-                    "gcp-kms", kmsKeyId, issuingCaEntity.KeyAlgorithm, issuingCaEntity.KeySize);
                 issuingCert = X509Certificate2.CreateFromPem(issuingCaEntity.X509CertificatePem);
             }
             else

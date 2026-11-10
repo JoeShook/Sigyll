@@ -17,7 +17,10 @@ public enum CertSecurityLevel : byte
     Software = 0,
     /// <summary>In a FIPS 140-3 hardware security module.</summary>
     Fips1403 = 1,
-    /// <summary>In a remote key service (GCP Cloud KMS or Vault Transit) that protects it in software.</summary>
+    /// <summary>
+    /// In a key service or token that protects it in software: GCP Cloud KMS at the software level, Vault Transit,
+    /// SoftHSM, or a PKCS #11 token not configured as a hardware HSM.
+    /// </summary>
     CloudKms = 2,
     /// <summary>In GCP Cloud HSM: a Cloud KMS key with protection level HSM (FIPS 140-2 Level 3).</summary>
     CloudHsm = 3,

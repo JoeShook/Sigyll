@@ -69,6 +69,7 @@ a new method does neither, so a page or endpoint can't reach CA data by forgetti
 |---|---|
 | **HashiCorp Vault Transit** | The CA key is generated in Vault and never leaves it; Sigyll sends a digest and gets a signature back |
 | **Google Cloud KMS** | Same model, with Cloud KMS keys. Sigyll creates them in Cloud HSM (FIPS 140-2 Level 3) unless `GcpKms:ProtectionLevel` is `SOFTWARE`, and records each key's protection as Cloud KMS reports it |
+| **PKCS #11 token (HSM)** | Keys are generated on the token as sensitive and never extractable, and every signature is made there, through the HSM vendor's PKCS #11 library (`Sigyll.Pkcs11`). A key is recorded as HSM-held only when `Pkcs11:HardwareProtected` is set, the token is not SoftHSM, and the key's attributes show it was made on the token and can never leave it. The token's user PIN comes from a secret store, never from appsettings |
 
 A trust domain can require HSM-held CA keys (an Admin setting, audited). New roots and intermediates in it then need
 an HSM key, checked against the signing provider's configuration before the key is made and against the key service's
