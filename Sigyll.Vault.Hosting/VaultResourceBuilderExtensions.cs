@@ -117,23 +117,23 @@ public static class VaultResourceBuilderExtensions
 
     /// <summary>
     /// Mounts the Transit engine at <paramref name="mountPath"/> instead of Vault's default "transit", so an
-    /// application's keys sit under its own path (for example "sigyll/transit"). Apps given this Vault with
+    /// application's keys sit under its own path (for example "transit/sigyll"). Apps given this Vault with
     /// WithVaultAppRole are told the path (Vault__MountPath) and the AppRole policy is scoped to it.
     /// </summary>
     /// <param name="mountPath">Mount path of the Transit engine.</param>
     /// <param name="moveFrom">
-    /// An earlier mount path. When a Transit engine exists there and nothing is mounted at
-    /// <paramref name="mountPath"/> yet, Vault moves it, with every key and key version; the key material never
-    /// leaves Vault. Everything on that mount moves, so only name a mount this application owns.
+    /// Earlier mount paths. When nothing is mounted at <paramref name="mountPath"/> yet, the first of these that
+    /// holds a Transit engine is moved there by Vault, with every key and key version; the key material never
+    /// leaves Vault. Everything on that mount moves, so only name mounts this application owns.
     /// </param>
     public static IResourceBuilder<VaultResource> WithTransitMount(
         this IResourceBuilder<VaultResource> builder,
         string mountPath,
-        string? moveFrom = null)
+        params string[] moveFrom)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mountPath.Trim('/'), nameof(mountPath));
         builder.Resource.TransitMountPath = mountPath.Trim('/');
-        builder.Resource.TransitMoveFrom = moveFrom?.Trim('/');
+        builder.Resource.TransitMoveFrom = [.. moveFrom.Select(path => path.Trim('/'))];
         return builder;
     }
 
