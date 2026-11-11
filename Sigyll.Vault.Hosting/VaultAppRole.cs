@@ -48,8 +48,8 @@ public static class VaultAppRoleExtensions
     }
 
     /// <summary>
-    /// Gives an app the Vault address and AppRole credentials (Vault__Address, Vault__RoleId, Vault__SecretId) plus
-    /// the location of its key-password master key. A new secret id is issued each time the app starts.
+    /// Gives an app the Vault address and AppRole credentials (Vault__Address, Vault__RoleId, Vault__SecretId), the
+    /// Transit mount path (Vault__MountPath) and the location of its key-password master key. A new secret id is issued each time the app starts.
     /// </summary>
     public static IResourceBuilder<T> WithVaultAppRole<T>(
         this IResourceBuilder<T> builder,
@@ -62,6 +62,7 @@ public static class VaultAppRoleExtensions
         return builder
             .WaitFor(vault)
             .WithEnvironment("Vault__Address", vault.Resource.PrimaryEndpoint)
+            .WithEnvironment("Vault__MountPath", () => vault.Resource.TransitMountPath)
             .WithEnvironment("Vault__KeyProtectionPath", spec.KeyProtectionPath)
             .WithEnvironment("Vault__KeyProtectionField", spec.KeyProtectionField)
             .WithEnvironment(async ctx =>
@@ -83,7 +84,8 @@ internal static class VaultAppRoleConfigurator
     private static readonly TimeSpan ConfigureTimeout = TimeSpan.FromMinutes(3);
 
     public static async Task EnsureAsync(
-        string vaultAddress, string rootToken, string vaultName, VaultAppRoleSpec spec, ILogger logger, CancellationToken ct)
+        string vaultAddress, string rootToken, string vaultName, VaultAppRoleSpec spec, string transitMountPath,
+        ILogger logger, CancellationToken ct)
     {
         using var client = new HttpClient { BaseAddress = new Uri(vaultAddress) };
         client.DefaultRequestHeaders.Add("X-Vault-Token", rootToken);
@@ -99,8 +101,8 @@ internal static class VaultAppRoleConfigurator
 
         var policy = $$"""
             path "secret/data/{{spec.KeyProtectionPath}}" { capabilities = ["read"] }
-            path "transit/keys/*" { capabilities = ["create", "read", "update", "delete"] }
-            path "transit/sign/*" { capabilities = ["update"] }
+            path "{{transitMountPath}}/keys/*" { capabilities = ["create", "read", "update", "delete"] }
+            path "{{transitMountPath}}/sign/*" { capabilities = ["update"] }
             """;
         using (var put = await client.PutAsJsonAsync($"/v1/sys/policies/acl/{spec.RoleName}", new { policy }, ct))
         {

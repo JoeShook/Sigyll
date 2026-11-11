@@ -9,19 +9,29 @@
 #endregion
 
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace Sigyll.Vault.Hosting;
 
 /// <summary>
 /// Configures the Vault Transit secrets engine after the Vault container is healthy.
-/// Called via Aspire eventing (AfterResourcesCreatedEvent).
+/// Called each time Vault becomes ready (ResourceReadyEvent).
 /// </summary>
 internal static class VaultTransitConfigurator
 {
+    private static readonly TimeSpan MoveTimeout = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Makes sure a Transit engine is mounted at <paramref name="mountPath"/> and holds <paramref name="keys"/>.
+    /// When nothing is mounted there yet and a Transit engine exists at <paramref name="moveFrom"/>, that engine is
+    /// moved to <paramref name="mountPath"/> with its keys; the key material stays inside Vault throughout.
+    /// </summary>
     internal static async Task ConfigureTransitAsync(
         string vaultAddress,
         string rootToken,
+        string mountPath,
+        string? moveFrom,
         List<TransitKeySpec> keys,
         ILogger logger,
         CancellationToken ct)
@@ -29,50 +39,145 @@ internal static class VaultTransitConfigurator
         using var client = new HttpClient { BaseAddress = new Uri(vaultAddress) };
         client.DefaultRequestHeaders.Add("X-Vault-Token", rootToken);
 
-        // Enable Transit secrets engine
-        logger.LogInformation("Enabling Vault Transit engine at {Address}", vaultAddress);
+        mountPath = mountPath.Trim('/');
+        moveFrom = moveFrom?.Trim('/');
+        if (string.Equals(moveFrom, mountPath, StringComparison.Ordinal)) moveFrom = null;
 
-        var mountResponse = await client.PostAsJsonAsync(
-            "/v1/sys/mounts/transit",
-            new { type = "transit" },
-            ct);
+        var mounts = await ReadMountsAsync(client, ct);
+        var hasOldMount = moveFrom is not null && mounts.GetValueOrDefault(moveFrom) == "transit";
 
-        if (mountResponse.IsSuccessStatusCode)
+        if (mounts.TryGetValue(mountPath, out var mountedType))
         {
-            logger.LogInformation("Transit engine mounted successfully");
+            if (mountedType != "transit")
+            {
+                throw new InvalidOperationException(
+                    $"Vault has a '{mountedType}' engine at '{mountPath}', where Sigyll's Transit engine belongs.");
+            }
+
+            logger.LogInformation("Transit engine already mounted at {Mount}", mountPath);
+            if (hasOldMount)
+            {
+                logger.LogWarning(
+                    "Transit engines exist at both '{Mount}' and '{Old}'; Sigyll uses '{Mount}' and leaves '{Old}' alone.",
+                    mountPath, moveFrom, mountPath, moveFrom);
+            }
         }
-        else if ((int)mountResponse.StatusCode == 400)
+        else if (hasOldMount)
         {
-            // Already mounted — not an error
-            logger.LogInformation("Transit engine already mounted");
+            await MoveMountAsync(client, moveFrom!, mountPath, logger, ct);
         }
         else
         {
-            var body = await mountResponse.Content.ReadAsStringAsync(ct);
-            logger.LogWarning("Transit mount returned {Status}: {Body}",
-                mountResponse.StatusCode, body);
+            logger.LogInformation("Enabling Vault Transit engine at {Mount}", mountPath);
+            using var mountResponse = await client.PostAsJsonAsync($"/v1/sys/mounts/{mountPath}", new { type = "transit" }, ct);
+            await EnsureSuccessAsync(mountResponse, $"mount a Transit engine at '{mountPath}'", ct);
         }
 
-        // Create signing keys
+        // Create signing keys (a key that already exists is left as it is).
         foreach (var key in keys)
         {
-            logger.LogInformation("Creating Transit key '{Name}' (type: {Type})", key.Name, key.Type);
+            logger.LogInformation("Ensuring Transit key '{Name}' (type: {Type})", key.Name, key.Type);
 
-            var keyResponse = await client.PostAsJsonAsync(
-                $"/v1/transit/keys/{key.Name}",
+            using var keyResponse = await client.PostAsJsonAsync(
+                $"/v1/{mountPath}/keys/{key.Name}",
                 new { type = key.Type },
                 ct);
 
-            if (keyResponse.IsSuccessStatusCode)
-            {
-                logger.LogInformation("Transit key '{Name}' created", key.Name);
-            }
-            else
+            if (!keyResponse.IsSuccessStatusCode)
             {
                 var body = await keyResponse.Content.ReadAsStringAsync(ct);
                 logger.LogWarning("Transit key '{Name}' creation returned {Status}: {Body}",
                     key.Name, keyResponse.StatusCode, body);
             }
+        }
+    }
+
+    /// <summary>
+    /// Moves a secrets engine to another path (sys/remount). Vault runs the move in the background, so this waits
+    /// for it to finish and then confirms the engine is at its new path. A failed move throws: carrying on would
+    /// mount an empty engine and leave the existing keys behind.
+    /// </summary>
+    private static async Task MoveMountAsync(HttpClient client, string from, string to, ILogger logger, CancellationToken ct)
+    {
+        logger.LogInformation("Moving the Vault Transit engine from '{From}' to '{To}' (its keys move with it)", from, to);
+
+        using var move = await client.PostAsJsonAsync("/v1/sys/remount", new { from, to }, ct);
+        await EnsureSuccessAsync(move, $"move the Transit engine from '{from}' to '{to}'", ct);
+
+        var migrationId = await ReadFieldAsync(move, ct, "migration_id");
+        var deadline = DateTime.UtcNow + MoveTimeout;
+        while (migrationId is not null)
+        {
+            using var status = await client.GetAsync($"/v1/sys/remount/status/{migrationId}", ct);
+            await EnsureSuccessAsync(status, "read the progress of the Transit engine move", ct);
+            var state = await ReadFieldAsync(status, ct, "migration_info", "status");
+            if (state == "success") break;
+            if (state == "failure" || DateTime.UtcNow > deadline)
+            {
+                throw new InvalidOperationException(
+                    $"Vault did not finish moving the Transit engine from '{from}' to '{to}' (status: {state ?? "unknown"}).");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
+        }
+
+        var mounts = await ReadMountsAsync(client, ct);
+        if (mounts.GetValueOrDefault(to) != "transit" || mounts.ContainsKey(from))
+        {
+            throw new InvalidOperationException(
+                $"Vault reported the Transit engine moved from '{from}' to '{to}', but its mounts don't show it.");
+        }
+
+        logger.LogInformation("Vault Transit engine is now at '{To}'", to);
+    }
+
+    /// <summary>The secrets engines mounted in Vault: path (no trailing slash) to engine type.</summary>
+    private static async Task<Dictionary<string, string>> ReadMountsAsync(HttpClient client, CancellationToken ct)
+    {
+        using var response = await client.GetAsync("/v1/sys/mounts", ct);
+        await EnsureSuccessAsync(response, "list the secrets engines", ct);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+        var mounts = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var mount in doc.RootElement.GetProperty("data").EnumerateObject())
+        {
+            if (mount.Value.ValueKind == JsonValueKind.Object && mount.Value.TryGetProperty("type", out var type))
+            {
+                mounts[mount.Name.Trim('/')] = type.GetString() ?? "";
+            }
+        }
+
+        return mounts;
+    }
+
+    /// <summary>Reads a string at <paramref name="path"/>, whether Vault put it at the top level or under "data".</summary>
+    private static async Task<string?> ReadFieldAsync(HttpResponseMessage response, CancellationToken ct, params string[] path)
+    {
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (string.IsNullOrWhiteSpace(body)) return null;
+
+        using var doc = JsonDocument.Parse(body);
+        foreach (var root in new[] { doc.RootElement, doc.RootElement.TryGetProperty("data", out var data) ? data : default })
+        {
+            var current = root;
+            var found = current.ValueKind == JsonValueKind.Object;
+            foreach (var name in path)
+            {
+                found = found && current.ValueKind == JsonValueKind.Object && current.TryGetProperty(name, out current);
+            }
+
+            if (found && current.ValueKind == JsonValueKind.String) return current.GetString();
+        }
+
+        return null;
+    }
+
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string action, CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException($"Vault: could not {action} ({(int)response.StatusCode}): {body}");
         }
     }
 }

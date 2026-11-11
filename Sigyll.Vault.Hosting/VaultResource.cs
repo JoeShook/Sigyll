@@ -39,6 +39,16 @@ public sealed class VaultResource(string name) : ContainerResource(name), IResou
     internal List<TransitKeySpec> TransitKeys { get; } = [];
 
     /// <summary>
+    /// Where the Transit engine is mounted (<see cref="VaultResourceBuilderExtensions.WithTransitMount"/>).
+    /// </summary>
+    internal string TransitMountPath { get; set; } = "transit";
+
+    /// <summary>
+    /// An earlier Transit mount to move to <see cref="TransitMountPath"/>, once, when nothing is mounted there yet.
+    /// </summary>
+    internal string? TransitMoveFrom { get; set; }
+
+    /// <summary>
     /// AppRole to create for the app that uses this Vault (<see cref="VaultAppRoleExtensions.WithAppRole"/>).
     /// </summary>
     internal VaultAppRoleSpec? AppRole { get; set; }
