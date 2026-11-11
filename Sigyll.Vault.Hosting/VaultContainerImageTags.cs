@@ -14,5 +14,5 @@ public static class VaultContainerImageTags
 {
     public const string Registry = "docker.io";
     public const string Image = "hashicorp/vault";
-    public const string Tag = "1.19";
+    public const string Tag = "2.2";
 }
