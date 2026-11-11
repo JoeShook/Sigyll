@@ -85,7 +85,7 @@ internal static class VaultAppRoleConfigurator
 
     public static async Task EnsureAsync(
         string vaultAddress, string rootToken, string vaultName, VaultAppRoleSpec spec, string transitMountPath,
-        ILogger logger, CancellationToken ct)
+        string transitKeyPrefix, ILogger logger, CancellationToken ct)
     {
         using var client = new HttpClient { BaseAddress = new Uri(vaultAddress) };
         client.DefaultRequestHeaders.Add("X-Vault-Token", rootToken);
@@ -101,8 +101,8 @@ internal static class VaultAppRoleConfigurator
 
         var policy = $$"""
             path "secret/data/{{spec.KeyProtectionPath}}" { capabilities = ["read"] }
-            path "{{transitMountPath}}/keys/*" { capabilities = ["create", "read", "update", "delete"] }
-            path "{{transitMountPath}}/sign/*" { capabilities = ["update"] }
+            path "{{transitMountPath}}/keys/{{transitKeyPrefix}}*" { capabilities = ["create", "read", "update", "delete"] }
+            path "{{transitMountPath}}/sign/{{transitKeyPrefix}}*" { capabilities = ["update"] }
             """;
         using (var put = await client.PutAsJsonAsync($"/v1/sys/policies/acl/{spec.RoleName}", new { policy }, ct))
         {

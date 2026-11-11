@@ -116,8 +116,7 @@ public static class VaultResourceBuilderExtensions
     }
 
     /// <summary>
-    /// Mounts the Transit engine at <paramref name="mountPath"/> instead of Vault's default "transit", so an
-    /// application's keys sit under its own path (for example "transit/sigyll"). Apps given this Vault with
+    /// Sets where the Transit engine is mounted (Vault's default is "transit"). Apps given this Vault with
     /// WithVaultAppRole are told the path (Vault__MountPath) and the AppRole policy is scoped to it.
     /// </summary>
     /// <param name="mountPath">Mount path of the Transit engine.</param>
@@ -134,6 +133,18 @@ public static class VaultResourceBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(mountPath.Trim('/'), nameof(mountPath));
         builder.Resource.TransitMountPath = mountPath.Trim('/');
         builder.Resource.TransitMoveFrom = [.. moveFrom.Select(path => path.Trim('/'))];
+        return builder;
+    }
+
+    /// <summary>
+    /// Limits the application's AppRole to Transit keys whose names start with <paramref name="prefix"/>, so
+    /// several applications can share one Transit engine, each seeing only its own keys.
+    /// </summary>
+    public static IResourceBuilder<VaultResource> WithTransitKeyPrefix(
+        this IResourceBuilder<VaultResource> builder,
+        string prefix)
+    {
+        builder.Resource.TransitKeyPrefix = prefix;
         return builder;
     }
 
@@ -191,7 +202,8 @@ public static class VaultResourceBuilderExtensions
             if (vault.AppRole is not null)
             {
                 await VaultAppRoleConfigurator.EnsureAsync(
-                    vaultAddress, vault.RootToken, vault.Name, vault.AppRole, vault.TransitMountPath, logger, ct);
+                    vaultAddress, vault.RootToken, vault.Name, vault.AppRole, vault.TransitMountPath, vault.TransitKeyPrefix,
+                    logger, ct);
             }
 
             vault.HostAddress = vaultAddress;

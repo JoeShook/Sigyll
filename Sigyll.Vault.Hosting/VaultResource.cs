@@ -50,6 +50,12 @@ public sealed class VaultResource(string name) : ContainerResource(name), IResou
     internal IReadOnlyList<string> TransitMoveFrom { get; set; } = [];
 
     /// <summary>
+    /// What this application's Transit key names start with; its AppRole may use only those keys
+    /// (<see cref="VaultResourceBuilderExtensions.WithTransitKeyPrefix"/>). Empty allows every key on the mount.
+    /// </summary>
+    internal string TransitKeyPrefix { get; set; } = "";
+
+    /// <summary>
     /// AppRole to create for the app that uses this Vault (<see cref="VaultAppRoleExtensions.WithAppRole"/>).
     /// </summary>
     internal VaultAppRoleSpec? AppRole { get; set; }
