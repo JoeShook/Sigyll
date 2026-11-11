@@ -152,7 +152,7 @@ When running via Aspire AppHost, these are set automatically:
 | `Signing__Provider` | `local` or `vault-transit` | `local` |
 | `Vault__Address` | Vault HTTP address | `http://localhost:8200` |
 | `Vault__RoleId` / `Vault__SecretId` | AppRole credentials Sigyll logs in with | — |
-| `Vault__MountPath` | Transit engine mount path | `transit` |
+| `Vault__MountPath` | Transit engine mount path | `transit` (the AppHost uses `sigyll/transit`) |
 | `Vault__KeyProtectionPath` | KV v2 path of the key-password master key | — |
 
 ### Signing Modes

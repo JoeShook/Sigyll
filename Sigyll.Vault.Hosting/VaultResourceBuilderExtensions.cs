@@ -116,6 +116,28 @@ public static class VaultResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Mounts the Transit engine at <paramref name="mountPath"/> instead of Vault's default "transit", so an
+    /// application's keys sit under its own path (for example "sigyll/transit"). Apps given this Vault with
+    /// WithVaultAppRole are told the path (Vault__MountPath) and the AppRole policy is scoped to it.
+    /// </summary>
+    /// <param name="mountPath">Mount path of the Transit engine.</param>
+    /// <param name="moveFrom">
+    /// An earlier mount path. When a Transit engine exists there and nothing is mounted at
+    /// <paramref name="mountPath"/> yet, Vault moves it, with every key and key version; the key material never
+    /// leaves Vault. Everything on that mount moves, so only name a mount this application owns.
+    /// </param>
+    public static IResourceBuilder<VaultResource> WithTransitMount(
+        this IResourceBuilder<VaultResource> builder,
+        string mountPath,
+        string? moveFrom = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mountPath.Trim('/'), nameof(mountPath));
+        builder.Resource.TransitMountPath = mountPath.Trim('/');
+        builder.Resource.TransitMoveFrom = moveFrom?.Trim('/');
+        return builder;
+    }
+
+    /// <summary>
     /// Configures this Vault (init + unseal in persistent mode, Transit keys, AppRole) each time it becomes ready.
     /// Runs inside Vault's ResourceReadyEvent, which resources that WaitFor(vault) wait on, so they start only once
     /// Vault is unsealed and configured. Subscribed once per resource, whichever of WithTransitEngine / WithAppRole
@@ -162,13 +184,14 @@ public static class VaultResourceBuilderExtensions
                     "Vault '{Name}' is healthy — (re)configuring Transit engine",
                     vault.Name);
                 await VaultTransitConfigurator.ConfigureTransitAsync(
-                    vaultAddress, vault.RootToken, vault.TransitKeys, logger, ct);
+                    vaultAddress, vault.RootToken, vault.TransitMountPath, vault.TransitMoveFrom, vault.TransitKeys,
+                    logger, ct);
             }
 
             if (vault.AppRole is not null)
             {
                 await VaultAppRoleConfigurator.EnsureAsync(
-                    vaultAddress, vault.RootToken, vault.Name, vault.AppRole, logger, ct);
+                    vaultAddress, vault.RootToken, vault.Name, vault.AppRole, vault.TransitMountPath, logger, ct);
             }
 
             vault.HostAddress = vaultAddress;
