@@ -30,10 +30,11 @@ var keyProtectionPath = vaultConfig["KeyProtectionPath"] ?? "sigyll/key-protecti
 IResourceBuilder<VaultResource>? vault = null;
 if (!externalVault)
 {
-    // Sigyll's Transit keys live under their own mount. A Vault from before this still has them at "transit";
-    // that engine is moved once, keys included, the first time this runs.
+    // Sigyll's Transit keys live under their own mount, transit/sigyll. A Vault from before this has them at
+    // "transit" (or at "sigyll/transit", used briefly); that engine is moved once, keys included, the first time
+    // this runs.
     vault = builder.AddVaultDev("vault", persistent: true)
-        .WithTransitMount(vaultConfig["TransitMountPath"] ?? "sigyll/transit", moveFrom: "transit")
+        .WithTransitMount(vaultConfig["TransitMountPath"] ?? "transit/sigyll", "sigyll/transit", "transit")
         .WithTransitEngine(
             new TransitKeySpec("sigil-rsa-4096", "rsa-4096"),
             new TransitKeySpec("sigil-ecdsa-p384", "ecdsa-p384"))

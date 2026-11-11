@@ -24,14 +24,15 @@ internal static class VaultTransitConfigurator
 
     /// <summary>
     /// Makes sure a Transit engine is mounted at <paramref name="mountPath"/> and holds <paramref name="keys"/>.
-    /// When nothing is mounted there yet and a Transit engine exists at <paramref name="moveFrom"/>, that engine is
-    /// moved to <paramref name="mountPath"/> with its keys; the key material stays inside Vault throughout.
+    /// When nothing is mounted there yet and a Transit engine exists at one of the <paramref name="moveFrom"/>
+    /// paths (the first found, in order), that engine is moved to <paramref name="mountPath"/> with its keys; the
+    /// key material stays inside Vault throughout.
     /// </summary>
     internal static async Task ConfigureTransitAsync(
         string vaultAddress,
         string rootToken,
         string mountPath,
-        string? moveFrom,
+        IReadOnlyList<string> moveFrom,
         List<TransitKeySpec> keys,
         ILogger logger,
         CancellationToken ct)
@@ -40,11 +41,16 @@ internal static class VaultTransitConfigurator
         client.DefaultRequestHeaders.Add("X-Vault-Token", rootToken);
 
         mountPath = mountPath.Trim('/');
-        moveFrom = moveFrom?.Trim('/');
-        if (string.Equals(moveFrom, mountPath, StringComparison.Ordinal)) moveFrom = null;
-
         var mounts = await ReadMountsAsync(client, ct);
-        var hasOldMount = moveFrom is not null && mounts.GetValueOrDefault(moveFrom) == "transit";
+
+        // Vault refuses a mount nested in another ("transit" and "transit/sigyll" can't both exist), so a move
+        // between such paths goes through this one. It is checked first, to finish a move that was interrupted.
+        var stagingPath = mountPath.Replace('/', '-') + "-moving";
+        var oldMount = moveFrom
+            .Select(path => path.Trim('/'))
+            .Prepend(stagingPath)
+            .FirstOrDefault(path => path != mountPath && mounts.GetValueOrDefault(path) == "transit");
+        var hasOldMount = oldMount is not null;
 
         if (mounts.TryGetValue(mountPath, out var mountedType))
         {
@@ -59,12 +65,18 @@ internal static class VaultTransitConfigurator
             {
                 logger.LogWarning(
                     "Transit engines exist at both '{Mount}' and '{Old}'; Sigyll uses '{Mount}' and leaves '{Old}' alone.",
-                    mountPath, moveFrom, mountPath, moveFrom);
+                    mountPath, oldMount, mountPath, oldMount);
             }
         }
         else if (hasOldMount)
         {
-            await MoveMountAsync(client, moveFrom!, mountPath, logger, ct);
+            if (IsNested(oldMount!, mountPath))
+            {
+                await MoveMountAsync(client, oldMount!, stagingPath, logger, ct);
+                oldMount = stagingPath;
+            }
+
+            await MoveMountAsync(client, oldMount!, mountPath, logger, ct);
         }
         else
         {
@@ -130,6 +142,10 @@ internal static class VaultTransitConfigurator
 
         logger.LogInformation("Vault Transit engine is now at '{To}'", to);
     }
+
+    /// <summary>True when one mount path lies inside the other, which Vault does not allow to exist together.</summary>
+    internal static bool IsNested(string a, string b) =>
+        (b + "/").StartsWith(a + "/", StringComparison.Ordinal) || (a + "/").StartsWith(b + "/", StringComparison.Ordinal);
 
     /// <summary>The secrets engines mounted in Vault: path (no trailing slash) to engine type.</summary>
     private static async Task<Dictionary<string, string>> ReadMountsAsync(HttpClient client, CancellationToken ct)

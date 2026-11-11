@@ -44,9 +44,10 @@ public sealed class VaultResource(string name) : ContainerResource(name), IResou
     internal string TransitMountPath { get; set; } = "transit";
 
     /// <summary>
-    /// An earlier Transit mount to move to <see cref="TransitMountPath"/>, once, when nothing is mounted there yet.
+    /// Earlier Transit mounts; the first that exists is moved to <see cref="TransitMountPath"/>, once, when nothing
+    /// is mounted there yet.
     /// </summary>
-    internal string? TransitMoveFrom { get; set; }
+    internal IReadOnlyList<string> TransitMoveFrom { get; set; } = [];
 
     /// <summary>
     /// AppRole to create for the app that uses this Vault (<see cref="VaultAppRoleExtensions.WithAppRole"/>).
