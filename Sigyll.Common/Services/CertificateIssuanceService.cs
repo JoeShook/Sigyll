@@ -989,7 +989,9 @@ public class CertificateIssuanceService
 
             // Generate new key in the remote provider
             var keyLabel = (profile.IsBasicConstraintsCa ? "ca " : "cert ")
-                + (string.IsNullOrWhiteSpace(request.CertificateName) ? request.SubjectDn : request.CertificateName);
+                + (string.IsNullOrWhiteSpace(request.CertificateName)
+                    ? ExtractCnFromDn(request.SubjectDn) ?? request.SubjectDn
+                    : request.CertificateName);
             var newKeyRef = await _signingProvider.GenerateKeyAsync(
                 profile.KeyAlgorithm, profile.KeySize, profile.EcdsaCurve, keyLabel);
 

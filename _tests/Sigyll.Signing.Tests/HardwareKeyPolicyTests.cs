@@ -205,6 +205,23 @@ public class HardwareKeyPolicyTests
     }
 
     [Theory]
+    [InlineData("Test Root", "ca Test Root")]
+    [InlineData("", "ca Unnamed Root")]
+    public async Task RemoteKey_IsLabelledWithTheCertificateName_OrTheSubjectCommonName(string name, string expected)
+    {
+        var seed = await SeedAsync(requireHardwareKeys: false);
+        var keys = new FakeKeyService(CertSecurityLevel.CloudHsm);
+        var request = Root(seed);
+        request.CertificateName = name;
+        request.SubjectDn = "CN=Unnamed Root, O=Example";
+
+        var result = await Service(keys).IssueCertificateAsync(request);
+
+        result.Success.ShouldBeTrue(result.Error);
+        keys.LastPurpose.ShouldBe(expected);
+    }
+
+    [Theory]
     [InlineData("HSM", CertSecurityLevel.CloudHsm)]
     [InlineData(null, CertSecurityLevel.CloudHsm)]
     [InlineData("software", CertSecurityLevel.CloudKms)]
@@ -320,6 +337,7 @@ public class HardwareKeyPolicyTests
 
         public CertSecurityLevel Reports { get; init; } = configured;
         public int KeysMade { get; private set; }
+        public string? LastPurpose { get; private set; }
 
         public string ProviderName => "gcp-kms";
         public CertSecurityLevel NewKeySecurityLevel => configured;
@@ -331,6 +349,7 @@ public class HardwareKeyPolicyTests
             string? purpose = null, CancellationToken ct = default)
         {
             KeysMade++;
+            LastPurpose = purpose;
             var key = await _keys.GenerateKeyAsync(keyAlgorithm, keySize, ecdsaCurve, purpose, ct);
             return key with { Provider = ProviderName };
         }
