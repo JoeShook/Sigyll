@@ -4,7 +4,7 @@
 # Aspire builds it with AddDockerfile when Sigyll:HostMode is "docker".
 
 # Base images are pinned by digest; Dependabot proposes new digests as Microsoft publishes them.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:bfd912c83295ce66d4b706ebb8541b9f14259b0e76fbb88b2751f58ce2399d2e AS base
+FROM mcr.microsoft.com/dotnet/aspnet:11.0@sha256:bc0d6653979efba491ab3d6f589d691f96c309c3c3ef81325efa6978e7b7f242 AS base
 
 WORKDIR /app
 EXPOSE 7200
