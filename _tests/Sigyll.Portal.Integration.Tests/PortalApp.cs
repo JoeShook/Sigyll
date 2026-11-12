@@ -36,7 +36,7 @@ public sealed class PortalApp : IAsyncLifetime
     /// <summary>The first PortalAdmin, created at startup from configuration.</summary>
     public const string BootstrapAdmin = "portal-admin@example.test";
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17.6")
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17.11")
         .WithDatabase("portal")
         .Build();
 
