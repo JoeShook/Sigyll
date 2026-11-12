@@ -40,3 +40,8 @@ updates:
     directory: "/Sigyll"
     schedule:
       interval: "weekly"
+    ignore:
+      # The base images follow the .NET version the projects target. A new major version is a framework
+      # upgrade, made in the project files and Dockerfiles together, not an image bump.
+      - dependency-name: "dotnet/*"
+        update-types: ["version-update:semver-major"]
