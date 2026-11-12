@@ -47,7 +47,7 @@ DML (`INSERT`, `UPDATE`, ...), string literals and `DO $$ ... $$` bodies are not
 ## Under the Aspire AppHost
 
 `Sigyll.AppHost` runs PostgreSQL as a persistent container (`sigyll-postgres`, volume `sigyll-postgres-data`,
-image `postgres:17.6`), creates the `sigil` and `portal` databases, runs `sigil-flyway` and `portal-flyway`,
+image `postgres:17.11`), creates the `sigil` and `portal` databases, runs `sigil-flyway` and `portal-flyway`,
 and only then starts the apps, handing them their connection strings. Nothing to install or configure.
 
 ### Sharing a Postgres you already run

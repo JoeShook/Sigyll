@@ -78,7 +78,7 @@ var certServer = builder.AddProject<Projects.Sigyll_Certificate_Server>("certifi
 var pg = builder.Configuration.GetSection("Postgres");
 var pgContainer = pg["ContainerName"] ?? "sigyll-postgres";
 var postgres = builder.AddPostgres("postgres")
-    .WithImageTag(pg["ImageTag"] ?? "17.6")
+    .WithImageTag(pg["ImageTag"] ?? "17.11")
     .WithContainerName(pgContainer)
     .WithDataVolume(pg["DataVolume"] ?? "sigyll-postgres-data")
     .WithLifetime(ContainerLifetime.Persistent)

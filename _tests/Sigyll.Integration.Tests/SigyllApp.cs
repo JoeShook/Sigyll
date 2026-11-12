@@ -38,7 +38,7 @@ public sealed class SigyllApp : IAsyncLifetime
     /// <summary>Sessions end this long after sign-in, however active; short enough to test.</summary>
     public static readonly TimeSpan MaxSessionLength = TimeSpan.FromSeconds(15);
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17.6")
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17.11")
         .WithDatabase("sigil")
         .Build();
 
