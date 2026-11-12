@@ -13,6 +13,6 @@ namespace Sigyll.Vault.Hosting;
 /// <summary>
 /// Defines a Transit signing key to be created in Vault.
 /// </summary>
-/// <param name="Name">Key name in Transit, e.g. "sigil-rsa-4096"</param>
+/// <param name="Name">Key name in Transit, e.g. "sigyll-rsa-4096"</param>
 /// <param name="Type">Vault key type, e.g. "rsa-4096", "ecdsa-p384"</param>
 public record TransitKeySpec(string Name, string Type);

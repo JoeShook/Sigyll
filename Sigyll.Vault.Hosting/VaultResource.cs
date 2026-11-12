@@ -39,6 +39,11 @@ public sealed class VaultResource(string name) : ContainerResource(name), IResou
     internal List<TransitKeySpec> TransitKeys { get; } = [];
 
     /// <summary>
+    /// True once <see cref="VaultResourceBuilderExtensions.WithTransitEngine"/> asked for a Transit engine.
+    /// </summary>
+    internal bool TransitEnabled { get; set; }
+
+    /// <summary>
     /// Where the Transit engine is mounted (<see cref="VaultResourceBuilderExtensions.WithTransitMount"/>).
     /// </summary>
     internal string TransitMountPath { get; set; } = "transit";

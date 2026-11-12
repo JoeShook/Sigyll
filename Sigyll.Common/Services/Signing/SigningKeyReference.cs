@@ -16,7 +16,7 @@ namespace Sigyll.Common.Services.Signing;
 /// <param name="Provider">Provider name: "local" or "vault-transit"</param>
 /// <param name="KeyIdentifier">
 /// For local: a GUID referencing an in-memory key holder.
-/// For Vault Transit: the Transit key name (e.g. "sigil-rsa-4096").
+/// For Vault Transit: the Transit key name (e.g. "sigyll-ca-my-root-ca-3f9a1c2e").
 /// </param>
 /// <param name="KeyAlgorithm">"RSA" or "ECDSA"</param>
 /// <param name="KeySize">Key size in bits (2048, 4096, etc.)</param>

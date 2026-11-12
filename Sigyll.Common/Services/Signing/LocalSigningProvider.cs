@@ -33,7 +33,7 @@ public sealed class LocalSigningProvider : ISigningProvider, IDisposable
 
     public Task<SigningKeyReference> GenerateKeyAsync(
         string keyAlgorithm, int keySize, string? ecdsaCurve = null,
-        CancellationToken ct = default)
+        string? purpose = null, CancellationToken ct = default)
     {
         var id = Guid.NewGuid().ToString("N");
 
