@@ -125,7 +125,7 @@
 - CRUD page with FluentDataGrid + Add/Edit/Clone/Delete dialog
 - **4 preset profiles** (seeded on startup, non-deletable):
   - Root CA (RSA-4096, 10yr, CertSign+CrlSign)
-  - Intermediate CA (RSA-4096, 5yr, DigSig+CertSign+CrlSign, CDP+AIA, URI SANs)
+  - Intermediate CA (RSA-4096, 5yr, DigSig+CertSign+CrlSign, CDP+AIA)
   - UDAP Client (RSA-2048, 2yr, DigSig, TLS Client Auth EKU, CDP+AIA, URI SANs)
   - SSL Server (RSA-2048, 1yr, DigSig, TLS Server Auth EKU, CDP, DNS SANs)
 - Clone preset profiles to customize
