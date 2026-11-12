@@ -633,7 +633,7 @@ static IEnumerable<CertificateProfile> PresetProfiles()
         HashAlgorithm = "SHA256",
         IncludeCdp = true,
         IncludeAia = true,
-        SubjectAltNameTypes = "URI",
+        SubjectAltNameTypes = null,
         IsPreset = true,
     };
     yield return new CertificateProfile
@@ -736,7 +736,7 @@ static CertificateProfile PqcCa(string name, string description, CertificateType
     HashAlgorithm = "Pure",
     IncludeCdp = intermediate,
     IncludeAia = intermediate,
-    SubjectAltNameTypes = intermediate ? "URI" : null,
+    SubjectAltNameTypes = null,
     IsPreset = true,
 };
 
