@@ -1,7 +1,7 @@
 # Weekly update checks for NuGet packages, the GitHub Actions the workflows pin by commit,
 # and the container base images.
 #
-# NuGet packages and Actions wait 14 days after a release before Dependabot proposes it, so a hijacked or broken
+# NuGet packages and Actions wait 3 days after a release before Dependabot proposes it, so a hijacked or broken
 # release has time to be found and pulled first. Security updates are not held back. Base image digests are not
 # held either: Microsoft rebuilds them mainly to ship OS security fixes.
 version: 2
@@ -11,12 +11,14 @@ updates:
     schedule:
       interval: "weekly"
     cooldown:
-      default-days: 14
+      default-days: 3
     groups:
       aspire:
         patterns: ["Aspire.*"]
       microsoft:
         patterns: ["Microsoft.*", "System.*"]
+      opentelemetry:
+        patterns: ["OpenTelemetry*"]
     ignore:
       # Fluent UI 5 rewrote the component API (FluentSelect, theme modes, bindings); moving to it is a UI
       # migration of its own, not a dependency bump. Minor and patch releases of 4.x still come through.
@@ -28,7 +30,11 @@ updates:
     schedule:
       interval: "weekly"
     cooldown:
-      default-days: 14
+      default-days: 3
+    groups:
+      # init and analyze are two halves of one action and only work at the same version.
+      codeql:
+        patterns: ["github/codeql-action*"]
 
   - package-ecosystem: "docker"
     directory: "/Sigyll"
