@@ -8,6 +8,7 @@
 // */
 #endregion
 
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -50,7 +51,7 @@ public sealed class VaultTransitSigningProvider : ISigningProvider, IKeyProtecti
 
     public async Task<SigningKeyReference> GenerateKeyAsync(
         string keyAlgorithm, int keySize, string? ecdsaCurve = null,
-        CancellationToken ct = default)
+        string? purpose = null, CancellationToken ct = default)
     {
         if (keyAlgorithm.Equals("Ed25519", StringComparison.OrdinalIgnoreCase))
         {
@@ -63,7 +64,7 @@ public sealed class VaultTransitSigningProvider : ISigningProvider, IKeyProtecti
             throw new NotSupportedException(PqcAlgorithms.RemoteBlockedMessage);
 
         var vaultKeyType = MapToVaultKeyType(keyAlgorithm, keySize, ecdsaCurve);
-        var keyName = $"sigil-{Guid.NewGuid():N}";
+        var keyName = BuildKeyName(purpose);
 
         using var client = await _tokens.CreateClientAsync(ct);
 
@@ -77,6 +78,36 @@ public sealed class VaultTransitSigningProvider : ISigningProvider, IKeyProtecti
         _logger.LogInformation("Created Vault Transit key '{Name}' (type: {Type})", keyName, vaultKeyType);
 
         return new SigningKeyReference("vault-transit", keyName, keyAlgorithm, keySize);
+    }
+
+    /// <summary>What every Transit key Sigyll creates starts with; its Vault policy is limited to these.</summary>
+    public const string KeyNamePrefix = "sigyll-";
+
+    private const int MaxLabelLength = 48;
+
+    /// <summary>
+    /// A Transit key name that says whose key it is and what for: "sigyll-" + the label reduced to lowercase
+    /// letters, digits and hyphens + 8 random hex digits, e.g. "sigyll-ca-my-root-ca-3f9a1c2e". The random part
+    /// keeps two keys with the same label apart. Transit has no folders, so the name is all there is to go by.
+    /// </summary>
+    internal static string BuildKeyName(string? label)
+    {
+        var slug = new StringBuilder();
+        foreach (var c in (label ?? "").Normalize(NormalizationForm.FormD))
+        {
+            if (c is >= 'a' and <= 'z' or >= '0' and <= '9')
+                slug.Append(c);
+            else if (c is >= 'A' and <= 'Z')
+                slug.Append(char.ToLowerInvariant(c));
+            else if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark && slug.Length > 0 && slug[^1] != '-')
+                slug.Append('-');
+        }
+
+        var text = slug.ToString().Trim('-');
+        if (text.Length > MaxLabelLength) text = text[..MaxLabelLength].TrimEnd('-');
+
+        var id = Guid.NewGuid().ToString("N")[..8];
+        return text.Length == 0 ? $"{KeyNamePrefix}{id}" : $"{KeyNamePrefix}{text}-{id}";
     }
 
     public Task<RawPublicKey> GetRawPublicKeyAsync(

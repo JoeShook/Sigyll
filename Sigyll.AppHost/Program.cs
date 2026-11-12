@@ -31,14 +31,13 @@ IResourceBuilder<VaultResource>? vault = null;
 if (!externalVault)
 {
     // One Transit engine at "transit", shared by whatever uses this Vault. Sigyll's keys are the entries named
-    // "sigil-...", and its AppRole may use only those. A Vault that had the engine at "transit/sigyll" or
-    // "sigyll/transit" (used briefly) has it moved back once, keys included, the first time this runs.
+    // "sigyll-..." (Sigyll creates one per certificate it holds a Vault key for, named after it), and its AppRole
+    // may use only those. A Vault that had the engine at "transit/sigyll" or "sigyll/transit" (used briefly) has
+    // it moved back once, keys included, the first time this runs.
     vault = builder.AddVaultDev("vault", persistent: true)
         .WithTransitMount(vaultConfig["TransitMountPath"] ?? "transit", "transit/sigyll", "sigyll/transit")
-        .WithTransitKeyPrefix("sigil-")
-        .WithTransitEngine(
-            new TransitKeySpec("sigil-rsa-4096", "rsa-4096"),
-            new TransitKeySpec("sigil-ecdsa-p384", "ecdsa-p384"))
+        .WithTransitKeyPrefix("sigyll-")
+        .WithTransitEngine()
         .WithAppRole(vaultConfig["RoleName"] ?? "sigyll", keyProtectionPath);
 }
 

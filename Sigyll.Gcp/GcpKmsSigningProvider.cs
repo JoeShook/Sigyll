@@ -45,7 +45,7 @@ public sealed class GcpKmsSigningProvider : ISigningProvider, IKeyProtectionRepo
 
     public async Task<SigningKeyReference> GenerateKeyAsync(
         string keyAlgorithm, int keySize, string? ecdsaCurve = null,
-        CancellationToken ct = default)
+        string? purpose = null, CancellationToken ct = default)
     {
         if (keyAlgorithm.Equals("Ed25519", StringComparison.OrdinalIgnoreCase))
         {

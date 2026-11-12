@@ -102,7 +102,8 @@ public static class VaultResourceBuilderExtensions
     }
 
     /// <summary>
-    /// Configures the Transit secrets engine with the specified signing keys.
+    /// Mounts the Transit secrets engine, with any signing keys to create up front (an application that makes
+    /// its own keys needs none).
     /// In dev mode, keys are recreated on every Vault start (Vault dev mode is in-memory).
     /// In persistent mode, also runs init + unseal + well-known root token alias before
     /// configuring Transit so the engine + keys are always available after a restart.
@@ -111,6 +112,7 @@ public static class VaultResourceBuilderExtensions
         this IResourceBuilder<VaultResource> builder,
         params TransitKeySpec[] keys)
     {
+        builder.Resource.TransitEnabled = true;
         builder.Resource.TransitKeys.AddRange(keys);
         return builder.WithConfigurationWatcher();
     }
@@ -189,7 +191,7 @@ public static class VaultResourceBuilderExtensions
                     vaultAddress, vault.HostInitStatePath, vault.RootToken, logger, ct);
             }
 
-            if (vault.TransitKeys.Count > 0)
+            if (vault.TransitEnabled)
             {
                 logger.LogInformation(
                     "Vault '{Name}' is healthy — (re)configuring Transit engine",

@@ -328,10 +328,10 @@ public class HardwareKeyPolicyTests
             Task.FromResult(Reports);
 
         public async Task<SigningKeyReference> GenerateKeyAsync(string keyAlgorithm, int keySize, string? ecdsaCurve = null,
-            CancellationToken ct = default)
+            string? purpose = null, CancellationToken ct = default)
         {
             KeysMade++;
-            var key = await _keys.GenerateKeyAsync(keyAlgorithm, keySize, ecdsaCurve, ct);
+            var key = await _keys.GenerateKeyAsync(keyAlgorithm, keySize, ecdsaCurve, purpose, ct);
             return key with { Provider = ProviderName };
         }
 

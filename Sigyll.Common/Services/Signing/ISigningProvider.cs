@@ -54,7 +54,9 @@ public interface ISigningProvider
     /// Generates a new key pair and returns a reference to it.
     /// Supported algorithms: "RSA", "ECDSA", "Ed25519" (local provider only in Phase A).
     /// For Ed25519, <paramref name="keySize"/> is ignored (always 256).
+    /// <paramref name="purpose"/> says what the key is for (for example "ca My Root CA"); a provider that names its
+    /// keys may work it into the name so the key can be recognised in the key store. It is never the whole name.
     /// </summary>
     Task<SigningKeyReference> GenerateKeyAsync(string keyAlgorithm, int keySize,
-        string? ecdsaCurve = null, CancellationToken ct = default);
+        string? ecdsaCurve = null, string? purpose = null, CancellationToken ct = default);
 }

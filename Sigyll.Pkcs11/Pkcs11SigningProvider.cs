@@ -50,7 +50,7 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
     }
 
     public async Task<SigningKeyReference> GenerateKeyAsync(string keyAlgorithm, int keySize, string? ecdsaCurve = null,
-        CancellationToken ct = default)
+        string? purpose = null, CancellationToken ct = default)
     {
         if (PqcAlgorithms.IsPqc(keyAlgorithm))
             throw new NotSupportedException(PqcAlgorithms.RemoteBlockedMessage);
