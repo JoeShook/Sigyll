@@ -239,6 +239,61 @@ window.sigilDialogResize = (function() {
     });
 })();
 
+// Dialogs can be dragged by their header, to see what is behind them. The visible panel is the shadow part
+// "control"; it is shifted with a transform, kept on screen, and put back in the centre when the dialog closes.
+(function() {
+    var interactive = 'button, a, input, select, textarea, label, fluent-button, fluent-anchor, fluent-text-field, '
+        + 'fluent-select, fluent-combobox, fluent-checkbox, fluent-switch, [role="button"]';
+
+    function panelOf(dialog) {
+        return dialog.shadowRoot && dialog.shadowRoot.querySelector('[part="control"]');
+    }
+
+    document.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        var header = e.target.closest('.fluent-dialog-header');
+        if (!header || e.target.closest(interactive)) return;
+        var dialog = header.closest('fluent-dialog');
+        var panel = dialog && panelOf(dialog);
+        if (!panel) return;
+        e.preventDefault();
+
+        var startX = e.clientX, startY = e.clientY;
+        var originX = parseFloat(dialog.dataset.sigyllDragX) || 0;
+        var originY = parseFloat(dialog.dataset.sigyllDragY) || 0;
+        var rect = panel.getBoundingClientRect();
+        // Keep at least this much of the header inside the window, so the dialog can always be dragged back.
+        var keep = 48;
+        var minDx = keep - rect.right, maxDx = window.innerWidth - keep - rect.left;
+        var minDy = -rect.top, maxDy = window.innerHeight - keep - rect.top;
+
+        function onMove(ev) {
+            var dx = Math.min(maxDx, Math.max(minDx, ev.clientX - startX));
+            var dy = Math.min(maxDy, Math.max(minDy, ev.clientY - startY));
+            dialog.dataset.sigyllDragX = originX + dx;
+            dialog.dataset.sigyllDragY = originY + dy;
+            panel.style.transform = 'translate(' + (originX + dx) + 'px, ' + (originY + dy) + 'px)';
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+
+    new MutationObserver(function(records) {
+        records.forEach(function(record) {
+            var dialog = record.target;
+            if (dialog.localName !== 'fluent-dialog' || !dialog.hasAttribute('hidden')) return;
+            delete dialog.dataset.sigyllDragX;
+            delete dialog.dataset.sigyllDragY;
+            var panel = panelOf(dialog);
+            if (panel) panel.style.transform = '';
+        });
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['hidden'], subtree: true });
+})();
+
 window.sigilColResize = function(table) {
     if (!table) return;
     var cols = table.querySelectorAll('col');

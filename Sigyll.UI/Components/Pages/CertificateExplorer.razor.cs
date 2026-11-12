@@ -428,6 +428,7 @@ public partial class CertificateExplorer : IDisposable
 
         isRenewMode = true;
         await ShowIssuanceDialog(targetCaId, targetCaName);
+        KeepKeyStorageOf(node);
         isRenewMode = true;
         renewalSeedPending = true;
 
@@ -2625,6 +2626,16 @@ public partial class CertificateExplorer : IDisposable
         return Task.FromResult(invalid);
     }
 
+    /// <summary>
+    /// A renew or re-key starts with the key storage the certificate already uses, so a key held in Vault or on an
+    /// HSM is not replaced by a local one unless the operator chooses that.
+    /// </summary>
+    private void KeepKeyStorageOf(CertificateChainNodeViewModel node)
+    {
+        if (node.KeyStorage is { } storage && availableKeyStorageProviders.Contains(storage))
+            issuanceKeyStorage = storage;
+    }
+
     private async Task ShowSimilarDialog()
     {
         if (selectedNode == null || selectedCert == null) return;
@@ -2690,6 +2701,7 @@ public partial class CertificateExplorer : IDisposable
 
         isRenewMode = true;
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
+        KeepKeyStorageOf(selectedNode);
         isRenewMode = true;
         renewalSeedPending = true;
 
@@ -2889,6 +2901,7 @@ public partial class CertificateExplorer : IDisposable
         // Set renewal mode BEFORE opening the dialog so OnProfileSelected preserves SANs
         isRenewMode = true;
         await ShowIssuanceDialog(issuingCaId, issuingCaName);
+        KeepKeyStorageOf(selectedNode);
         isRenewMode = true; // ShowIssuanceDialog resets it — restore
         renewalSeedPending = true;
         renewalOfCertificateId = selectedNode.Id; // record lineage: new cert renews this one

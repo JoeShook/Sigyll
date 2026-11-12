@@ -52,6 +52,15 @@ fluent-dialog::part(control) {
     opacity: 0.75;
 }
 
+/* A dialog is dragged by its header (sigyll.js) */
+fluent-dialog .fluent-dialog-header {
+    cursor: move;
+    user-select: none;
+}
+fluent-dialog .fluent-dialog-header :is(button, a, input, fluent-button, fluent-anchor) {
+    cursor: revert;
+}
+
 /* Drag-drop re-key */
 .sigil-dragging {
     opacity: 0.5;
