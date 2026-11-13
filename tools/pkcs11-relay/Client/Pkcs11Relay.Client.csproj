@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A PKCS #11 library that forwards each call over TCP to the relay server. Published with Native AOT so it is a
+    plain native library (C exports, no .NET runtime needed by the caller), loadable wherever a vendor's PKCS #11
+    library would be.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>sigyll-pkcs11-relay</AssemblyName>
+    <RootNamespace>Sigyll.Pkcs11Relay</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- CK_ULONG is 4 bytes and structures are packed to 1 byte on Windows; 8 bytes and natural alignment elsewhere. -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('win')) Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows')))">
+    <DefineConstants>$(DefineConstants);CRYPTOKI_WINDOWS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+</Project>
