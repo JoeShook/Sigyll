@@ -21,8 +21,9 @@ recreates that arrangement with open-source parts:
 
 - SoftHSM has no maintained Windows build, so a Sigyll running on Windows (as it does under the AppHost) has no
   PKCS #11 token to load. With the relay it uses SoftHSM in a container.
-- The daily run goes through the Windows form of PKCS #11 (4-byte `CK_ULONG`, structures packed to one byte),
-  which is the form a vendor's Windows library uses.
+- Production runs on Linux, and CI runs the relay there too. On a Windows developer machine the client library
+  speaks the Windows form of PKCS #11 (4-byte `CK_ULONG`, structures packed to one byte), so the same Sigyll code
+  is exercised either way.
 - A lost connection reaches Sigyll as `CKR_DEVICE_REMOVED`, the way a network HSM's library reports one, so
   Sigyll's recovery can be tested.
 
@@ -108,6 +109,24 @@ Building the DLL needs the Visual Studio C++ build tools ("Desktop development w
 from Build Tools for Visual Studio). Native AOT cannot build for another operating system, so the Windows DLL is
 built on Windows and the Linux library on Linux (with `clang` and `zlib1g-dev`).
 
+Without the build tools, use the DLL that CI publishes:
+
+```powershell
+./tools/pkcs11-relay/run-token-tests.ps1 -UseRelease   # run the tests with the released DLL
+$dll = ./tools/pkcs11-relay/get-client.ps1             # or just fetch it and get its path
+```
+
+`get-client.ps1` downloads the DLL from the GitHub release named after the `VERSION` file (`pkcs11-relay-v<n>`),
+keeps it under `%LOCALAPPDATA%\Sigyll\pkcs11-relay`, and refuses a file whose SHA-256 differs from the one GitHub
+records for the release. With the GitHub CLI installed it also checks the file's build attestation.
+
+### Versions
+
+- `VERSION` numbers the released client library. A release is published once and never replaced, so any change
+  under `Client/` or `Shared/` needs a higher number; CI refuses the pull request otherwise.
+- `Wire.ProtocolVersion` numbers the wire format. The client sends it when it initialises, and a server built for
+  a different one refuses the client instead of misreading it.
+
 By hand:
 
 ```powershell
@@ -145,8 +164,18 @@ flowchart TB
 
     subgraph windows["Relay client for Windows (Windows)"]
         direction TB
-        w1["Build the client library (.dll)"] --> w2["Keep it as a build artifact"]
+        w0["Client changed?<br/>VERSION must be raised"] --> w1["Build the client library (.dll)"] --> w2["Keep it as a build artifact"]
     end
+```
+
+On main, a second workflow publishes the Windows DLL for developers to download:
+
+```mermaid
+flowchart LR
+    main["Push to main touching<br/>tools/pkcs11-relay"] --> check{"Release for<br/>VERSION exists?"}
+    check -- yes --> stop["Nothing to do"]
+    check -- no --> buildw["Build the DLL<br/>(Windows runner)"] --> attest["Attest how it was built"] --> rel["Release pkcs11-relay-v&lt;n&gt;"]
+    rel -. "get-client.ps1:<br/>download, check SHA-256<br/>and attestation" .-> dev["Developer machine"]
 ```
 
 The Windows job only builds the DLL: GitHub's Windows runners cannot run the Linux container the server needs. The

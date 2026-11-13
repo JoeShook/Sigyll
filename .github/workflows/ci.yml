@@ -122,6 +122,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # A released client library is never replaced, so a change to what goes into it needs a new version number;
+      # otherwise developers who download the library would keep getting the old one.
+      - name: Refuse a client change without a new version
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          $changed = git diff --name-only "$env:BASE...HEAD" -- tools/pkcs11-relay/Client tools/pkcs11-relay/Shared
+          $bumped = git diff --name-only "$env:BASE...HEAD" -- tools/pkcs11-relay/VERSION
+          if ($changed -and -not $bumped) {
+            Write-Host "::error::The relay client changed ($($changed -join ', ')); raise the number in tools/pkcs11-relay/VERSION."
+            exit 1
+          }
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x

@@ -96,7 +96,13 @@ void Dispatch(Connection connection, BinaryReader request, BinaryWriter reply)
         case Fn.Initialize:
         {
             var rv = Ckr.CryptokiAlreadyInitialized;
-            if (!connection.Initialised)
+            var clientVersion = request.ReadInt32();
+            if (clientVersion != Wire.ProtocolVersion)
+            {
+                Console.WriteLine($"Refused a client speaking relay protocol {clientVersion}; this server speaks {Wire.ProtocolVersion}. Use a client library and a server built from the same source.");
+                rv = Ckr.GeneralError;
+            }
+            else if (!connection.Initialised)
             {
                 rv = initialised == 0 ? (ulong)library.C_Initialize(null) : Ckr.Ok;
                 if (rv == Ckr.Ok)
