@@ -73,7 +73,7 @@ jobs:
   # The same PKCS #11 tests, with the token reached over TCP as a network HSM is: the relay client library is
   # loaded in place of SoftHSM, and SoftHSM sits behind the relay server in a container (tools/pkcs11-relay).
   pkcs11-relay:
-    name: PKCS #11 over the network
+    name: "PKCS #11 over the network"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
