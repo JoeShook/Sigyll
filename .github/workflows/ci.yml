@@ -70,6 +70,73 @@ jobs:
           path: test-results
           if-no-files-found: ignore
 
+  # The same PKCS #11 tests, with the token reached over TCP as a network HSM is: the relay client library is
+  # loaded in place of SoftHSM, and SoftHSM sits behind the relay server in a container (tools/pkcs11-relay).
+  pkcs11-relay:
+    name: PKCS #11 over the network
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the relay client library
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang zlib1g-dev
+          dotnet publish tools/pkcs11-relay/Client -c Release -r linux-x64 -o "$RUNNER_TEMP/relay-client"
+          test -s "$RUNNER_TEMP/relay-client/sigyll-pkcs11-relay.so"
+          echo "SIGYLL_TEST_PKCS11_LIB=$RUNNER_TEMP/relay-client/sigyll-pkcs11-relay.so" >> "$GITHUB_ENV"
+
+      - name: Start the relay server with SoftHSM
+        run: |
+          docker build -t sigyll-pkcs11-relay tools/pkcs11-relay
+          docker run -d --name relay -p 127.0.0.1:5696:5696 sigyll-pkcs11-relay
+
+      - name: Test
+        run: dotnet test _tests/Sigyll.Signing.Tests -c Release --filter "FullyQualifiedName~Pkcs11" --logger "trx;LogFileName=pkcs11-relay.trx" --results-directory test-results
+
+      # The token tests skip when no library is set, so a green run alone does not show they used the relay.
+      - name: Refuse a run that never reached the relay
+        run: |
+          docker logs relay
+          docker logs relay 2>&1 | grep -q " connected"
+
+      - name: Keep test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-pkcs11-relay
+          path: test-results
+          if-no-files-found: ignore
+
+  # The relay client for Windows. Native AOT builds only for the system it runs on, so the DLL is built here; the
+  # Windows runners cannot run the Linux container the server needs, so it is built and kept, not tested.
+  pkcs11-relay-windows:
+    name: Relay client for Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the relay client library
+        shell: pwsh
+        run: |
+          dotnet publish tools/pkcs11-relay/Client -c Release -r win-x64 -o relay-client
+          if (-not (Test-Path relay-client/sigyll-pkcs11-relay.dll)) { throw "The relay client DLL was not built." }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sigyll-pkcs11-relay-win-x64
+          path: relay-client/sigyll-pkcs11-relay.dll
+
   sbom:
     name: Software bill of materials
     runs-on: ubuntu-latest

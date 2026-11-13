@@ -43,6 +43,9 @@ dotnet test _tests/Sigyll.Signing.Tests
 # PKCS #11 token tests against SoftHSM in a Linux container (they skip in a plain run without SoftHSM)
 ./tools/softhsm/run-token-tests.ps1
 
+# The same tests on Windows, with SoftHSM reached over TCP like a network HSM (tools/pkcs11-relay/README.md)
+./tools/pkcs11-relay/run-token-tests.ps1
+
 # SQL style check for Flyway migrations
 python tools/sql-lint/check_sql.py
 ```
