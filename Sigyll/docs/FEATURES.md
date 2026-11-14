@@ -276,6 +276,10 @@
   - Keys generated on the token as sensitive and never extractable; RSA (PKCS #1 v1.5) and ECDSA P-256/384/521
   - Configured by `Pkcs11:LibraryPath`, `Pkcs11:TokenLabel`, `Pkcs11:UserPin` (from a secret store) and
     `Pkcs11:HardwareProtected` (set only for a FIPS 140-3 HSM; SoftHSM is never recorded as hardware)
+  - A Nitrokey HSM uses OpenSC's `opensc-pkcs11.dll`. The token is initialized once with `sc-hsm-tool`, not by Sigyll.
+    On Windows, if that library is not in `C:\Program Files\OpenSC Project`, Sigyll points `OPENSC_CONF` at the
+    `profiles` folder shipped beside it so OpenSC can create keys. `tools/opensc/run-hardware-tests.ps1` runs the
+    opt-in tests against a token that already has a user PIN.
 - **`Sigyll.Gcp.Kms`** — Google Cloud KMS
   - Private keys never leave Cloud KMS; new keys are Cloud HSM keys unless `GcpKms:ProtectionLevel` is `SOFTWARE`
   - Records each key's protection level as Cloud KMS reports it (`CloudHsm` or `CloudKms`)

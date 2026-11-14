@@ -116,8 +116,17 @@ public sealed class SoftHsmToken : IDisposable
         var factories = new Pkcs11InteropFactories();
         using var library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, LibraryPath, AppType.MultiThreaded);
 
+        // Only an uninitialized SoftHSM slot is ever initialized here. A hardware token plugged in while this
+        // variable points at some other library must not have its PIN replaced.
         var free = library.GetSlotList(SlotsType.WithTokenPresent)
-            .First(s => !s.GetTokenInfo().TokenFlags.TokenInitialized);
+            .FirstOrDefault(slot =>
+            {
+                var info = slot.GetTokenInfo();
+                return !info.TokenFlags.TokenInitialized
+                    && Pkcs11SigningProvider.IsSoftHsm(info.ManufacturerId, info.Model);
+            }) ?? throw new InvalidOperationException(
+            "SIGYLL_TEST_PKCS11_LIB has no uninitialized SoftHSM token. This test will not initialize any other token. " +
+            "Point it at SoftHSM. A hardware token uses SIGYLL_TEST_HSM_LIB instead.");
         free.InitToken(soPin, Label);
 
         var slot = library.GetSlotList(SlotsType.WithTokenPresent).First(s => s.GetTokenInfo().Label.Trim() == Label);
