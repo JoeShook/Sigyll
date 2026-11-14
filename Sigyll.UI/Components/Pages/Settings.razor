@@ -22,7 +22,7 @@
 <div class="settings-grid">
     @foreach (var section in Sections)
     {
-        <DynamicComponent Type="@section.Component" @key="section.Id"
+        <DynamicComponent Type="@(section.Component)" @key="section.Id"
                           Parameters="@(new Dictionary<string, object> { [nameof(SettingsCard.Expanded)] = IsOpen(section) })" />
     }
 </div>
