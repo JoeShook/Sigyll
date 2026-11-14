@@ -140,6 +140,7 @@ public sealed class SoftHsmToken : IDisposable
 }
 
 /// <summary>Signing on a real PKCS #11 token (SoftHSM): keys stay on the token, and CAs issue and sign CRLs with them.</summary>
+[Collection(Pkcs11TokenCollection.Name)]
 public class Pkcs11SoftHsmTests(SoftHsmToken token) : IClassFixture<SoftHsmToken>
 {
     private readonly TestDbContextFactory _dbFactory = new();

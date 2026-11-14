@@ -94,7 +94,9 @@ jobs:
       - name: Start the relay server with SoftHSM
         run: |
           docker build -t sigyll-pkcs11-relay tools/pkcs11-relay
-          docker run -d --name relay -p 127.0.0.1:5696:5696 sigyll-pkcs11-relay
+          docker run -d --name relay -p 127.0.0.1:5696:5696 \
+            -e PKCS11_RELAY_CONTROL_PORT=5697 -p 127.0.0.1:5697:5697 sigyll-pkcs11-relay
+          echo "SIGYLL_TEST_PKCS11_RELAY_FAULTS=127.0.0.1:5697" >> "$GITHUB_ENV"
 
       - name: Test
         run: dotnet test _tests/Sigyll.Signing.Tests -c Release --filter "FullyQualifiedName~Pkcs11" --logger "trx;LogFileName=pkcs11-relay.trx" --results-directory test-results
@@ -104,6 +106,7 @@ jobs:
         run: |
           docker logs relay
           docker logs relay 2>&1 | grep -q " connected"
+          docker logs relay 2>&1 | grep -q "Fault 'drop'"
 
       - name: Keep test results
         if: always()

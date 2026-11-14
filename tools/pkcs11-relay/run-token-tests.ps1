@@ -17,6 +17,9 @@
 .PARAMETER Port
     Local port the relay server is published on.
 
+.PARAMETER FaultPort
+    Local port the relay server's fault switches are published on, for the reconnect tests.
+
 .PARAMETER UseRelease
     Download the released client DLL for this source's VERSION instead of building it.
 
@@ -26,6 +29,7 @@
 param(
     [string]$Filter = "FullyQualifiedName~Pkcs11",
     [int]$Port = 5696,
+    [int]$FaultPort = 5697,
     [switch]$UseRelease
 )
 
@@ -54,12 +58,14 @@ docker build -q -t $image $PSScriptRoot | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Building the relay server image failed." }
 
 docker rm -f $container 2>$null | Out-Null
-docker run -d --name $container -p "127.0.0.1:${Port}:5696" $image | Out-Null
+docker run -d --name $container -p "127.0.0.1:${Port}:5696" `
+    -e PKCS11_RELAY_CONTROL_PORT=5697 -p "127.0.0.1:${FaultPort}:5697" $image | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Starting the relay server failed." }
 
 try {
     $env:SIGYLL_TEST_PKCS11_LIB = $client
     $env:SIGYLL_PKCS11_RELAY = "127.0.0.1:$Port"
+    $env:SIGYLL_TEST_PKCS11_RELAY_FAULTS = "127.0.0.1:$FaultPort"
     # Release, so the run does not collide with a Debug build held open by a running AppHost.
     dotnet test (Join-Path $repo "_tests/Sigyll.Signing.Tests") -c Release -nologo --filter $Filter
     $result = $LASTEXITCODE

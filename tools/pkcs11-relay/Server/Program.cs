@@ -14,6 +14,7 @@ const int MaxBuffer = 1 << 20;    // one attribute value or signature
 
 var libraryPath = Environment.GetEnvironmentVariable("PKCS11_RELAY_LIBRARY") ?? "/usr/lib/softhsm/libsofthsm2.so";
 var port = int.Parse(Environment.GetEnvironmentVariable("PKCS11_RELAY_PORT") ?? Wire.DefaultPort.ToString());
+var controlPort = Environment.GetEnvironmentVariable("PKCS11_RELAY_CONTROL_PORT");
 
 // Pkcs11Interop asks for "libdl"; current glibc installs only libdl.so.2 unless developer packages are present.
 NativeLibrary.SetDllImportResolver(typeof(Pkcs11Library).Assembly, (name, assembly, path) =>
@@ -22,10 +23,15 @@ NativeLibrary.SetDllImportResolver(typeof(Pkcs11Library).Assembly, (name, assemb
 using var library = new Pkcs11Library(libraryPath);
 var gate = new Lock();
 var initialised = 0; // connections that have called C_Initialize and not yet C_Finalize
+var connections = new List<Connection>();
+Fn? loseReplyTo = null; // set by the "drop-reply" fault: the next call to this function runs, but its answer is lost
 
 var listener = new TcpListener(IPAddress.Any, port);
 listener.Start();
 Console.WriteLine($"Relaying PKCS #11 calls on port {port} to {libraryPath}");
+
+if (controlPort != null)
+    new Thread(() => ServeFaults(int.Parse(controlPort))) { IsBackground = true }.Start();
 
 while (true)
 {
@@ -36,18 +42,33 @@ while (true)
 void Serve(TcpClient client)
 {
     var remote = client.Client.RemoteEndPoint;
-    var connection = new Connection();
+    var connection = new Connection(client);
     Console.WriteLine($"{remote} connected");
     try
     {
+        lock (gate)
+            connections.Add(connection);
+
         using var stream = client.GetStream();
         client.NoDelay = true;
         while (Wire.ReadFrame(stream) is { } frame)
         {
             var request = new BinaryReader(new MemoryStream(frame));
             var reply = new BinaryWriter(new MemoryStream());
+            bool lost;
             lock (gate)
+            {
                 Dispatch(connection, request, reply);
+                lost = frame.Length > 0 && (Fn)frame[0] == loseReplyTo;
+                if (lost)
+                    loseReplyTo = null;
+            }
+
+            if (lost)
+            {
+                Console.WriteLine($"{remote} fault: C_{(Fn)frame[0]} ran, its answer is not sent");
+                break;
+            }
 
             reply.Flush();
             var body = (MemoryStream)reply.BaseStream;
@@ -62,10 +83,77 @@ void Serve(TcpClient client)
     {
         // A client that goes away takes its sessions with it, as on a network HSM.
         lock (gate)
+        {
             Release(connection);
+            connections.Remove(connection);
+        }
 
         client.Dispose();
         Console.WriteLine($"{remote} disconnected");
+    }
+}
+
+// Fault switches, for testing how a PKCS #11 application copes when its HSM connection misbehaves. Off unless
+// PKCS11_RELAY_CONTROL_PORT is set. One command per connection, as a line of text; the answer is a line too.
+void ServeFaults(int faultPort)
+{
+    var faults = new TcpListener(IPAddress.Any, faultPort);
+    faults.Start();
+    Console.WriteLine($"Fault switches on port {faultPort}");
+    while (true)
+    {
+        using var client = faults.AcceptTcpClient();
+        try
+        {
+            using var stream = client.GetStream();
+            stream.ReadTimeout = 5000;
+            using var reader = new StreamReader(stream);
+            using var writer = new StreamWriter(stream) { AutoFlush = true, NewLine = "\n" };
+            var command = reader.ReadLine()?.Trim() ?? "";
+            var answer = Fault(command);
+            Console.WriteLine($"Fault '{command}': {answer}");
+            writer.WriteLine(answer);
+        }
+        catch (Exception e) when (e is IOException or SocketException)
+        {
+            Console.WriteLine($"Fault connection dropped: {e.Message}");
+        }
+    }
+}
+
+string Fault(string command)
+{
+    var words = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+    lock (gate)
+    {
+        switch (words)
+        {
+            // The network goes away: every client connection is closed, and with it the client's sessions.
+            case ["drop"]:
+                foreach (var connection in connections)
+                {
+                    try { connection.Client.Client.Shutdown(SocketShutdown.Both); }
+                    catch (SocketException) { } // already gone
+                }
+                return $"ok: closed {connections.Count} connection(s)";
+
+            // The HSM logs the application out (an idle timeout, an operator): sessions stay open but lose their login.
+            case ["logout"]:
+                var sessions = connections.SelectMany(connection => connection.Sessions).ToList();
+                foreach (var session in sessions)
+                    library.C_Logout(session);
+                return $"ok: logged out {sessions.Count} session(s)";
+
+            // The connection fails after the HSM has done the work: the next call to the named function runs, then
+            // the connection is closed without its answer.
+            case ["drop-reply", var name] when Enum.TryParse<Fn>(name, ignoreCase: true, out var function)
+                                               && Enum.IsDefined(function):
+                loseReplyTo = function;
+                return $"ok: the answer to the next C_{function} will be lost";
+
+            default:
+                return "error: expected 'drop', 'logout' or 'drop-reply <function>' (for example 'drop-reply Sign')";
+        }
     }
 }
 
@@ -531,8 +619,9 @@ static CK_MECHANISM ReadMechanism(BinaryReader request)
 }
 
 /// <summary>What one client connection holds on the token.</summary>
-sealed class Connection
+sealed class Connection(TcpClient client)
 {
+    public readonly TcpClient Client = client;
     public bool Initialised;
     public readonly HashSet<ulong> Sessions = [];
 }
