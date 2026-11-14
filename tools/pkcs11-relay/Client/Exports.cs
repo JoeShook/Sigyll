@@ -108,7 +108,9 @@ internal static unsafe class Exports
                 }
             }
 
-            return (CK_ULONG)Send(Begin(Fn.Initialize), out _);
+            var request = Begin(Fn.Initialize);
+            request.Write(Wire.ProtocolVersion);
+            return (CK_ULONG)Send(request, out _);
         }
         catch (Exception e)
         {

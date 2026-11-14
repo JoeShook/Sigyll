@@ -1,0 +1,89 @@
+name: "PKCS #11 relay client"
+
+# Publishes the relay's Windows client library (tools/pkcs11-relay) as a GitHub release, so a developer can
+# download it instead of needing the C++ build tools to build it. The release is named after
+# tools/pkcs11-relay/VERSION (pkcs11-relay-v<n>) and is published once: a version that already has a release is
+# left alone, so a given version is always the same file. Anyone can check the file came from this workflow:
+#   gh attestation verify sigyll-pkcs11-relay-win-x64.dll --repo <owner>/Sigyll
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/pkcs11-relay/**
+      - .github/workflows/pkcs11-relay-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  windows:
+    name: Windows client library
+    runs-on: windows-latest
+    permissions:
+      contents: write       # create the release
+      id-token: write       # sign the attestation
+      attestations: write   # record it
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Find out whether this version is already released
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content tools/pkcs11-relay/VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+$') { throw "tools/pkcs11-relay/VERSION must hold a whole number, not '$version'." }
+          $tag = "pkcs11-relay-v$version"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $released = $LASTEXITCODE -eq 0
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "released=$($released.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          Write-Host "$tag released already: $released"
+          exit 0
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        if: steps.version.outputs.released == 'false'
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the client library
+        if: steps.version.outputs.released == 'false'
+        run: |
+          dotnet publish tools/pkcs11-relay/Client -c Release -r win-x64 -o build
+          New-Item -ItemType Directory release | Out-Null
+          Copy-Item build/sigyll-pkcs11-relay.dll release/sigyll-pkcs11-relay-win-x64.dll
+
+      - name: Attest how the library was built
+        if: steps.version.outputs.released == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/sigyll-pkcs11-relay-win-x64.dll
+
+      # Not marked as the latest release: that is for Sigyll itself.
+      - name: Publish the release
+        if: steps.version.outputs.released == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $notes = @"
+          The Windows client library of the PKCS #11 relay, a development and test tool (``tools/pkcs11-relay``). It is not part of Sigyll itself and must not be used with a production HSM.
+
+          Built from commit $env:GITHUB_SHA. ``tools/pkcs11-relay/get-client.ps1`` downloads and checks it. To check it by hand:
+
+          ``````
+          gh attestation verify sigyll-pkcs11-relay-win-x64.dll --repo $env:GITHUB_REPOSITORY
+          ``````
+          "@
+          gh release create $env:TAG release/sigyll-pkcs11-relay-win-x64.dll --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA --title "PKCS #11 relay client $env:TAG" --notes $notes --latest=false

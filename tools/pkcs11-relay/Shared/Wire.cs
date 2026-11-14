@@ -63,6 +63,12 @@ public static class Wire
     public const int DefaultPort = 5696;
     public const int MaxFrame = 1 << 20;
 
+    /// <summary>
+    /// Raised whenever a request or reply changes shape. The client sends it with C_Initialize, and a server built
+    /// for another version refuses the connection's calls instead of misreading them.
+    /// </summary>
+    public const int ProtocolVersion = 1;
+
     /// <summary>"Unavailable information" (all ones) in a length or count.</summary>
     public const ulong Unavailable = ulong.MaxValue;
 
