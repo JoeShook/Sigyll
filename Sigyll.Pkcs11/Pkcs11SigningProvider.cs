@@ -224,8 +224,8 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
         catch (Pkcs11Exception ex) when (IsConnectionLost(ex.RV))
         {
             // The token went away part-way through (HSM failover or restart, network loss): start again from
-            // loading the library, once. The action may already have taken effect on the token, so actions are
-            // written to be safe to repeat.
+            // initialising the library, once. The action may already have taken effect on the token, so actions
+            // are written to be safe to repeat.
             _logger.LogWarning("PKCS #11 call failed ({Reason}); reconnecting to the token", ex.RV);
             Disconnect();
             return action(_session = OpenSession());
@@ -267,9 +267,9 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
         or CKR.CKR_CRYPTOKI_NOT_INITIALIZED;
 
     /// <summary>
-    /// Lets go of the session and the library, so the next use loads and initialises the library afresh. Once a
-    /// network HSM's client library has lost its connection, a new session alone is not enough: the library has to
-    /// be initialised again.
+    /// Closes the session and finalises the library, so the next use initialises the library afresh. Once a network
+    /// HSM's client library has lost its connection, a new session alone is not enough: the library has to be
+    /// initialised again. The library itself stays in memory (<see cref="LoadedLibraries"/>).
     /// </summary>
     private void Disconnect()
     {
@@ -294,6 +294,7 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
         {
             var factories = new Pkcs11InteropFactories();
             _library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, _options.LibraryPath, AppType.MultiThreaded);
+            LoadedLibraries.KeepLoaded(_options.LibraryPath);
         }
 
         var slot = _library.GetSlotList(SlotsType.WithTokenPresent)

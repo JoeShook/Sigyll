@@ -112,6 +112,7 @@ public sealed class SoftHsmToken : IDisposable
             return;
 
         NativeLibraryNames.Register();
+        LoadedLibraries.KeepLoaded(LibraryPath);
         var soPin = Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
         var factories = new Pkcs11InteropFactories();
         using var library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, LibraryPath, AppType.MultiThreaded);
