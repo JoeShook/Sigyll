@@ -83,30 +83,27 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Build the relay client library
+      - name: Install the native build tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang zlib1g-dev
-          dotnet publish tools/pkcs11-relay/Client -c Release -r linux-x64 -o "$RUNNER_TEMP/relay-client"
-          test -s "$RUNNER_TEMP/relay-client/sigyll-pkcs11-relay.so"
-          echo "SIGYLL_TEST_PKCS11_LIB=$RUNNER_TEMP/relay-client/sigyll-pkcs11-relay.so" >> "$GITHUB_ENV"
 
-      - name: Start the relay server with SoftHSM
-        run: |
-          docker build -t sigyll-pkcs11-relay tools/pkcs11-relay
-          docker run -d --name relay -p 127.0.0.1:5696:5696 \
-            -e PKCS11_RELAY_CONTROL_PORT=5697 -p 127.0.0.1:5697:5697 sigyll-pkcs11-relay
-          echo "SIGYLL_TEST_PKCS11_RELAY_FAULTS=127.0.0.1:5697" >> "$GITHUB_ENV"
-
+      # The script developers run on Linux and macOS: it builds the client library, starts the relay server with
+      # SoftHSM in a container, runs the tests through it and removes the container.
       - name: Test
-        run: dotnet test _tests/Sigyll.Signing.Tests -c Release --filter "FullyQualifiedName~Pkcs11" --logger "trx;LogFileName=pkcs11-relay.trx" --results-directory test-results
+        env:
+          SERVER_LOG: ${{ runner.temp }}/relay-server.log
+        run: |
+          ./tools/pkcs11-relay/run-token-tests.sh "FullyQualifiedName~Pkcs11" \
+            --logger "trx;LogFileName=pkcs11-relay.trx" --results-directory "$GITHUB_WORKSPACE/test-results"
 
       # The token tests skip when no library is set, so a green run alone does not show they used the relay.
       - name: Refuse a run that never reached the relay
+        if: always()
         run: |
-          docker logs relay
-          docker logs relay 2>&1 | grep -q " connected"
-          docker logs relay 2>&1 | grep -q "Fault 'drop'"
+          cat "$RUNNER_TEMP/relay-server.log"
+          grep -q " connected" "$RUNNER_TEMP/relay-server.log"
+          grep -q "Fault 'drop'" "$RUNNER_TEMP/relay-server.log"
 
       - name: Keep test results
         if: always()

@@ -7,7 +7,8 @@ network HSM, that library talks to the appliance over the network and Sigyll nev
 recreates that arrangement with open-source parts:
 
 - **Client library** (`Client/`): a PKCS #11 library that forwards each call over TCP. It is a native library
-  (`sigyll-pkcs11-relay.dll` on Windows, `.so` on Linux), built from C# with Native AOT, and is loaded exactly like
+  (`sigyll-pkcs11-relay.dll` on Windows, `.so` on Linux, `.dylib` on macOS), built from C# with Native AOT, and is
+  loaded exactly like
   a vendor's library.
 - **Server** (`Server/`): receives the calls and passes them to a real PKCS #11 library. In the container built by
   the `Dockerfile` that library is SoftHSM.
@@ -96,18 +97,25 @@ sequenceDiagram
 
 ## Running it
 
-On Windows, with Docker running:
+With Docker running, on Windows:
 
 ```powershell
 ./tools/pkcs11-relay/run-token-tests.ps1
 ```
 
-The script builds the client DLL, starts the server container on `127.0.0.1:5696`, runs Sigyll's PKCS #11 tests
-with the DLL as the library, and removes the container.
+On macOS or Linux:
+
+```bash
+./tools/pkcs11-relay/run-token-tests.sh
+```
+
+Either script builds the client library for the machine it runs on, starts the server container on
+`127.0.0.1:5696`, runs Sigyll's PKCS #11 tests with the client as the library, and removes the container.
 
 Building the DLL needs the Visual Studio C++ build tools ("Desktop development with C++", from Visual Studio or
 from Build Tools for Visual Studio). Native AOT cannot build for another operating system, so the Windows DLL is
-built on Windows and the Linux library on Linux (with `clang` and `zlib1g-dev`).
+built on Windows, the Linux library on Linux (with `clang` and `zlib1g-dev`) and the macOS library on a Mac (with
+the Xcode command line tools).
 
 Without the build tools, use the DLL that CI publishes:
 
@@ -158,7 +166,8 @@ sent to that port; the answer is one line starting `ok` or `error`.
 | `logout` | Logs out every open session | Sessions that still work but no longer see private keys |
 | `drop-reply <function>` | Runs the next call to that function (`Sign`, `GenerateKeyPair`, ...), then closes the connection without answering | The same as `drop`, but the work was done on the token |
 
-`run-token-tests.ps1` publishes the switches on `127.0.0.1:5697` and sets `SIGYLL_TEST_PKCS11_RELAY_FAULTS`, which
+`run-token-tests.ps1` and `run-token-tests.sh` publish the switches on `127.0.0.1:5697` and set
+`SIGYLL_TEST_PKCS11_RELAY_FAULTS`, which
 turns on the reconnect tests (`Pkcs11ReconnectTests`). CI does the same.
 
 ## How CI uses it
@@ -196,7 +205,8 @@ flowchart LR
 ```
 
 The Windows job only builds the DLL: GitHub's Windows runners cannot run the Linux container the server needs. The
-full run on Windows is `run-token-tests.ps1` on a developer's machine.
+full run on Windows is `run-token-tests.ps1` on a developer's machine. CI has no macOS job; the full run on a Mac
+is `run-token-tests.sh` on a developer's machine.
 
 ## What is forwarded
 

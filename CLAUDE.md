@@ -45,6 +45,7 @@ dotnet test _tests/Sigyll.Signing.Tests
 
 # The same tests on Windows, with SoftHSM reached over TCP like a network HSM (tools/pkcs11-relay/README.md)
 ./tools/pkcs11-relay/run-token-tests.ps1
+./tools/pkcs11-relay/run-token-tests.sh    # the same on macOS and Linux
 
 # SQL style check for Flyway migrations
 python tools/sql-lint/check_sql.py
