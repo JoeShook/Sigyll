@@ -56,6 +56,13 @@ trap stop_server EXIT
 docker run -d --name "$container" -p "127.0.0.1:$port:5696" \
     -e PKCS11_RELAY_CONTROL_PORT=5697 -p "127.0.0.1:$fault_port:5697" "$image" > /dev/null
 
+# Docker accepts connections on the published port before the server inside is listening, so wait for the server
+# to say it is.
+for _ in $(seq 1 100); do
+    if docker logs "$container" 2>&1 | grep -q "Relaying PKCS #11 calls"; then break; fi
+    sleep 0.2
+done
+
 export SIGYLL_TEST_PKCS11_LIB="$client"
 export SIGYLL_PKCS11_RELAY="127.0.0.1:$port"
 export SIGYLL_TEST_PKCS11_RELAY_FAULTS="127.0.0.1:$fault_port"
