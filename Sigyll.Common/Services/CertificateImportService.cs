@@ -400,7 +400,7 @@ public class CertificateImportService
     private static byte[] BuildPfxWithDonorKey(X509Certificate2 cert, KeyDonor donor)
     {
         using var donorCert = X509CertificateLoader.LoadPkcs12(donor.PfxBytes, donor.PfxPassword,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
 
         using var rsa = donorCert.GetRSAPrivateKey();
         if (rsa != null)

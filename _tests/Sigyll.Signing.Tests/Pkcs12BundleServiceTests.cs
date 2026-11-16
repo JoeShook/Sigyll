@@ -44,7 +44,7 @@ public class Pkcs12BundleServiceTests
         result.ChainDer.ShouldBeEmpty();
 
         using var loaded = X509CertificateLoader.LoadPkcs12(result.Pkcs12Bytes!, P12Pass,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
         loaded.HasPrivateKey.ShouldBeTrue();
         loaded.Thumbprint.ShouldBe(signedCert.Thumbprint);
 
@@ -70,7 +70,7 @@ public class Pkcs12BundleServiceTests
         result.KeySize.ShouldBe(384);
 
         using var loaded = X509CertificateLoader.LoadPkcs12(result.Pkcs12Bytes!, P12Pass,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
         loaded.GetECDsaPrivateKey().ShouldNotBeNull();
 
         caCert.Dispose();
@@ -96,7 +96,7 @@ public class Pkcs12BundleServiceTests
         X509CertificateLoader.LoadCertificate(result.ChainDer[0]).Thumbprint.ShouldBe(caCert.Thumbprint);
 
         var collection = X509CertificateLoader.LoadPkcs12Collection(result.Pkcs12Bytes!, P12Pass,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
         collection.Count.ShouldBe(2);
         collection.Cast<X509Certificate2>().Count(c => c.HasPrivateKey).ShouldBe(1);
         collection.Cast<X509Certificate2>().Single(c => c.HasPrivateKey).Thumbprint.ShouldBe(signedCert.Thumbprint);

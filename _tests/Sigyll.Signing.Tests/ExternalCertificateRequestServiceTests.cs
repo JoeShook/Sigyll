@@ -303,7 +303,7 @@ public class ExternalCertificateRequestServiceTests
         stored.RenewalOfId.ShouldBe(issuedId);
         stored.Version.ShouldBe(2);
         using var pfx = X509CertificateLoader.LoadPkcs12(stored.EncryptedPfxBytes!, stored.PfxPassword,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
         pfx.HasPrivateKey.ShouldBeTrue();
 
         var row = await db.ExternalCertificateRequests.SingleAsync();
@@ -374,7 +374,7 @@ public class ExternalCertificateRequestServiceTests
         leafOnly.Success.ShouldBeTrue(leafOnly.Error);
         leafOnly.FileName.ShouldBe("basic.p12");
         var single = X509CertificateLoader.LoadPkcs12Collection(leafOnly.Bytes!, "operator-p12-pw",
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
         single.Count.ShouldBe(1);
         single[0].HasPrivateKey.ShouldBeTrue();
         single[0].Thumbprint.ShouldBe(signed.Thumbprint);
@@ -383,7 +383,7 @@ public class ExternalCertificateRequestServiceTests
         withChain.Success.ShouldBeTrue(withChain.Error);
         withChain.FileName.ShouldBe("basic-chain.p12");
         var bundle = X509CertificateLoader.LoadPkcs12Collection(withChain.Bytes!, "operator-p12-pw",
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
         bundle.Count.ShouldBe(2);
         bundle.Cast<X509Certificate2>().Single(c => c.HasPrivateKey).Thumbprint.ShouldBe(signed.Thumbprint);
         bundle.Cast<X509Certificate2>().Single(c => !c.HasPrivateKey).Thumbprint.ShouldBe(caCert.Thumbprint);

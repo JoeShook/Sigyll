@@ -355,7 +355,7 @@ public partial class CsrTool : IDisposable
     private static X509Certificate2 LoadCertificate(byte[] bytes, string fileName, string password)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        var flags = X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet;
+        var flags = Pkcs12KeyStorage.InMemoryExportable;
 
         if (ext is ".pfx" or ".p12")
             return X509CertificateLoader.LoadPkcs12(bytes, password, flags);

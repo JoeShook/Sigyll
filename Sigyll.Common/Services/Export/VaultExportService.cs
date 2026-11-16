@@ -542,7 +542,7 @@ public partial class VaultExportService
         try
         {
             var certificates = X509CertificateLoader.LoadPkcs12Collection(
-                Convert.FromBase64String(base64), password, X509KeyStorageFlags.EphemeralKeySet);
+                Convert.FromBase64String(base64), password, Pkcs12KeyStorage.InMemory);
             try
             {
                 return certificates.Select(c => (c.HasPrivateKey ? "key:" : "") + c.Thumbprint).ToHashSet();

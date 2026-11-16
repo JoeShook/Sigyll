@@ -280,7 +280,7 @@ public class DirectPqcPairService
         try
         {
             using var signer = X509CertificateLoader.LoadPkcs12(signingRow.EncryptedPfxBytes, signingRow.PfxPassword,
-                X509KeyStorageFlags.EphemeralKeySet);
+                Pkcs12KeyStorage.InMemory);
             var cms = new SignedCms(new ContentInfo(message));
             cms.ComputeSignature(new CmsSigner(SubjectIdentifierType.IssuerAndSerialNumber, signer)
             {

@@ -193,7 +193,7 @@ public class CertificateExportServiceTests : IDisposable
         result.FileName.ShouldBe("Chain-Leaf.p12");
 
         var collection = X509CertificateLoader.LoadPkcs12Collection(
-            result.PfxBytes!, "test-password", X509KeyStorageFlags.EphemeralKeySet);
+            result.PfxBytes!, "test-password", Pkcs12KeyStorage.InMemory);
         collection.Count.ShouldBe(1);
         collection[0].HasPrivateKey.ShouldBeTrue();
         collection[0].Thumbprint.ShouldBe(seeded.LeafThumbprint);
@@ -211,7 +211,7 @@ public class CertificateExportServiceTests : IDisposable
         result.FileName.ShouldBe("Chain-Leaf-chain.p12");
 
         var collection = X509CertificateLoader.LoadPkcs12Collection(
-            result.PfxBytes!, "test-password", X509KeyStorageFlags.EphemeralKeySet);
+            result.PfxBytes!, "test-password", Pkcs12KeyStorage.InMemory);
         collection.Count.ShouldBe(3);
         collection.Select(c => c.Thumbprint).ShouldBe(
             [seeded.LeafThumbprint, seeded.IntermediateThumbprint, seeded.RootThumbprint],
@@ -233,7 +233,7 @@ public class CertificateExportServiceTests : IDisposable
         result.Success.ShouldBeTrue();
 
         var collection = X509CertificateLoader.LoadPkcs12Collection(
-            result.PfxBytes!, "test-password", X509KeyStorageFlags.EphemeralKeySet);
+            result.PfxBytes!, "test-password", Pkcs12KeyStorage.InMemory);
         collection.Count.ShouldBe(2);
         collection.Select(c => c.Thumbprint).ShouldBe(
             [seeded.IntermediateThumbprint, seeded.RootThumbprint], ignoreOrder: true);
@@ -253,7 +253,7 @@ public class CertificateExportServiceTests : IDisposable
         result.FileName.ShouldBe("Test-RSA-CA.p12");
 
         var collection = X509CertificateLoader.LoadPkcs12Collection(
-            result.PfxBytes!, "test-password", X509KeyStorageFlags.EphemeralKeySet);
+            result.PfxBytes!, "test-password", Pkcs12KeyStorage.InMemory);
         collection.Count.ShouldBe(1);
         collection[0].Thumbprint.ShouldBe(cert.Thumbprint);
         cert.Dispose();
