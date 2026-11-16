@@ -8,13 +8,22 @@
 
     The token's user PIN comes from SIGYLL_TEST_HSM_PIN. It is never written into the repository.
 
+.PARAMETER Replug
+    Run only the test that needs the token removed and put back: once it starts, pull the token out, wait a few
+    seconds and put it back. The test passes when signing fails while the token is away and works again, with the
+    same key, afterwards. It gives up three minutes after it starts.
+
 .EXAMPLE
     $env:SIGYLL_TEST_HSM_PIN = '<user pin>'
     ./tools/opensc/run-hardware-tests.ps1
+
+.EXAMPLE
+    ./tools/opensc/run-hardware-tests.ps1 -Replug
 #>
 param(
     [string]$LibraryPath = "",
-    [string]$TokenLabel = "SmartCard-HSM"
+    [string]$TokenLabel = "SmartCard-HSM",
+    [switch]$Replug
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,5 +46,15 @@ $env:SIGYLL_TEST_HSM_LIB = (Resolve-Path $LibraryPath).Path
 $env:SIGYLL_TEST_HSM_LABEL = $TokenLabel
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 
-dotnet test (Join-Path $repo "_tests/Sigyll.Signing.Tests") --filter "FullyQualifiedName~Pkcs11HardwareTokenTests"
+$filter = "FullyQualifiedName~Pkcs11HardwareTokenTests"
+if ($Replug) {
+    $env:SIGYLL_TEST_HSM_REPLUG = "1"
+    $filter = "FullyQualifiedName~Signing_Continues_AfterTheTokenIsRemovedAndPutBack"
+    Write-Host "When the test run starts: remove the token, wait a few seconds, and put it back." -ForegroundColor Yellow
+}
+else {
+    $env:SIGYLL_TEST_HSM_REPLUG = $null
+}
+
+dotnet test (Join-Path $repo "_tests/Sigyll.Signing.Tests") --filter $filter
 exit $LASTEXITCODE

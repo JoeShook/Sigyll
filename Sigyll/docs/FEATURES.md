@@ -279,7 +279,8 @@
   - A Nitrokey HSM uses OpenSC's `opensc-pkcs11.dll`. The token is initialized once with `sc-hsm-tool`, not by Sigyll.
     On Windows, if that library is not in `C:\Program Files\OpenSC Project`, Sigyll points `OPENSC_CONF` at the
     `profiles` folder shipped beside it so OpenSC can create keys. `tools/opensc/run-hardware-tests.ps1` runs the
-    opt-in tests against a token that already has a user PIN.
+    opt-in tests against a token that already has a user PIN; with `-Replug` it runs the one test that needs the
+    token removed and put back while it runs.
 - **`Sigyll.Gcp.Kms`** — Google Cloud KMS
   - Private keys never leave Cloud KMS; new keys are Cloud HSM keys unless `GcpKms:ProtectionLevel` is `SOFTWARE`
   - Records each key's protection level as Cloud KMS reports it (`CloudHsm` or `CloudKms`)
