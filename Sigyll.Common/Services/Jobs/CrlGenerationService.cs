@@ -302,7 +302,7 @@ public class CrlGenerationService
             throw new InvalidOperationException($"CA '{ca.Name}' has no PFX key available for local signing.");
 
         using var x509Ca = X509CertificateLoader.LoadPkcs12(ca.EncryptedPfxBytes, ca.PfxPassword,
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
 
         using var pqcKey = PqcKeyPair.FromCertificate(x509Ca);
         if (pqcKey != null)

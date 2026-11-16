@@ -101,7 +101,7 @@ public class CsrGenerationService
                     return CsrGenerationResult.Failure("No private key is stored for this certificate; generate a new key instead.");
 
                 model = X509CertificateLoader.LoadPkcs12(pfxBytes, pfxPassword,
-                    X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+                    Pkcs12KeyStorage.InMemoryExportable);
 
                 using var publicCert = X509Certificate2.CreateFromPem(pem);
                 if (!string.Equals(publicCert.Thumbprint, model.Thumbprint, StringComparison.OrdinalIgnoreCase))

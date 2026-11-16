@@ -463,7 +463,7 @@ public class ExternalCertificateRequestService
                 var (pfx, pfxPassword, _, error) = await FulfilledKeyAsync(db, row, ct);
                 if (error != null) return ExternalRequestExportResult.Failure(error);
                 fulfilledCert = X509CertificateLoader.LoadPkcs12(pfx!, pfxPassword,
-                    X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+                    Pkcs12KeyStorage.InMemoryExportable);
             }
 
             using var key = fulfilledCert != null

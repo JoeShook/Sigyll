@@ -225,7 +225,7 @@ public class DirectPqcPairServiceTests
 
         var modern = Pkcs12Writer.Write(cert, "pw");
         AssertModernPfx(modern, "pw");
-        using (var loaded = X509CertificateLoader.LoadPkcs12(modern, "pw", X509KeyStorageFlags.EphemeralKeySet))
+        using (var loaded = X509CertificateLoader.LoadPkcs12(modern, "pw", Pkcs12KeyStorage.InMemory))
             loaded.GetRSAPrivateKey().ShouldNotBeNull();
 
 #pragma warning disable SYSLIB0057
@@ -233,7 +233,7 @@ public class DirectPqcPairServiceTests
 #pragma warning restore SYSLIB0057
         var rewrapped = Pkcs12Writer.Rewrap(legacy, "old", "new", [cert]);
         AssertModernPfx(rewrapped, "new");
-        using var reloaded = X509CertificateLoader.LoadPkcs12(rewrapped, "new", X509KeyStorageFlags.EphemeralKeySet);
+        using var reloaded = X509CertificateLoader.LoadPkcs12(rewrapped, "new", Pkcs12KeyStorage.InMemory);
         reloaded.Thumbprint.ShouldBe(cert.Thumbprint);
         reloaded.GetRSAPrivateKey().ShouldNotBeNull();
 

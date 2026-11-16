@@ -223,7 +223,7 @@ public class CertificateImportServiceTests
         stored.Version.ShouldBe(predecessor.Version + 1);
 
         using var reloaded = X509CertificateLoader.LoadPkcs12(stored.EncryptedPfxBytes!, "orig-pw",
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
         reloaded.HasPrivateKey.ShouldBeTrue();
         reloaded.Thumbprint.ShouldBe(renewalPublic.Thumbprint);
         reloaded.GetRSAPublicKey()!.ExportSubjectPublicKeyInfo().ShouldBe(rsa.ExportSubjectPublicKeyInfo());

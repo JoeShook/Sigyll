@@ -210,7 +210,7 @@ public class CsrGenerationServiceTests
         var p12 = withKey.Export(X509ContentType.Pkcs12, "p12-pw");
 
         using var loaded = X509CertificateLoader.LoadPkcs12(p12, "p12-pw",
-            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+            Pkcs12KeyStorage.InMemoryExportable);
 
         var result = _service.GenerateCsrFromCertificate(loaded, "my-client.p12", new CsrGenerationRequest
         {
