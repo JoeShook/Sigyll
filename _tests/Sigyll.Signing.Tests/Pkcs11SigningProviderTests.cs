@@ -112,6 +112,7 @@ public sealed class SoftHsmToken : IDisposable
             return;
 
         NativeLibraryNames.Register();
+        LoadedLibraries.KeepLoaded(LibraryPath);
         var soPin = Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
         var factories = new Pkcs11InteropFactories();
         using var library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, LibraryPath, AppType.MultiThreaded);
@@ -149,6 +150,7 @@ public sealed class SoftHsmToken : IDisposable
 }
 
 /// <summary>Signing on a real PKCS #11 token (SoftHSM): keys stay on the token, and CAs issue and sign CRLs with them.</summary>
+[Collection(Pkcs11TokenCollection.Name)]
 public class Pkcs11SoftHsmTests(SoftHsmToken token) : IClassFixture<SoftHsmToken>
 {
     private readonly TestDbContextFactory _dbFactory = new();

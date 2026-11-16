@@ -65,6 +65,11 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
             var attrs = session.Factories.ObjectAttributeFactory;
             var id = System.Text.Encoding.ASCII.GetBytes(label);
 
+            // When the connection failed after the token made the key, this runs a second time: keep that key
+            // rather than make another with the same label.
+            if (session.FindAllObjects([attrs.Create(CKA.CKA_LABEL, label)]).Count == 2)
+                return true;
+
             var publicTemplate = new List<IObjectAttribute>
             {
                 attrs.Create(CKA.CKA_TOKEN, true),
@@ -203,8 +208,7 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
 
     public void Dispose()
     {
-        _session?.Dispose();
-        _library?.Dispose();
+        Disconnect();
         _gate.Dispose();
     }
 
@@ -215,21 +219,68 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
         await _gate.WaitAsync(ct);
         try
         {
-            return action(_session ??= OpenSession());
+            return action(LiveSession());
         }
-        catch (Pkcs11Exception ex) when (ex.RV is CKR.CKR_SESSION_HANDLE_INVALID or CKR.CKR_SESSION_CLOSED
-                                             or CKR.CKR_DEVICE_REMOVED or CKR.CKR_TOKEN_NOT_PRESENT)
+        catch (Pkcs11Exception ex) when (IsConnectionLost(ex.RV))
         {
-            // The token went away (HSM failover or restart): open a fresh session once and try again.
-            _logger.LogWarning("PKCS #11 session lost ({Reason}); reopening", ex.RV);
-            _session?.Dispose();
-            _session = OpenSession();
-            return action(_session);
+            // The token went away part-way through (HSM failover or restart, network loss): start again from
+            // initialising the library, once. The action may already have taken effect on the token, so actions
+            // are written to be safe to repeat.
+            _logger.LogWarning("PKCS #11 call failed ({Reason}); reconnecting to the token", ex.RV);
+            Disconnect();
+            return action(_session = OpenSession());
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// The open session, after checking the token still knows it and still has the user logged in; otherwise a new
+    /// one. A token that logged the user out (an idle timeout, say) hides private keys instead of failing, so
+    /// without this check a signing key would look missing, and destroying a key would remove only its public half.
+    /// </summary>
+    private ISession LiveSession()
+    {
+        if (_session == null)
+            return _session = OpenSession();
+
+        try
+        {
+            if (_session.GetSessionInfo().State is CKS.CKS_RW_USER_FUNCTIONS or CKS.CKS_RO_USER_FUNCTIONS)
+                return _session;
+            _logger.LogWarning("PKCS #11 token '{Token}' logged the user out; reconnecting", _options.TokenLabel);
+        }
+        catch (Pkcs11Exception ex) when (IsConnectionLost(ex.RV))
+        {
+            _logger.LogWarning("PKCS #11 session lost ({Reason}); reconnecting to the token", ex.RV);
+        }
+
+        Disconnect();
+        return _session = OpenSession();
+    }
+
+    private static bool IsConnectionLost(CKR reason) => reason is
+        CKR.CKR_SESSION_HANDLE_INVALID or CKR.CKR_SESSION_CLOSED or CKR.CKR_USER_NOT_LOGGED_IN
+        or CKR.CKR_DEVICE_REMOVED or CKR.CKR_DEVICE_ERROR or CKR.CKR_TOKEN_NOT_PRESENT
+        or CKR.CKR_CRYPTOKI_NOT_INITIALIZED;
+
+    /// <summary>
+    /// Closes the session and finalises the library, so the next use initialises the library afresh. Once a network
+    /// HSM's client library has lost its connection, a new session alone is not enough: the library has to be
+    /// initialised again. The library itself stays in memory (<see cref="LoadedLibraries"/>).
+    /// </summary>
+    private void Disconnect()
+    {
+        // Closing a session or finalising a library whose connection is already gone fails; that is expected here.
+        try { _session?.Dispose(); }
+        catch (Pkcs11Exception) { }
+        _session = null;
+
+        try { _library?.Dispose(); }
+        catch (Pkcs11Exception) { }
+        _library = null;
     }
 
     private ISession OpenSession()
@@ -244,6 +295,7 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
             OpenScConfiguration.UseProfilesBesideLibrary(_options.LibraryPath);
             var factories = new Pkcs11InteropFactories();
             _library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, _options.LibraryPath, AppType.MultiThreaded);
+            LoadedLibraries.KeepLoaded(_options.LibraryPath);
         }
 
         var slot = _library.GetSlotList(SlotsType.WithTokenPresent)

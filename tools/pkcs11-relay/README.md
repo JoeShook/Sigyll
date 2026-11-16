@@ -143,6 +143,23 @@ docker run -d --name relay -p 127.0.0.1:5696:5696 sigyll-pkcs11-relay
 | Client | `SIGYLL_PKCS11_RELAY` | Server address, `host:port` | `127.0.0.1:5696` |
 | Server | `PKCS11_RELAY_LIBRARY` | The PKCS #11 library to pass calls to | `/usr/lib/softhsm/libsofthsm2.so` |
 | Server | `PKCS11_RELAY_PORT` | Port to listen on | `5696` |
+| Server | `PKCS11_RELAY_CONTROL_PORT` | Port for the fault switches | none: switches off |
+
+## Fault switches
+
+A network HSM fails in ways a library in the same process does not: the connection drops, the HSM logs the
+application out, or an answer never arrives. The server can cause each of these on request, so tests can show that
+Sigyll carries on. The switches are off unless `PKCS11_RELAY_CONTROL_PORT` is set. A command is one line of text
+sent to that port; the answer is one line starting `ok` or `error`.
+
+| Command | What the server does | What the application sees |
+|---|---|---|
+| `drop` | Closes every client connection, and with each its sessions | `CKR_DEVICE_REMOVED` on its next call, then `CKR_CRYPTOKI_NOT_INITIALIZED` until it initialises the library again |
+| `logout` | Logs out every open session | Sessions that still work but no longer see private keys |
+| `drop-reply <function>` | Runs the next call to that function (`Sign`, `GenerateKeyPair`, ...), then closes the connection without answering | The same as `drop`, but the work was done on the token |
+
+`run-token-tests.ps1` publishes the switches on `127.0.0.1:5697` and sets `SIGYLL_TEST_PKCS11_RELAY_FAULTS`, which
+turns on the reconnect tests (`Pkcs11ReconnectTests`). CI does the same.
 
 ## How CI uses it
 
@@ -159,7 +176,7 @@ flowchart TB
 
     subgraph relay["PKCS #11 over the network (Ubuntu)"]
         direction TB
-        r1["Build the client library (.so)"] --> r2["Start the relay server<br/>and SoftHSM in a container"] --> r3["Token tests through the relay"]
+        r1["Build the client library (.so)"] --> r2["Start the relay server<br/>and SoftHSM in a container"] --> r3["Token tests through the relay"] --> r4["Reconnect tests<br/>using the fault switches"]
     end
 
     subgraph windows["Relay client for Windows (Windows)"]
