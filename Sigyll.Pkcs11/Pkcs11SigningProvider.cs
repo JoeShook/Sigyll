@@ -241,6 +241,7 @@ public sealed class Pkcs11SigningProvider : ISigningProvider, IKeyProtectionRepo
 
         if (_library == null)
         {
+            OpenScConfiguration.UseProfilesBesideLibrary(_options.LibraryPath);
             var factories = new Pkcs11InteropFactories();
             _library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, _options.LibraryPath, AppType.MultiThreaded);
         }
