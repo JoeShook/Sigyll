@@ -45,6 +45,22 @@ public sealed class HardwareHsmFactAttribute : FactAttribute
     }
 }
 
+/// <summary>
+/// Skipped unless the operator has also asked for it: someone has to take the token out and put it back while the
+/// test runs. <c>tools/opensc/run-hardware-tests.ps1 -Replug</c> sets the variable.
+/// </summary>
+public sealed class HardwareHsmReplugFactAttribute : FactAttribute
+{
+    public const string ReplugVariable = "SIGYLL_TEST_HSM_REPLUG";
+
+    public HardwareHsmReplugFactAttribute()
+    {
+        Skip = new HardwareHsmFactAttribute().Skip;
+        if (Skip == null && Environment.GetEnvironmentVariable(ReplugVariable) != "1")
+            Skip = $"Set {ReplugVariable} to 1, then remove the token and put it back while the test runs.";
+    }
+}
+
 /// <summary>One session on a token the operator has already initialized. Nothing here calls C_InitToken.</summary>
 public sealed class HardwareHsmToken : IDisposable
 {
@@ -124,6 +140,48 @@ public class Pkcs11HardwareTokenTests(HardwareHsmToken token) : IClassFixture<Ha
             using var publicKey = (RSA)await token.Provider.GetPublicKeyAsync(key);
             publicKey.KeySize.ShouldBe(2048);
             publicKey.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1).ShouldBeTrue();
+        });
+    }
+
+    /// <summary>
+    /// The operator removes the token and puts it back while this runs. Signing fails while the token is away and
+    /// must work again, with the same key, once it is back: the provider signs in again by itself.
+    /// </summary>
+    [HardwareHsmReplugFact]
+    public async Task Signing_Continues_AfterTheTokenIsRemovedAndPutBack()
+    {
+        await WithKey("ECDSA", 256, "nistP256", async key =>
+        {
+            var data = "to be signed"u8.ToArray();
+            using var publicKey = (ECDsa)await token.Provider!.GetPublicKeyAsync(key);
+            await token.Provider.SignDataAsync(data, HashAlgorithmName.SHA256, key);
+
+            var removed = false;
+            var giveUp = DateTime.UtcNow.AddMinutes(3);
+            while (true)
+            {
+                byte[]? signature = null;
+                try
+                {
+                    signature = await token.Provider.SignDataAsync(data, HashAlgorithmName.SHA256, key);
+                }
+                catch (Exception)
+                {
+                    removed = true;
+                }
+
+                if (removed && signature != null)
+                {
+                    publicKey.VerifyData(data, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)
+                        .ShouldBeTrue();
+                    return;
+                }
+
+                (DateTime.UtcNow < giveUp).ShouldBeTrue(removed
+                    ? "The token was removed, but signing did not work again within three minutes of the start."
+                    : "The token was never removed: signing kept working for three minutes.");
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
         });
     }
 
