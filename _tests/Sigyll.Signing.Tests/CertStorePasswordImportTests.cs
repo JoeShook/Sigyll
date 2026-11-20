@@ -22,7 +22,7 @@ namespace Sigyll.Signing.Tests;
 /// <summary>The directory import with P12 files whose password isn't the default one.</summary>
 public sealed class CertStorePasswordImportTests : IDisposable
 {
-    private const string DefaultPassword = "udap-test";
+    private const string DefaultPassword = "shared-password";
     private const string LeafPassword = "a-different-one";
 
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory = new TestDbContextFactory();

@@ -23,7 +23,7 @@ public partial class Import
     protected override async Task OnInitializedAsync() => await Access.LoadAsync();
 
     private string certstorePath = string.Empty;
-    private string pfxPassword = "udap-test";
+    private string pfxPassword = string.Empty;
     private bool isScanning;
     private bool isImporting;
     private List<ImportPreviewViewModel> previews = new();

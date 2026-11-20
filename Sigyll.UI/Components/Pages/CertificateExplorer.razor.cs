@@ -1302,12 +1302,15 @@ public partial class CertificateExplorer : IDisposable
                 {
                     sortOrder = 3; // CRLs last
                 }
+                else if (ext is ".pfx" or ".p12")
+                {
+                    // Can't be read without its password; each one is asked for after the other files.
+                    sortOrder = 2;
+                }
                 else
                 {
                     // Quick-parse to detect role for sorting
-                    var parsed = ext is ".pfx" or ".p12"
-                        ? (ParsingService.Parse(fileBytes, fileName, "") ?? ParsingService.Parse(fileBytes, fileName, "udap-test"))
-                        : ParsingService.Parse(fileBytes, fileName);
+                    var parsed = ParsingService.Parse(fileBytes, fileName);
 
                     if (parsed?.DetectedRole == DetectedCertRole.RootCa)
                         sortOrder = 0; // Roots first
@@ -1415,20 +1418,9 @@ public partial class CertificateExplorer : IDisposable
 
         if (ext is ".pfx" or ".p12")
         {
-            parsed = ParsingService.Parse(fileBytes, fileName, "");
-            if (parsed != null) usedPassword = "";
-
-            if (parsed == null)
-            {
-                parsed = ParsingService.Parse(fileBytes, fileName, "udap-test");
-                if (parsed != null) usedPassword = "udap-test";
-            }
-
-            if (parsed == null)
-            {
-                pendingPasswordQueue.Enqueue((fileBytes, fileName));
-                return false;
-            }
+            // Never guessed: the operator gives every P12's password, after the other files.
+            pendingPasswordQueue.Enqueue((fileBytes, fileName));
+            return false;
         }
         else
         {
@@ -1636,29 +1628,13 @@ public partial class CertificateExplorer : IDisposable
 
         if (ext is ".pfx" or ".p12")
         {
-            // Try with empty password first, then the common default. The confirmed import stores and opens the
-            // file with pfxPassword, so it has to hold the one that worked.
-            var parsed = ParsingService.Parse(fileBytes, fileName, "");
+            // Never guessed: the operator gives the password (an empty one is allowed), and the confirmed import
+            // stores and opens the file with what they typed.
+            pendingFileBytes = fileBytes;
+            pendingFileName = fileName;
             pfxPassword = string.Empty;
-            if (parsed == null)
-            {
-                parsed = ParsingService.Parse(fileBytes, fileName, "udap-test");
-                pfxPassword = "udap-test";
-            }
-
-            if (parsed != null)
-            {
-                await ShowConfirmDialogAsync(parsed);
-            }
-            else
-            {
-                // Need password
-                pendingFileBytes = fileBytes;
-                pendingFileName = fileName;
-                pfxPassword = string.Empty;
-                passwordError = null;
-                passwordDialogHidden = false;
-            }
+            passwordError = null;
+            passwordDialogHidden = false;
         }
         else
         {

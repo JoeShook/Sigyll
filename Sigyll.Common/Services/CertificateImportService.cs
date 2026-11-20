@@ -454,7 +454,7 @@ public class CertificateImportService
     /// <paramref name="pfxPassword"/>. A file that opens with neither is listed in
     /// <see cref="ImportPreviewViewModel.FilesNeedingPassword"/>.</param>
     public async Task<List<ImportPreviewViewModel>> ScanCertStoreAsync(
-        string certstoresPath, string pfxPassword = "udap-test", IReadOnlyDictionary<string, string>? passwords = null)
+        string certstoresPath, string pfxPassword, IReadOnlyDictionary<string, string>? passwords = null)
     {
         await _operator.DemandAsync(Permission.Operate);
 
@@ -513,7 +513,7 @@ public class CertificateImportService
     /// <paramref name="pfxPassword"/>.</param>
     public async Task<(int imported, List<string> errors)> ImportTrustDomainAsync(
         string trustDomainDir,
-        string pfxPassword = "udap-test",
+        string pfxPassword,
         IReadOnlyDictionary<string, string>? passwords = null,
         CancellationToken ct = default)
     {
