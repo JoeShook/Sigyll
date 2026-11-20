@@ -765,6 +765,10 @@ public class ChainValidationService
                 _logger.LogInformation("Resolved CRL #{Number} from {Url} for revocation check", crlNumber, url);
                 return;
             }
+            catch (Exception ex) when (IsUnreachable(ex))
+            {
+                _logger.LogWarning("Could not download the CRL from {Url}: {Reason}", url, ex.Message);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to download/parse CRL from {Url}", url);
@@ -880,6 +884,10 @@ public class ChainValidationService
                 _logger.LogInformation("Online validation: resolved CRL from {Url}", url);
                 return;
             }
+            catch (Exception ex) when (IsUnreachable(ex))
+            {
+                _logger.LogWarning("Online validation: could not download the CRL from {Url}: {Reason}", url, ex.Message);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Online validation: failed to download/parse CRL from {Url}", url);
@@ -941,6 +949,10 @@ public class ChainValidationService
                         var placeholder = new CaCertificate { Name = issuerBc.SubjectDN.ToString() };
                         return (placeholder, issuerBc, url);
                     }
+                }
+                catch (Exception ex) when (IsUnreachable(ex))
+                {
+                    _logger.LogWarning("Could not download the issuer certificate from AIA URL {Url}: {Reason}", url, ex.Message);
                 }
                 catch (Exception ex)
                 {
@@ -1112,6 +1124,14 @@ public class ChainValidationService
             return false;
         }
     }
+
+    /// <summary>
+    /// A download that failed because the server couldn't be reached (an unknown host, a refused connection, a
+    /// timeout). Common for CRLs and issuer certificates published on networks this machine can't see, so it is
+    /// logged as one line, without a stack trace.
+    /// </summary>
+    private static bool IsUnreachable(Exception ex) =>
+        ex is HttpRequestException or TaskCanceledException or TimeoutException;
 }
 
 public class ChainValidationResult
