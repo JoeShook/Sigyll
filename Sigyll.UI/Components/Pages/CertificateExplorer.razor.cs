@@ -138,6 +138,12 @@ public partial class CertificateExplorer : IDisposable
     private bool showDropZone;
     private string? importError;
     private List<string> importErrors = new();
+
+    // Files that were already present: what each one is and where, shown in the import area.
+    private List<(string Message, CertificateLocation Location)> alreadyPresent = new();
+
+    // The certificate the last refused import named as already present elsewhere, for "Show it".
+    private CertificateLocation? refusedExisting;
     private bool isImportingBatch;
     private int importProgress;
     private int importTotal;
@@ -1214,6 +1220,8 @@ public partial class CertificateExplorer : IDisposable
     {
         importError = null;
         importErrors.Clear();
+        alreadyPresent.Clear();
+        refusedExisting = null;
 
         var fileList = files.Where(f => f.LocalFile != null && !string.IsNullOrEmpty(f.Name)).ToList();
 
@@ -1243,6 +1251,8 @@ public partial class CertificateExplorer : IDisposable
     {
         importError = null;
         importErrors.Clear();
+        alreadyPresent.Clear();
+        refusedExisting = null;
 
         var validExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { ".pfx", ".p12", ".cer", ".crt", ".pem", ".der", ".crl" };
@@ -1398,7 +1408,7 @@ public partial class CertificateExplorer : IDisposable
         }
 
         if (importErrors.Count > 0 && successCount == 0
-            && pendingPasswordQueue.Count == 0 && pendingCaSelectQueue.Count == 0)
+            && pendingPasswordQueue.Count == 0 && pendingCaSelectQueue.Count == 0 && alreadyPresent.Count == 0)
         {
             importError = "No files were imported successfully.";
         }
@@ -1441,6 +1451,12 @@ public partial class CertificateExplorer : IDisposable
             if (result.NeedsCaSelection)
             {
                 pendingCaSelectQueue.Enqueue((fileBytes, fileName, usedPassword));
+                return false;
+            }
+
+            if (result.AlreadyExists)
+            {
+                NoteAlreadyPresent(fileName, result);
                 return false;
             }
 
@@ -1734,6 +1750,12 @@ public partial class CertificateExplorer : IDisposable
             }
 
             parsed.Certificate.Dispose();
+            if (result.AlreadyExists)
+            {
+                NoteAlreadyPresent(fileName, result);
+                return;
+            }
+
             if (!result.Success)
             {
                 importErrors.Add($"{fileName}: {result.Error ?? "Import failed."}");
@@ -1826,18 +1848,30 @@ public partial class CertificateExplorer : IDisposable
             }
 
             confirmDialogHidden = true;
+            var parsedName = parsedCert?.FileName ?? importName;
             parsedCert?.Certificate.Dispose();
             parsedCert = null;
 
-            if (result.Success)
+            refusedExisting = null;
+            if (result.AlreadyExists)
+            {
+                // Nothing new: say so, say where it is, and select it.
+                showDropZone = true;
+                importError = null;
+                alreadyPresent.Clear();
+                var message = AlreadyPresentMessage(parsedName, result);
+                alreadyPresent.Add((message, result.ExistingLocation!));
+                ToastService.ShowCopyableWarning(message);
+                await LoadTrustDomainTreeAsync(TrustDomainId);
+                await ShowExistingAsync(result.ExistingLocation!);
+            }
+            else if (result.Success)
             {
                 showDropZone = false;
                 importError = null;
-                ToastService.ShowCopyableSuccess(result.AlreadyExists
-                    ? $"Certificate '{result.ImportedName}' is already in this trust domain; nothing new was imported."
-                    : result.KeyPairedFrom != null
-                        ? $"Certificate '{importName}' imported and paired with the private key of '{result.KeyPairedFrom}'."
-                        : $"Certificate '{importName}' imported successfully.");
+                ToastService.ShowCopyableSuccess(result.KeyPairedFrom != null
+                    ? $"Certificate '{importName}' imported and paired with the private key of '{result.KeyPairedFrom}'."
+                    : $"Certificate '{importName}' imported successfully.");
                 await LoadTrustDomainTreeAsync(TrustDomainId);
             }
             else
@@ -1845,6 +1879,7 @@ public partial class CertificateExplorer : IDisposable
                 // The import area stays open so the reason stays in view, and a toast says it as well.
                 showDropZone = true;
                 importError = result.Error ?? "Import failed.";
+                refusedExisting = result.ExistingLocation;
                 ToastService.ShowCopyableError(importError);
             }
         }
@@ -1855,6 +1890,37 @@ public partial class CertificateExplorer : IDisposable
             confirmDialogHidden = true;
             ToastService.ShowCopyableError(importError);
         }
+    }
+
+    /// <summary>"x.p12 is already present: 'name' in trust domain 'T', at Root › Sub › name. …"</summary>
+    private static string AlreadyPresentMessage(string fileName, SingleImportResult result)
+    {
+        var location = result.ExistingLocation!;
+        var outcome = result.KeyAdded
+            ? "Its private key was missing there and has been added from the file."
+            : "Nothing new was imported.";
+        return $"{fileName} is already present: '{location.Name}' in {location.Describe()}. {outcome}";
+    }
+
+    private void NoteAlreadyPresent(string fileName, SingleImportResult result) =>
+        alreadyPresent.Add((AlreadyPresentMessage(fileName, result), result.ExistingLocation!));
+
+    /// <summary>Selects a stored certificate: in this trust domain's tree, or by opening its own trust domain.</summary>
+    private async Task ShowExistingAsync(CertificateLocation location)
+    {
+        if (location.TrustDomainId == TrustDomainId)
+        {
+            if (FindNodeByThumbprint(treeNodes, location.Thumbprint) is { } node)
+            {
+                ExpandPathTo(node);
+                await SelectNode(node);
+                pendingHighlight = true;
+            }
+            return;
+        }
+
+        Navigation.NavigateTo(
+            $"/explorer/{location.TrustDomainId}?thumbprint={Uri.EscapeDataString(location.Thumbprint)}", forceLoad: true);
     }
 
     private async Task ImportCrlAsync(byte[] crlBytes, string fileName)
@@ -1993,12 +2059,15 @@ public partial class CertificateExplorer : IDisposable
 
         parsed.Certificate.Dispose();
 
-        if (result.Success)
+        if (result.AlreadyExists)
         {
-            var label = result.AlreadyExists ? "Merged PFX into existing" : "assigned under";
+            ToastService.ShowCopyableWarning(AlreadyPresentMessage(pendingFileName, result));
+        }
+        else if (result.Success)
+        {
             var paired = result.KeyPairedFrom != null ? $" (private key paired from '{result.KeyPairedFrom}')" : "";
             ToastService.ShowCopyableSuccess(
-                $"'{result.ImportedName}' {label} '{selectedCaForAssignment!.Name}'{paired}");
+                $"'{result.ImportedName}' assigned under '{selectedCaForAssignment!.Name}'{paired}");
         }
         else
         {
