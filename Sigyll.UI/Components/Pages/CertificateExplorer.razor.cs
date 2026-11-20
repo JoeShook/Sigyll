@@ -1444,6 +1444,8 @@ public partial class CertificateExplorer : IDisposable
                 return false;
             }
 
+            if (!result.Success)
+                importErrors.Add($"{fileName}: {result.Error ?? "Import failed."}");
             return result.Success;
         }
         catch (Exception ex)
@@ -1732,6 +1734,12 @@ public partial class CertificateExplorer : IDisposable
             }
 
             parsed.Certificate.Dispose();
+            if (!result.Success)
+            {
+                importErrors.Add($"{fileName}: {result.Error ?? "Import failed."}");
+                return;
+            }
+
             ToastService.ShowCopyableSuccess(result.KeyPairedFrom != null
                 ? $"Imported '{fileName}' and paired it with the private key of '{result.KeyPairedFrom}'"
                 : $"Imported '{fileName}'");

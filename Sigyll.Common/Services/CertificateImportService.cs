@@ -121,6 +121,11 @@ public class CertificateImportService
             return SingleImportResult.Merged(existingIssued.Name);
         }
 
+        // --- A certificate is held by one trust domain only ---
+        if (await TrustDomainHoldingAsync(db, thumbprint, ct) is { } holder)
+            return SingleImportResult.Failed(
+                $"'{certName.Trim()}' is already in trust domain '{holder.Name}'. A certificate can be in only one trust domain; import it there or move it.");
+
         // --- Public-only import: pair with a stored private key if the public key is already known ---
         // This completes the CSR round trip: the operator generated a CSR with an existing key,
         // the external CA returned a new certificate, and importing that .cer should yield an
@@ -180,8 +185,9 @@ public class CertificateImportService
 
         // --- A PKCS #12 file with its chain: bring in the CA certificates it carries first, so this certificate
         // finds its issuer even when the trust domain doesn't hold it yet ---
-        if (parsed.HasPrivateKey)
-            await ImportCarriedCaCertificatesAsync(parsed, fileBytes, password, trustDomainId, ct);
+        var caRefusals = parsed.HasPrivateKey
+            ? await ImportCarriedCaCertificatesAsync(parsed, fileBytes, password, trustDomainId, ct)
+            : [];
 
         CaCertificate? newCa = null;
         IssuedCertificate? newIssued = null;
@@ -235,7 +241,10 @@ public class CertificateImportService
                 db, trustDomainId, cert, ct);
 
             if (resolvedCaId == null)
-                return SingleImportResult.NoCaFound();
+                return caRefusals.Count > 0
+                    ? SingleImportResult.Failed(
+                        $"The file's CA certificates could not be imported here: {string.Join(" ", caRefusals)}")
+                    : SingleImportResult.NoCaFound();
 
             var issuedDonor = donor?.EntityType == "IssuedCertificate" ? donor : null;
             newIssued = new IssuedCertificate
@@ -280,11 +289,13 @@ public class CertificateImportService
     /// <summary>
     /// Imports the CA certificates a PKCS #12 file carries besides its own, without keys, named after their common
     /// names. One that is already in the trust domain is left as it is; one that can't be imported is logged and
-    /// skipped, so the certificate the file is for is still imported.
+    /// skipped, so the certificate the file is for is still imported if its issuer is found.
     /// </summary>
-    private async Task ImportCarriedCaCertificatesAsync(
+    /// <returns>Why each CA certificate that wasn't imported was refused.</returns>
+    private async Task<List<string>> ImportCarriedCaCertificatesAsync(
         ParsedCertificate parsed, byte[] fileBytes, string? password, int trustDomainId, CancellationToken ct)
     {
+        var refusals = new List<string>();
         foreach (var ca in CertificateParsingService.ParseCaChain(fileBytes, parsed.FileName, password))
         {
             using var certificate = ca.Certificate;
@@ -294,9 +305,27 @@ public class CertificateImportService
             var name = string.IsNullOrWhiteSpace(commonName) ? certificate.Subject : commonName;
             var result = await ImportParsedCertificateAsync(ca, trustDomainId, name, ct: ct);
             if (result.Error != null)
+            {
+                refusals.Add(result.Error);
                 _logger.LogWarning("CA certificate '{Name}' carried in {File} was not imported: {Error}",
                     name, parsed.FileName, result.Error);
+            }
         }
+
+        return refusals;
+    }
+
+    /// <summary>
+    /// The trust domain that already holds a certificate with this thumbprint, if any. Thumbprints are unique across
+    /// all trust domains, so a certificate held by one can't be imported into another.
+    /// </summary>
+    private static async Task<TrustDomain?> TrustDomainHoldingAsync(SigyllDbContext db, string thumbprint, CancellationToken ct)
+    {
+        var caDomainId = await db.CaCertificates.Where(c => c.Thumbprint == thumbprint)
+            .Select(c => (int?)c.TrustDomainId).FirstOrDefaultAsync(ct);
+        caDomainId ??= await db.IssuedCertificates.Where(c => c.Thumbprint == thumbprint)
+            .Select(c => (int?)c.IssuingCaCertificate.TrustDomainId).FirstOrDefaultAsync(ct);
+        return caDomainId is int id ? await db.TrustDomains.AsNoTracking().SingleAsync(t => t.Id == id, ct) : null;
     }
 
     /// <summary>
