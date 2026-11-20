@@ -177,6 +177,11 @@ public class CertificateImportService
             }
         }
 
+        // --- A PKCS #12 file with its chain: bring in the CA certificates it carries first, so this certificate
+        // finds its issuer even when the trust domain doesn't hold it yet ---
+        if (parsed.HasPrivateKey)
+            await ImportCarriedCaCertificatesAsync(parsed, fileBytes, password, trustDomainId, ct);
+
         CaCertificate? newCa = null;
         IssuedCertificate? newIssued = null;
 
@@ -269,6 +274,28 @@ public class CertificateImportService
             $"Imported from {parsed.FileName}, {keyNote}.", ct: ct);
 
         return SingleImportResult.Imported(certName.Trim(), keyPairedFrom);
+    }
+
+    /// <summary>
+    /// Imports the CA certificates a PKCS #12 file carries besides its own, without keys, named after their common
+    /// names. One that is already in the trust domain is left as it is; one that can't be imported is logged and
+    /// skipped, so the certificate the file is for is still imported.
+    /// </summary>
+    private async Task ImportCarriedCaCertificatesAsync(
+        ParsedCertificate parsed, byte[] fileBytes, string? password, int trustDomainId, CancellationToken ct)
+    {
+        foreach (var ca in CertificateParsingService.ParseCaChain(fileBytes, parsed.FileName, password))
+        {
+            using var certificate = ca.Certificate;
+            if (certificate.Thumbprint == parsed.Certificate.Thumbprint) continue;
+
+            var commonName = certificate.GetNameInfo(X509NameType.SimpleName, forIssuer: false);
+            var name = string.IsNullOrWhiteSpace(commonName) ? certificate.Subject : commonName;
+            var result = await ImportParsedCertificateAsync(ca, trustDomainId, name, ct: ct);
+            if (result.Error != null)
+                _logger.LogWarning("CA certificate '{Name}' carried in {File} was not imported: {Error}",
+                    name, parsed.FileName, result.Error);
+        }
     }
 
     /// <summary>
