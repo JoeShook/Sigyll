@@ -8,6 +8,7 @@
 // */
 #endregion
 
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -449,7 +450,11 @@ public class CertificateImportService
     /// <summary>
     /// Scans a certstores directory and returns a preview of what can be imported.
     /// </summary>
-    public async Task<List<ImportPreviewViewModel>> ScanCertStoreAsync(string certstoresPath, string pfxPassword = "udap-test")
+    /// <param name="passwords">Passwords for single files, by full path; any other file is opened with
+    /// <paramref name="pfxPassword"/>. A file that opens with neither is listed in
+    /// <see cref="ImportPreviewViewModel.FilesNeedingPassword"/>.</param>
+    public async Task<List<ImportPreviewViewModel>> ScanCertStoreAsync(
+        string certstoresPath, string pfxPassword = "udap-test", IReadOnlyDictionary<string, string>? passwords = null)
     {
         await _operator.DemandAsync(Permission.Operate);
 
@@ -474,36 +479,18 @@ public class CertificateImportService
                 DirectoryPath = trustDomainDir
             };
 
-            // Count root CA pfx files at top level
-            var rootPfxFiles = Directory.GetFiles(trustDomainDir, "*.pfx", SearchOption.TopDirectoryOnly);
+            var rootPfxFiles = Pkcs12Files(trustDomainDir);
+            var intermediatePfxFiles = Pkcs12Files(Path.Combine(trustDomainDir, "intermediates"));
+            var issuedPfxFiles = Pkcs12Files(Path.Combine(trustDomainDir, "issued"));
             preview.RootCaCount = rootPfxFiles.Length;
+            preview.IntermediateCount = intermediatePfxFiles.Length;
+            preview.IssuedCertCount = issuedPfxFiles.Length;
 
-            // Validate root CA files can be loaded
-            foreach (var pfxFile in rootPfxFiles)
+            // Every PKCS #12 file must open with its password, or the operator is asked for one.
+            foreach (var pfxFile in rootPfxFiles.Concat(intermediatePfxFiles).Concat(issuedPfxFiles))
             {
-                try
-                {
-                    using var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxFile, pfxPassword,
-                        X509KeyStorageFlags.Exportable);
-                }
-                catch (Exception ex)
-                {
-                    preview.Errors.Add($"Cannot load {Path.GetFileName(pfxFile)}: {ex.Message}");
-                }
-            }
-
-            // Count intermediates
-            var intermediatesDir = Path.Combine(trustDomainDir, "intermediates");
-            if (Directory.Exists(intermediatesDir))
-            {
-                preview.IntermediateCount = Directory.GetFiles(intermediatesDir, "*.pfx").Length;
-            }
-
-            // Count issued certs
-            var issuedDir = Path.Combine(trustDomainDir, "issued");
-            if (Directory.Exists(issuedDir))
-            {
-                preview.IssuedCertCount = Directory.GetFiles(issuedDir, "*.pfx").Length;
+                if (!Pkcs12Opens(pfxFile, PasswordFor(pfxFile, pfxPassword, passwords)))
+                    preview.FilesNeedingPassword.Add(Path.GetFullPath(pfxFile));
             }
 
             // Count CRL files
@@ -522,9 +509,12 @@ public class CertificateImportService
     /// <summary>
     /// Imports all certificates from a trustDomain directory into the database.
     /// </summary>
+    /// <param name="passwords">Passwords for single files, by full path; any other file is opened with
+    /// <paramref name="pfxPassword"/>.</param>
     public async Task<(int imported, List<string> errors)> ImportTrustDomainAsync(
         string trustDomainDir,
         string pfxPassword = "udap-test",
+        IReadOnlyDictionary<string, string>? passwords = null,
         CancellationToken ct = default)
     {
         await _operator.DemandAsync(Permission.Operate);
@@ -556,13 +546,13 @@ public class CertificateImportService
 
         // Import root CAs
         var rootCas = new Dictionary<string, CaCertificate>(); // SKI -> entity
-        var rootPfxFiles = Directory.GetFiles(trustDomainDir, "*.pfx", SearchOption.TopDirectoryOnly);
+        var rootPfxFiles = Pkcs12Files(trustDomainDir);
 
         foreach (var pfxFile in rootPfxFiles)
         {
             try
             {
-                var (entity, ski) = await ImportCaCertificateAsync(db, pfxFile, pfxPassword, trustDomain.Id, null, ct);
+                var (entity, ski) = await ImportCaCertificateAsync(db, pfxFile, PasswordFor(pfxFile, pfxPassword, passwords), trustDomain.Id, null, ct);
                 if (ski != null)
                 {
                     rootCas[ski] = entity;
@@ -583,13 +573,13 @@ public class CertificateImportService
 
         if (Directory.Exists(intermediatesDir))
         {
-            var intermediatePfxFiles = Directory.GetFiles(intermediatesDir, "*.pfx");
+            var intermediatePfxFiles = Pkcs12Files(intermediatesDir);
             foreach (var pfxFile in intermediatePfxFiles)
             {
                 try
                 {
-                    using var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxFile, pfxPassword,
-                        X509KeyStorageFlags.Exportable);
+                    using var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxFile,
+                        PasswordFor(pfxFile, pfxPassword, passwords), X509KeyStorageFlags.Exportable);
                     var aki = GetAuthorityKeyIdentifier(cert);
                     int? parentId = null;
 
@@ -603,7 +593,7 @@ public class CertificateImportService
                         parentId = rootCas.Values.First().Id;
                     }
 
-                    var (entity, ski) = await ImportCaCertificateAsync(db, pfxFile, pfxPassword, trustDomain.Id, parentId, ct);
+                    var (entity, ski) = await ImportCaCertificateAsync(db, pfxFile, PasswordFor(pfxFile, pfxPassword, passwords), trustDomain.Id, parentId, ct);
                     if (ski != null)
                     {
                         intermediates[ski] = entity;
@@ -623,13 +613,13 @@ public class CertificateImportService
         var issuedDir = Path.Combine(trustDomainDir, "issued");
         if (Directory.Exists(issuedDir))
         {
-            var issuedPfxFiles = Directory.GetFiles(issuedDir, "*.pfx");
+            var issuedPfxFiles = Pkcs12Files(issuedDir);
             foreach (var pfxFile in issuedPfxFiles)
             {
                 try
                 {
-                    using var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxFile, pfxPassword,
-                        X509KeyStorageFlags.Exportable);
+                    using var cert = X509CertificateLoader.LoadPkcs12FromFile(pfxFile,
+                        PasswordFor(pfxFile, pfxPassword, passwords), X509KeyStorageFlags.Exportable);
                     var aki = GetAuthorityKeyIdentifier(cert);
                     int? issuingCaId = null;
 
@@ -664,7 +654,7 @@ public class CertificateImportService
                         }
                     }
 
-                    var entity = ImportIssuedCertificate(cert, pfxFile, pfxPassword, issuingCaId.Value);
+                    var entity = ImportIssuedCertificate(cert, pfxFile, PasswordFor(pfxFile, pfxPassword, passwords), issuingCaId.Value);
                     db.IssuedCertificates.Add(entity);
                     await db.SaveChangesAsync(ct);
                     imported++;
@@ -699,6 +689,32 @@ public class CertificateImportService
         }
 
         return (imported, errors);
+    }
+
+    /// <summary>The PKCS #12 files (.pfx and .p12) directly in a folder; none when it doesn't exist.</summary>
+    private static string[] Pkcs12Files(string dir) =>
+        Directory.Exists(dir)
+            ? Directory.GetFiles(dir, "*.*", SearchOption.TopDirectoryOnly)
+                .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".pfx" or ".p12")
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+            : [];
+
+    private static string PasswordFor(string file, string defaultPassword, IReadOnlyDictionary<string, string>? passwords) =>
+        passwords != null && passwords.TryGetValue(Path.GetFullPath(file), out var password) ? password : defaultPassword;
+
+    /// <summary>Whether a PKCS #12 file opens with this password.</summary>
+    public static bool Pkcs12Opens(string file, string? password)
+    {
+        try
+        {
+            using var certificate = X509CertificateLoader.LoadPkcs12FromFile(file, password, Pkcs12KeyStorage.InMemory);
+            return true;
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
     }
 
     private async Task<(CaCertificate entity, string? ski)> ImportCaCertificateAsync(

@@ -1636,12 +1636,14 @@ public partial class CertificateExplorer : IDisposable
 
         if (ext is ".pfx" or ".p12")
         {
-            // Try with empty password first
+            // Try with empty password first, then the common default. The confirmed import stores and opens the
+            // file with pfxPassword, so it has to hold the one that worked.
             var parsed = ParsingService.Parse(fileBytes, fileName, "");
+            pfxPassword = string.Empty;
             if (parsed == null)
             {
-                // Try common default
                 parsed = ParsingService.Parse(fileBytes, fileName, "udap-test");
+                pfxPassword = "udap-test";
             }
 
             if (parsed != null)

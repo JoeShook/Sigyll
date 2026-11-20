@@ -19,5 +19,9 @@ public class ImportPreviewViewModel
     public int IssuedCertCount { get; set; }
     public int CrlCount { get; set; }
     public List<string> Errors { get; set; } = new();
-    public bool IsValid => Errors.Count == 0;
+
+    /// <summary>Full paths of the PKCS #12 files that don't open with the password the scan was given.</summary>
+    public List<string> FilesNeedingPassword { get; set; } = new();
+
+    public bool IsValid => Errors.Count == 0 && FilesNeedingPassword.Count == 0;
 }
