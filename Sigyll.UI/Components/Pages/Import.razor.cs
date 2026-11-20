@@ -23,11 +23,20 @@ public partial class Import
     protected override async Task OnInitializedAsync() => await Access.LoadAsync();
 
     private string certstorePath = string.Empty;
-    private string pfxPassword = "udap-test";
+    private string pfxPassword = string.Empty;
     private bool isScanning;
     private bool isImporting;
     private List<ImportPreviewViewModel> previews = new();
     private List<(string trustDomain, int imported, List<string> errors)> importResults = new();
+
+    // Passwords for single files the default password doesn't open, by full path. Kept for the page's lifetime so
+    // a re-scan doesn't ask again; never stored anywhere else until the files are imported.
+    private readonly Dictionary<string, string> filePasswords = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Queue<string> passwordQueue = new();
+    private bool passwordDialogHidden = true;
+    private string? passwordFile;
+    private string filePassword = string.Empty;
+    private string? passwordError;
 
     protected override void OnInitialized()
     {
@@ -49,13 +58,89 @@ public partial class Import
 
         try
         {
-            previews = await Task.Run(() => ImportService.ScanCertStoreAsync(certstorePath, pfxPassword));
+            previews = await Task.Run(() => ImportService.ScanCertStoreAsync(certstorePath, pfxPassword, filePasswords));
+        }
+        finally
+        {
+            isScanning = false;
+        }
+
+        AskForPasswords(previews.SelectMany(p => p.FilesNeedingPassword));
+    }
+
+    /// <summary>Asks, one file at a time, for the password of each file the default password doesn't open.</summary>
+    private void AskForPasswords(IEnumerable<string> files)
+    {
+        passwordQueue.Clear();
+        foreach (var file in files)
+            passwordQueue.Enqueue(file);
+        AskNext();
+    }
+
+    private void AskNext()
+    {
+        filePassword = string.Empty;
+        passwordError = null;
+        if (passwordQueue.TryDequeue(out var file))
+        {
+            passwordFile = file;
+            passwordDialogHidden = false;
+        }
+        else
+        {
+            passwordFile = null;
+            passwordDialogHidden = true;
+        }
+    }
+
+    private async Task UsePasswordAsync()
+    {
+        if (passwordFile == null) return;
+
+        if (!CertificateImportService.Pkcs12Opens(passwordFile, filePassword))
+        {
+            passwordError = "Incorrect password. Try again.";
+            filePassword = string.Empty;
+            return;
+        }
+
+        filePasswords[passwordFile] = filePassword;
+        await NextOrRescanAsync();
+    }
+
+    private Task SkipPasswordAsync() => NextOrRescanAsync();
+
+    private async Task CancelPasswordsAsync()
+    {
+        passwordQueue.Clear();
+        await NextOrRescanAsync();
+    }
+
+    /// <summary>The next file, or, after the last one, a new scan so the preview counts the files that now open.</summary>
+    private async Task NextOrRescanAsync()
+    {
+        if (passwordQueue.Count > 0)
+        {
+            AskNext();
+            return;
+        }
+
+        passwordDialogHidden = true;
+        passwordFile = null;
+        isScanning = true;
+        try
+        {
+            previews = await Task.Run(() => ImportService.ScanCertStoreAsync(certstorePath, pfxPassword, filePasswords));
         }
         finally
         {
             isScanning = false;
         }
     }
+
+    /// <summary>A file's path below the scanned folder, for the password prompt.</summary>
+    private string DisplayPath(string? file) =>
+        file == null ? string.Empty : Path.GetRelativePath(certstorePath, file);
 
     private async Task ImportSingleAsync(ImportPreviewViewModel preview)
     {
@@ -64,7 +149,7 @@ public partial class Import
         try
         {
             var (imported, errors) = await ImportService.ImportTrustDomainAsync(
-                preview.DirectoryPath, pfxPassword);
+                preview.DirectoryPath, pfxPassword, filePasswords);
 
             importResults.Add((preview.TrustDomainName, imported, errors));
 
@@ -87,7 +172,7 @@ public partial class Import
             foreach (var preview in toImport)
             {
                 var (imported, errors) = await ImportService.ImportTrustDomainAsync(
-                    preview.DirectoryPath, pfxPassword);
+                    preview.DirectoryPath, pfxPassword, filePasswords);
 
                 importResults.Add((preview.TrustDomainName, imported, errors));
                 previews.Remove(preview);

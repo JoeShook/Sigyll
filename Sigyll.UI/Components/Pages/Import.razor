@@ -18,7 +18,7 @@
                          Placeholder="Path to certstores directory" />
         <FluentTextField @bind-Value="pfxPassword"
                          Style="width: 200px;"
-                         Label="PFX password"
+                         Label="Password for every P12"
                          TextFieldType="TextFieldType.Password" />
         <FluentButton Appearance="Appearance.Accent"
                       OnClick="ScanAsync"
@@ -54,11 +54,19 @@
                 {
                     <FluentBadge BackgroundColor="#4caf50" Color="white">Ready</FluentBadge>
                 }
-                else
+                else if (context.Errors.Count > 0)
                 {
                     <FluentBadge BackgroundColor="#e94560" Color="white">
                         @($"{context.Errors.Count} error(s)")
                     </FluentBadge>
+                }
+                else
+                {
+                    <FluentButton Size="ButtonSize.Small" Appearance="Appearance.Lightweight"
+                                  OnClick="@(() => AskForPasswords(context.FilesNeedingPassword))"
+                                  title="Enter the passwords of the files the default password doesn't open">
+                        @($"{context.FilesNeedingPassword.Count} need a password")
+                    </FluentButton>
                 }
             </TemplateColumn>
             <TemplateColumn Title="Action">
@@ -100,3 +108,30 @@
         </div>
     </FluentCard>
 }
+
+@* Password for a P12 file the default password doesn't open *@
+<FluentDialog @bind-Hidden="@passwordDialogHidden" Modal="true" TrapFocus="true" Style="min-width: 400px;">
+    <FluentDialogHeader>P12 Password Required</FluentDialogHeader>
+    <FluentDialogBody>
+        <p style="font-size: 0.9rem;">Enter the password for <code>@DisplayPath(passwordFile)</code></p>
+        @if (passwordQueue.Count > 0)
+        {
+            <p style="font-size: 0.8rem; opacity: 0.5;">@passwordQueue.Count more file(s) waiting</p>
+        }
+        <FluentTextField @bind-Value="filePassword"
+                         Label="Password"
+                         TextFieldType="TextFieldType.Password"
+                         Style="width: 100%;" />
+        @if (passwordError != null)
+        {
+            <FluentMessageBar Intent="MessageIntent.Error" Style="margin-top: 0.5rem;">
+                @passwordError
+            </FluentMessageBar>
+        }
+    </FluentDialogBody>
+    <FluentDialogFooter>
+        <FluentButton Appearance="Appearance.Accent" OnClick="UsePasswordAsync">OK</FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="SkipPasswordAsync">Skip</FluentButton>
+        <FluentButton Appearance="Appearance.Outline" OnClick="CancelPasswordsAsync">Cancel</FluentButton>
+    </FluentDialogFooter>
+</FluentDialog>
