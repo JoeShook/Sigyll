@@ -1444,6 +1444,8 @@ public partial class CertificateExplorer : IDisposable
                 return false;
             }
 
+            if (!result.Success)
+                importErrors.Add($"{fileName}: {result.Error ?? "Import failed."}");
             return result.Success;
         }
         catch (Exception ex)
@@ -1732,6 +1734,12 @@ public partial class CertificateExplorer : IDisposable
             }
 
             parsed.Certificate.Dispose();
+            if (!result.Success)
+            {
+                importErrors.Add($"{fileName}: {result.Error ?? "Import failed."}");
+                return;
+            }
+
             ToastService.ShowCopyableSuccess(result.KeyPairedFrom != null
                 ? $"Imported '{fileName}' and paired it with the private key of '{result.KeyPairedFrom}'"
                 : $"Imported '{fileName}'");
@@ -1783,7 +1791,9 @@ public partial class CertificateExplorer : IDisposable
 
             if (matchedParentCaId == null)
             {
-                chainMatchDescription = "No matching issuer found in this trustDomain. Will be added as a root.";
+                chainMatchDescription = parsed.DetectedRole == DetectedCertRole.IntermediateCa
+                    ? "No matching issuer found in this trust domain. Will be added without a parent."
+                    : "No matching issuer found in this trust domain. CA certificates carried in the file are imported first; without them you'll be asked to pick the issuing CA.";
             }
         }
 
@@ -1816,27 +1826,34 @@ public partial class CertificateExplorer : IDisposable
             }
 
             confirmDialogHidden = true;
-            showDropZone = false;
-            importError = null;
             parsedCert?.Certificate.Dispose();
             parsedCert = null;
 
             if (result.Success)
             {
-                ToastService.ShowCopyableSuccess(result.KeyPairedFrom != null
-                    ? $"Certificate '{importName}' imported and paired with the private key of '{result.KeyPairedFrom}'."
-                    : $"Certificate '{importName}' imported successfully.");
+                showDropZone = false;
+                importError = null;
+                ToastService.ShowCopyableSuccess(result.AlreadyExists
+                    ? $"Certificate '{result.ImportedName}' is already in this trust domain; nothing new was imported."
+                    : result.KeyPairedFrom != null
+                        ? $"Certificate '{importName}' imported and paired with the private key of '{result.KeyPairedFrom}'."
+                        : $"Certificate '{importName}' imported successfully.");
                 await LoadTrustDomainTreeAsync(TrustDomainId);
             }
             else
             {
+                // The import area stays open so the reason stays in view, and a toast says it as well.
+                showDropZone = true;
                 importError = result.Error ?? "Import failed.";
+                ToastService.ShowCopyableError(importError);
             }
         }
         catch (Exception ex)
         {
+            showDropZone = true;
             importError = $"Import failed: {ex.Message}";
             confirmDialogHidden = true;
+            ToastService.ShowCopyableError(importError);
         }
     }
 

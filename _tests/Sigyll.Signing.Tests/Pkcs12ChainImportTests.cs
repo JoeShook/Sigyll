@@ -115,10 +115,54 @@ public class Pkcs12ChainImportTests
         result.NeedsCaSelection.ShouldBeTrue();
     }
 
-    private async Task<int> SeedTrustDomainAsync()
+    [Fact]
+    public async Task CertificateInAnotherTrustDomain_IsRefusedWithThatTrustDomainsName()
+    {
+        var first = await SeedTrustDomainAsync("First");
+        var second = await SeedTrustDomainAsync("Second");
+        using var chain = new TestChain();
+        var file = chain.Pkcs12(chain.Leaf, chain.Intermediate, chain.Root);
+        var service = CreateService();
+        (await service.ImportParsedCertificateAsync(_parser.Parse(file, "client.p12", Password)!, first, password: Password))
+            .Success.ShouldBeTrue();
+
+        var result = await service.ImportParsedCertificateAsync(
+            _parser.Parse(file, "client.p12", Password)!, second, password: Password);
+
+        result.Success.ShouldBeFalse();
+        result.NeedsCaSelection.ShouldBeFalse();
+        result.Error.ShouldNotBeNull();
+        result.Error.ShouldContain("trust domain 'First'");
+        await using var db = _dbFactory.CreateDbContext();
+        (await db.CaCertificates.CountAsync(c => c.TrustDomainId == second)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task NewCertificate_WhoseCaIsInAnotherTrustDomain_SaysWhereTheCaIs()
+    {
+        var first = await SeedTrustDomainAsync("First");
+        var second = await SeedTrustDomainAsync("Second");
+        using var chain = new TestChain();
+        var service = CreateService();
+        await service.ImportParsedCertificateAsync(
+            _parser.Parse(chain.Pkcs12(chain.Leaf, chain.Intermediate, chain.Root), "first.p12", Password)!,
+            first, password: Password);
+
+        using var other = chain.IssueLeaf("CN=Other Leaf");
+        var result = await service.ImportParsedCertificateAsync(
+            _parser.Parse(chain.Pkcs12(other, chain.Intermediate, chain.Root), "other.p12", Password)!,
+            second, password: Password);
+
+        result.Success.ShouldBeFalse();
+        result.NeedsCaSelection.ShouldBeFalse();
+        result.Error.ShouldNotBeNull();
+        result.Error.ShouldContain("'Chain Test Intermediate' is already in trust domain 'First'");
+    }
+
+    private async Task<int> SeedTrustDomainAsync(string name = "Chain Import Test")
     {
         await using var db = _dbFactory.CreateDbContext();
-        var trustDomain = new TrustDomain { Name = "Chain Import Test", Enabled = true };
+        var trustDomain = new TrustDomain { Name = name, Enabled = true };
         db.TrustDomains.Add(trustDomain);
         await db.SaveChangesAsync();
         return trustDomain.Id;
