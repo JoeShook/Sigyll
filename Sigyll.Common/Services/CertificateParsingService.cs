@@ -85,6 +85,56 @@ public class CertificateParsingService
 
         if (cert == null) return null;
 
+        return Describe(cert, fileBytes, fileName);
+    }
+
+    /// <summary>
+    /// The CA certificates a PKCS #12 file carries besides the certificate its private key belongs to, each
+    /// issuer before the certificates it issued. Empty when the file holds none, or can't be read as PKCS #12
+    /// with this password.
+    /// </summary>
+    public static IReadOnlyList<ParsedCertificate> ParseCaChain(byte[] fileBytes, string fileName, string? password)
+    {
+        X509Certificate2Collection all;
+        try
+        {
+            all = X509CertificateLoader.LoadPkcs12Collection(fileBytes, password, Pkcs12KeyStorage.InMemory);
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+
+        var cas = new List<ParsedCertificate>();
+        foreach (var cert in all)
+        {
+            if (cert.HasPrivateKey || DetectRole(cert) == DetectedCertRole.EndEntity)
+            {
+                cert.Dispose();
+                continue;
+            }
+
+            // Without its key, the certificate is stored as it would be from a .cer file.
+            cas.Add(Describe(cert, cert.RawData, fileName));
+        }
+
+        // Roots first, then each certificate after its issuer, so an intermediate finds its parent already imported.
+        var ordered = new List<ParsedCertificate>();
+        var remaining = cas.OrderBy(c => c.DetectedRole == DetectedCertRole.RootCa ? 0 : 1).ToList();
+        while (remaining.Count > 0)
+        {
+            var next = remaining.FirstOrDefault(c => c.DetectedRole == DetectedCertRole.RootCa
+                    || remaining.All(other => other == c || other.Certificate.Subject != c.Certificate.Issuer))
+                ?? remaining[0];
+            remaining.Remove(next);
+            ordered.Add(next);
+        }
+
+        return ordered;
+    }
+
+    private static ParsedCertificate Describe(X509Certificate2 cert, byte[] fileBytes, string fileName)
+    {
         var (algorithm, keySize) = GetKeyInfo(cert);
 
         return new ParsedCertificate

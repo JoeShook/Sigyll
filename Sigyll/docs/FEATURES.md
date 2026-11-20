@@ -44,6 +44,8 @@
 - **Auto-detection** of certificate role (Root CA, Intermediate CA, End-entity) via BasicConstraints
 - PEM fallback for .cer files containing PEM text
 - **Batch import** with role-detection pre-sort (Root → Intermediate → End-entity → CRL) and retry pass
+- A PKCS #12 file that carries its issuing CA certificates brings them in too, without keys, so its certificate
+  finds its issuer in a trust domain that doesn't hold the CAs yet
 - Password dialog queue for PFX files
 - Confirm import dialog with parsed cert preview
 - **Chain matching** via AKI/SKI, with DN + BouncyCastle signature verification fallback
