@@ -39,11 +39,28 @@ public record SingleImportResult
     /// </summary>
     public string? KeyPairedFrom { get; init; }
 
+    /// <summary>Where a certificate that is already present is: its trust domain and its place in the hierarchy.</summary>
+    public CertificateLocation? ExistingLocation { get; init; }
+
+    /// <summary>When the certificate was already present without its private key, whether the file's key was added.</summary>
+    public bool KeyAdded { get; init; }
+
     public static SingleImportResult Imported(string name, string? keyPairedFrom = null) =>
         new() { Success = true, ImportedName = name, KeyPairedFrom = keyPairedFrom };
-    public static SingleImportResult Merged(string name) => new() { Success = true, AlreadyExists = true, ImportedName = name };
+    public static SingleImportResult Merged(CertificateLocation location, bool keyAdded) =>
+        new() { Success = true, AlreadyExists = true, ImportedName = location.Name, ExistingLocation = location, KeyAdded = keyAdded };
     public static SingleImportResult NoCaFound() => new() { NeedsCaSelection = true };
-    public static SingleImportResult Failed(string error) => new() { Error = error };
+    public static SingleImportResult Failed(string error, CertificateLocation? existing = null) =>
+        new() { Error = error, ExistingLocation = existing };
+}
+
+/// <summary>Where a stored certificate is.</summary>
+/// <param name="Path">The certificate's CA chain from its root, ending with its own name.</param>
+public record CertificateLocation(
+    int TrustDomainId, string TrustDomainName, string Name, string Thumbprint, IReadOnlyList<string> Path)
+{
+    /// <summary>"trust domain 'X', at Root › Intermediate › Name".</summary>
+    public string Describe() => $"trust domain '{TrustDomainName}', at {string.Join(" › ", Path)}";
 }
 
 public class CertificateImportService
@@ -100,8 +117,9 @@ public class CertificateImportService
                 await db.SaveChangesAsync(ct);
                 await _audit.RecordAsync(identity, AuditActions.CertificateImported, AuditTarget.Of(existingCa),
                     "Its private key was imported into the existing certificate.", ct: ct);
+                return SingleImportResult.Merged(await LocateAsync(db, thumbprint, ct) ?? throw MissingRow(), keyAdded: true);
             }
-            return SingleImportResult.Merged(existingCa.Name);
+            return SingleImportResult.Merged(await LocateAsync(db, thumbprint, ct) ?? throw MissingRow(), keyAdded: false);
         }
 
         var existingIssued = await db.IssuedCertificates
@@ -117,14 +135,16 @@ public class CertificateImportService
                 await db.SaveChangesAsync(ct);
                 await _audit.RecordAsync(identity, AuditActions.CertificateImported, AuditTarget.Of(existingIssued),
                     "Its private key was imported into the existing certificate.", ct: ct);
+                return SingleImportResult.Merged(await LocateAsync(db, thumbprint, ct) ?? throw MissingRow(), keyAdded: true);
             }
-            return SingleImportResult.Merged(existingIssued.Name);
+            return SingleImportResult.Merged(await LocateAsync(db, thumbprint, ct) ?? throw MissingRow(), keyAdded: false);
         }
 
         // --- A certificate is held by one trust domain only ---
-        if (await TrustDomainHoldingAsync(db, thumbprint, ct) is { } holder)
+        if (await LocateAsync(db, thumbprint, ct) is { } holder)
             return SingleImportResult.Failed(
-                $"'{certName.Trim()}' is already in trust domain '{holder.Name}'. A certificate can be in only one trust domain; import it there or move it.");
+                $"'{certName.Trim()}' is already present as '{holder.Name}' in {holder.Describe()}. " +
+                "A certificate can be in only one trust domain; import it there or move it.", holder);
 
         // --- Public-only import: pair with a stored private key if the public key is already known ---
         // This completes the CSR round trip: the operator generated a CSR with an existing key,
@@ -316,17 +336,50 @@ public class CertificateImportService
     }
 
     /// <summary>
-    /// The trust domain that already holds a certificate with this thumbprint, if any. Thumbprints are unique across
-    /// all trust domains, so a certificate held by one can't be imported into another.
+    /// Where the certificate with this thumbprint is stored, if it is. Thumbprints are unique across all trust
+    /// domains, so a certificate held by one can't be imported into another.
     /// </summary>
-    private static async Task<TrustDomain?> TrustDomainHoldingAsync(SigyllDbContext db, string thumbprint, CancellationToken ct)
+    public static async Task<CertificateLocation?> LocateAsync(SigyllDbContext db, string thumbprint, CancellationToken ct = default)
     {
-        var caDomainId = await db.CaCertificates.Where(c => c.Thumbprint == thumbprint)
-            .Select(c => (int?)c.TrustDomainId).FirstOrDefaultAsync(ct);
-        caDomainId ??= await db.IssuedCertificates.Where(c => c.Thumbprint == thumbprint)
-            .Select(c => (int?)c.IssuingCaCertificate.TrustDomainId).FirstOrDefaultAsync(ct);
-        return caDomainId is int id ? await db.TrustDomains.AsNoTracking().SingleAsync(t => t.Id == id, ct) : null;
+        int? caId;
+        string name;
+        var ca = await db.CaCertificates.AsNoTracking().Where(c => c.Thumbprint == thumbprint)
+            .Select(c => new { c.Id, c.Name }).FirstOrDefaultAsync(ct);
+        if (ca != null)
+        {
+            caId = ca.Id;
+            name = ca.Name;
+        }
+        else
+        {
+            var issued = await db.IssuedCertificates.AsNoTracking().Where(c => c.Thumbprint == thumbprint)
+                .Select(c => new { c.IssuingCaCertificateId, c.Name }).FirstOrDefaultAsync(ct);
+            if (issued == null) return null;
+            caId = issued.IssuingCaCertificateId;
+            name = issued.Name;
+        }
+
+        // The CA chain above it, root first; a CA is its own last element.
+        var chain = new List<string>();
+        var trustDomainId = 0;
+        var seen = new HashSet<int>();
+        while (caId is int id && seen.Add(id))
+        {
+            var step = await db.CaCertificates.AsNoTracking().Where(c => c.Id == id)
+                .Select(c => new { c.Name, c.ParentId, c.TrustDomainId }).SingleAsync(ct);
+            chain.Insert(0, step.Name);
+            trustDomainId = step.TrustDomainId;
+            caId = step.ParentId;
+        }
+        if (ca == null) chain.Add(name);
+
+        var trustDomainName = await db.TrustDomains.AsNoTracking().Where(t => t.Id == trustDomainId)
+            .Select(t => t.Name).SingleAsync(ct);
+        return new CertificateLocation(trustDomainId, trustDomainName, name, thumbprint, chain);
     }
+
+    private static InvalidOperationException MissingRow() =>
+        new("The certificate found a moment ago is no longer stored.");
 
     /// <summary>
     /// Finds a pending outbound CSR request whose key pair matches the certificate being imported.

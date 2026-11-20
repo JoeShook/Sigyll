@@ -234,7 +234,8 @@ public partial class CsrTool : IDisposable
                     importSucceeded = true;
                     var suffix = chainNotes.Count > 0 ? $" ({string.Join(", ", chainNotes)})" : "";
                     importMessage = result.AlreadyExists
-                        ? $"'{result.ImportedName}' already existed in '{importTrustDomain.Name}'; private key merged.{suffix}"
+                        ? $"'{result.ImportedName}' is already present in {result.ExistingLocation!.Describe()}" +
+                          (result.KeyAdded ? "; its private key was added." : "; nothing new was imported.") + suffix
                         : $"Imported '{result.ImportedName}' into '{importTrustDomain.Name}' with its private key.{suffix}";
                 }
                 else

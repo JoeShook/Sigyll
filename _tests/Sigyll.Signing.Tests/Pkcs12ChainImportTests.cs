@@ -156,7 +156,48 @@ public class Pkcs12ChainImportTests
         result.Success.ShouldBeFalse();
         result.NeedsCaSelection.ShouldBeFalse();
         result.Error.ShouldNotBeNull();
-        result.Error.ShouldContain("'Chain Test Intermediate' is already in trust domain 'First'");
+        result.Error.ShouldContain("'Chain Test Intermediate' is already present as 'Chain Test Intermediate' in trust domain 'First'");
+    }
+
+    [Fact]
+    public async Task SameFileAgain_SaysItIsAlreadyPresent_AndWhere()
+    {
+        var trustDomainId = await SeedTrustDomainAsync("Here");
+        using var chain = new TestChain();
+        var file = chain.Pkcs12(chain.Leaf, chain.Intermediate, chain.Root);
+        var service = CreateService();
+        await service.ImportParsedCertificateAsync(_parser.Parse(file, "client.p12", Password)!, trustDomainId, password: Password);
+
+        var result = await service.ImportParsedCertificateAsync(
+            _parser.Parse(file, "client.p12", Password)!, trustDomainId, password: Password);
+
+        result.AlreadyExists.ShouldBeTrue();
+        result.KeyAdded.ShouldBeFalse();
+        var location = result.ExistingLocation.ShouldNotBeNull();
+        location.TrustDomainId.ShouldBe(trustDomainId);
+        location.Thumbprint.ShouldBe(chain.Leaf.Thumbprint);
+        location.Path.ShouldBe(["Chain Test Root", "Chain Test Intermediate", "client"]);
+        location.Describe().ShouldBe("trust domain 'Here', at Chain Test Root › Chain Test Intermediate › client");
+    }
+
+    [Fact]
+    public async Task RefusalFromAnotherTrustDomain_CarriesWhereTheCertificateIs()
+    {
+        var first = await SeedTrustDomainAsync("First");
+        var second = await SeedTrustDomainAsync("Second");
+        using var chain = new TestChain();
+        var file = chain.Pkcs12(chain.Leaf, chain.Intermediate, chain.Root);
+        var service = CreateService();
+        await service.ImportParsedCertificateAsync(_parser.Parse(file, "client.p12", Password)!, first, password: Password);
+
+        var result = await service.ImportParsedCertificateAsync(
+            _parser.Parse(file, "client.p12", Password)!, second, password: Password);
+
+        result.Success.ShouldBeFalse();
+        var location = result.ExistingLocation.ShouldNotBeNull();
+        location.TrustDomainId.ShouldBe(first);
+        location.Path.ShouldBe(["Chain Test Root", "Chain Test Intermediate", "client"]);
+        result.Error!.ShouldContain("Chain Test Root › Chain Test Intermediate › client");
     }
 
     private async Task<int> SeedTrustDomainAsync(string name = "Chain Import Test")
