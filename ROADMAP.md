@@ -76,7 +76,13 @@
 - [ ] UDAP community trust chain validation (full chain build + CRL check)
 - [ ] UDAP metadata generation (.well-known/udap)
 - [ ] UDAP-specific certificate profiles (SANs with FHIR URIs, UDAP EKUs)
-- [ ] TEFCA trust chain profiles
+- [ ] TEFCA certificate support (tracked on the [TEFCA project board](https://github.com/users/JoeShook/projects/3)):
+  - [ ] TEFCA certificate presets ([#62](https://github.com/JoeShook/Sigyll/issues/62))
+  - [ ] TEFCA certificatePolicies extension ([#63](https://github.com/JoeShook/Sigyll/issues/63))
+  - [ ] NPI otherName in the SAN ([#64](https://github.com/JoeShook/Sigyll/issues/64))
+  - [ ] TEFCA SAN builder, waiting on the published SAN format ([#65](https://github.com/JoeShook/Sigyll/issues/65))
+  - [ ] Exchange-purpose authorization and bulk revocation ([#66](https://github.com/JoeShook/Sigyll/issues/66))
+  - [ ] TEFCA conformance check ([#67](https://github.com/JoeShook/Sigyll/issues/67))
 - [ ] Certification & Endorsement JWT generation
 - [ ] Community trust anchor distribution
 - [ ] Conformance testing integration (validate certs against UDAP spec)
