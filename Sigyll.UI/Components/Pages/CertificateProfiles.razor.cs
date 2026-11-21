@@ -65,6 +65,7 @@ public partial class CertificateProfiles
     private bool editSanDns;
     private bool editSanEmail;
     private bool editSanIp;
+    private bool editSanNpi;
     private List<SanList> availableSanLists = new();
     private HashSet<int> editSelectedSanListIds = new();
 
@@ -162,6 +163,7 @@ public partial class CertificateProfiles
         editSanDns = false;
         editSanEmail = false;
         editSanIp = false;
+        editSanNpi = false;
         editSelectedSanListIds.Clear();
     }
 
@@ -228,6 +230,7 @@ public partial class CertificateProfiles
         editSanDns = sanTypes.Contains("DNS", StringComparer.OrdinalIgnoreCase);
         editSanEmail = sanTypes.Contains("Email", StringComparer.OrdinalIgnoreCase);
         editSanIp = sanTypes.Contains("IP", StringComparer.OrdinalIgnoreCase);
+        editSanNpi = sanTypes.Contains("NPI", StringComparer.OrdinalIgnoreCase);
 
         editSelectedSanListIds = new HashSet<int>(t.SanLists.Select(s => s.Id));
     }
@@ -280,6 +283,7 @@ public partial class CertificateProfiles
         if (editSanDns) sanParts.Add("DNS");
         if (editSanEmail) sanParts.Add("Email");
         if (editSanIp) sanParts.Add("IP");
+        if (editSanNpi) sanParts.Add("NPI");
         entity.SubjectAltNameTypes = sanParts.Count > 0 ? string.Join(";", sanParts) : null;
 
         return entity;

@@ -32,7 +32,7 @@ public partial class SanLists
     private string editDescription = string.Empty;
     private List<SanEntry> editEntries = new();
 
-    private static readonly string[] sanTypeNames = ["URI", "DNS", "Email", "IP"];
+    private static readonly string[] sanTypeNames = ["URI", "DNS", "Email", "IP", "NPI"];
 
     protected override async Task OnInitializedAsync()
     {
