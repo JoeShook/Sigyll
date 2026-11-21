@@ -22,6 +22,9 @@ public static class PortalAuditActions
     public const string LockedOut = "user.locked-out";
     public const string SignedOut = "user.signed-out";
     public const string SecurityChanged = "user.security-changed";
+    public const string ExchangePurposeAuthorized = "organization.exchange-purpose-authorized";
+    public const string ExchangePurposeWithdrawn = "organization.exchange-purpose-withdrawn";
+    public const string CertificatesRevokedByExchangePurpose = "certificate.bulk-revoked";
 }
 
 /// <summary>

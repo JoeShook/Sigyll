@@ -84,6 +84,9 @@ public enum RequestStatus
     Issued = 9,
     Failed = 10,
     Closed = 11,
+
+    /// <summary>The issued certificate was revoked (e.g. its exchange purpose authorization was withdrawn).</summary>
+    Revoked = 12,
 }
 
 /// <summary>Outcome of the classification policy evaluation.</summary>
