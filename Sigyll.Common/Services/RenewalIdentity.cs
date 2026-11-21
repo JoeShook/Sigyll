@@ -58,7 +58,8 @@ public static class RenewalIdentity
 
     /// <summary>
     /// Whether a profile issues the same kind of certificate as <paramref name="predecessor"/>: the same CA flag,
-    /// key usages and extended key usages, with every SAN type it requires present in
+    /// key usages and extended key usages, every certificate policy the predecessor carries (see
+    /// <see cref="FindDroppedPolicies"/>), and every SAN type it requires present in
     /// <paramref name="subjectAltNames"/>. Algorithm, key size and validity may differ; that is what a re-key is for.
     /// </summary>
     public static bool IsCompatibleProfile(CertificateProfile profile, X509Certificate2 predecessor, IEnumerable<SanEntry> subjectAltNames)
@@ -81,8 +82,32 @@ public static class RenewalIdentity
         if (!ekus.SetEquals(profileEkus))
             return false;
 
+        if (FindDroppedPolicies(profile, predecessor).Count > 0)
+            return false;
+
         return IssuanceValidator.FindMissingSanTypes(profile.SubjectAltNameTypes,
             subjectAltNames.Where(s => !string.IsNullOrWhiteSpace(s.Value)).Select(s => s.Type)).Count == 0;
+    }
+
+    /// <summary>
+    /// The certificate policy OIDs in <paramref name="predecessor"/> that <paramref name="profile"/> would not
+    /// write into its renewal. A renewal or re-key keeps the policies the certificate was issued under; the profile
+    /// may add policies, but it may not drop any. Returns an empty list when nothing would be dropped.
+    /// </summary>
+    public static IReadOnlyList<string> FindDroppedPolicies(CertificateProfile profile, X509Certificate2 predecessor)
+    {
+        IReadOnlyList<string> before;
+        try
+        {
+            before = CertificatePolicyExtension.Read(predecessor);
+        }
+        catch (System.Formats.Asn1.AsnContentException)
+        {
+            return []; // an undecodable extension was not written by a profile; nothing to carry forward
+        }
+
+        var after = CertificatePolicyExtension.Parse(profile.CertificatePolicyOids).ToHashSet(StringComparer.Ordinal);
+        return before.Where(oid => !after.Contains(oid)).ToList();
     }
 
     private static List<(string Oid, string Value)> Rdns(X500DistinguishedName name) =>

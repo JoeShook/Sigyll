@@ -88,6 +88,19 @@
                 continue;
             }
 
+            // Decoded here so the policy OIDs read the same on every OS; X509Extension.Format depends on the platform.
+            if (ext.Oid?.Value == Sigyll.Common.Services.CertificatePolicyExtension.CertificatePoliciesOid)
+            {
+                extensions.Add(new ExtensionRow
+                {
+                    Oid = ext.Oid.Value,
+                    FriendlyName = "Certificate Policies",
+                    Critical = ext.Critical,
+                    Value = Sigyll.Common.Services.CertificatePolicyExtension.Describe(ext)
+                });
+                continue;
+            }
+
             extensions.Add(new ExtensionRow
             {
                 Oid = ext.Oid?.Value ?? "Unknown",

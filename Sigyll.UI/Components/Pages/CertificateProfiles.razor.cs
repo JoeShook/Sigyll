@@ -51,6 +51,8 @@ public partial class CertificateProfiles
     private string editCustomEkuOids = string.Empty;
     private HashSet<string> editSelectedEkuOids = new();
     private bool editIsEkuCritical;
+    private string editCertificatePolicyOids = string.Empty;
+    private string? certificatePolicyError;
     private bool editIsBasicConstraintsCa;
     private bool editIsBasicConstraintsCritical = true;
     private int? editPathLengthConstraint;
@@ -146,6 +148,8 @@ public partial class CertificateProfiles
         editCustomEkuOids = string.Empty;
         editSelectedEkuOids.Clear();
         editIsEkuCritical = false;
+        editCertificatePolicyOids = string.Empty;
+        certificatePolicyError = null;
         editIsBasicConstraintsCa = false;
         editIsBasicConstraintsCritical = true;
         editPathLengthConstraint = null;
@@ -208,6 +212,8 @@ public partial class CertificateProfiles
             editCustomEkuOids = string.Join(";", customParts);
         }
         editIsEkuCritical = t.IsExtendedKeyUsageCritical;
+        editCertificatePolicyOids = t.CertificatePolicyOids ?? string.Empty;
+        ValidateCertificatePolicies();
         editIsBasicConstraintsCa = t.IsBasicConstraintsCa;
         editIsBasicConstraintsCritical = t.IsBasicConstraintsCritical;
         editPathLengthConstraint = t.PathLengthConstraint;
@@ -259,6 +265,7 @@ public partial class CertificateProfiles
         entity.IsKeyUsageCritical = editIsKeyUsageCritical;
         entity.ExtendedKeyUsageOids = string.IsNullOrWhiteSpace(editEkuOids) ? null : editEkuOids.Trim();
         entity.IsExtendedKeyUsageCritical = editIsEkuCritical;
+        entity.CertificatePolicyOids = CertificatePolicyExtension.Normalize(editCertificatePolicyOids);
         entity.IsBasicConstraintsCa = editIsBasicConstraintsCa;
         entity.IsBasicConstraintsCritical = editIsBasicConstraintsCritical;
         entity.PathLengthConstraint = editIsBasicConstraintsCa ? editPathLengthConstraint : null;
@@ -278,9 +285,19 @@ public partial class CertificateProfiles
         return entity;
     }
 
+    private void ValidateCertificatePolicies()
+    {
+        var invalid = CertificatePolicyExtension.FindInvalid(editCertificatePolicyOids);
+        certificatePolicyError = invalid.Count == 0
+            ? null
+            : $"Not a valid OID: {string.Join(", ", invalid)}";
+    }
+
     private async Task SaveProfileAsync()
     {
         if (string.IsNullOrWhiteSpace(editName)) return;
+        ValidateCertificatePolicies();
+        if (certificatePolicyError != null) return;
 
         CertificateProfile entity;
 
@@ -318,6 +335,7 @@ public partial class CertificateProfiles
             IsKeyUsageCritical = source.IsKeyUsageCritical,
             ExtendedKeyUsageOids = source.ExtendedKeyUsageOids,
             IsExtendedKeyUsageCritical = source.IsExtendedKeyUsageCritical,
+            CertificatePolicyOids = source.CertificatePolicyOids,
             IsBasicConstraintsCa = source.IsBasicConstraintsCa,
             IsBasicConstraintsCritical = source.IsBasicConstraintsCritical,
             PathLengthConstraint = source.PathLengthConstraint,
