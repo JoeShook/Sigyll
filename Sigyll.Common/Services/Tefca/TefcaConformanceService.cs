@@ -10,11 +10,24 @@
 
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
 
 namespace Sigyll.Common.Services.Tefca;
+
+/// <summary>Configuration for the TEFCA conformance check (configuration section <c>TefcaConformance</c>).</summary>
+public sealed class TefcaConformanceSettings
+{
+    public const string SectionName = "TefcaConformance";
+
+    /// <summary>
+    /// The query parameter name that carries the exchange purpose in a client SAN URI (<c>?{name}=T-TRTMNT</c>),
+    /// compared case-sensitively. No default: unset, only the fragment and last-path-segment forms are recognized.
+    /// </summary>
+    public string? ExchangePurposeQueryParameter { get; set; }
+}
 
 /// <summary>
 /// Runs <see cref="TefcaConformanceChecker"/> on a certificate stored in Sigyll: an end-entity certificate issued here
@@ -25,15 +38,18 @@ public class TefcaConformanceService
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory;
     private readonly IOperatorContext _operator;
     private readonly IUrlReachabilityProbe? _probe;
+    private readonly string? _queryParameter;
 
     public TefcaConformanceService(
         IDbContextFactory<SigyllDbContext> dbFactory,
         IOperatorContext operatorContext,
-        IUrlReachabilityProbe? probe = null)
+        IUrlReachabilityProbe? probe = null,
+        IOptions<TefcaConformanceSettings>? settings = null)
     {
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _probe = probe;
+        _queryParameter = settings?.Value.ExchangePurposeQueryParameter;
     }
 
     /// <summary>Whether CDP/AIA reachability can be probed (a probe is configured).</summary>
@@ -58,8 +74,20 @@ public class TefcaConformanceService
 
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         return await CheckAsync(db, issuedCertificateId,
-            new TefcaConformanceOptions { ReachabilityProbe = probeReachability ? _probe : null }, cancellationToken);
+            new TefcaConformanceOptions
+            {
+                ReachabilityProbe = probeReachability ? _probe : null,
+                ExchangePurposeQueryParameter = _queryParameter,
+            }, cancellationToken);
     }
+
+    /// <summary>The role a profile's certificate type implies: client, server, or unknown for no profile.</summary>
+    public static TefcaCertificateRole RoleOf(CertificateType? type) => type switch
+    {
+        CertificateType.EndEntityClient => TefcaCertificateRole.Client,
+        CertificateType.EndEntityServer => TefcaCertificateRole.Server,
+        _ => TefcaCertificateRole.Unknown,
+    };
 
     /// <summary>
     /// Loads the end-entity certificate and its stored issuing chain (nearest first) and checks it. Used by
@@ -70,10 +98,25 @@ public class TefcaConformanceService
     {
         var issued = await db.IssuedCertificates.AsNoTracking()
             .Where(c => c.Id == issuedCertificateId)
-            .Select(c => new { c.X509CertificatePem, c.IssuingCaCertificateId })
+            .Select(c => new
+            {
+                c.X509CertificatePem,
+                c.IssuingCaCertificateId,
+                ProfileType = c.Profile == null ? (CertificateType?)null : c.Profile.CertificateType,
+            })
             .FirstOrDefaultAsync(cancellationToken);
         if (issued == null)
             return null;
+
+        if (options.Role == TefcaCertificateRole.Unknown)
+            options = new TefcaConformanceOptions
+            {
+                Environment = options.Environment,
+                Role = RoleOf(issued.ProfileType),
+                ExchangePurposeQueryParameter = options.ExchangePurposeQueryParameter,
+                SanFormatRule = options.SanFormatRule,
+                ReachabilityProbe = options.ReachabilityProbe,
+            };
 
         using var leaf = X509Certificate2.CreateFromPem(issued.X509CertificatePem);
         var issuers = new List<X509Certificate2>();

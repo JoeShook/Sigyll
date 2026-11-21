@@ -14,6 +14,11 @@ namespace Sigyll.Common.Services.Tefca;
 /// TEFCA Exchange Purpose (XP) codes and the ways a client certificate's SAN URI may carry one. Kept internal: the
 /// SAN form for TEFCA client certificates is not settled, so this is a conformance aid, not an API.
 /// </summary>
+/// <remarks>
+/// URIs follow the HL7 SSRAA 3.0.0 rules: a SAN is compared as a case-sensitive string with no normalization. The
+/// raw SAN text is split on its delimiters only; nothing is percent-decoded, case-folded or trimmed, and an XP
+/// code must match exactly.
+/// </remarks>
 internal static class TefcaExchangePurpose
 {
     /// <summary>The OID of the TEFCA Exchange Purpose code system.</summary>
@@ -38,70 +43,79 @@ internal static class TefcaExchangePurpose
         /// <summary><c>.../T-TRTMNT</c> (the last path segment)</summary>
         PathSegment,
 
-        /// <summary><c>...?xp=T-TRTMNT</c></summary>
+        /// <summary><c>...?{name}=T-TRTMNT</c>, where <c>{name}</c> is configured</summary>
         Query,
     }
 
+    /// <summary>What a SAN URI says about its exchange purpose.</summary>
+    public enum Outcome
+    {
+        Found,
+        NotFound,
+
+        /// <summary>The configured query parameter appears more than once with different values.</summary>
+        Ambiguous,
+    }
+
     /// <summary>
-    /// Finds an authorized XP code in <paramref name="sanUri"/> in any candidate form: the fragment, the last path
-    /// segment, or an <c>xp</c> query parameter. Returns false when none of them holds a known code.
+    /// Looks for an authorized XP code in the raw <paramref name="sanUri"/>: the fragment, then a query parameter
+    /// named <paramref name="queryParameterName"/> (only when one is configured), then the last path segment.
+    /// The parameter name compares ordinally and values are taken verbatim.
     /// </summary>
-    public static bool TryFromSanUri(string? sanUri, out string code, out SanForm form)
+    public static Outcome FromSanUri(string? sanUri, string? queryParameterName, out string code, out SanForm form)
     {
         code = string.Empty;
         form = default;
-        if (string.IsNullOrWhiteSpace(sanUri))
-            return false;
+        if (string.IsNullOrEmpty(sanUri))
+            return Outcome.NotFound;
 
-        var text = sanUri.Trim();
+        // Split the raw text: fragment after the first '#', query after the first '?' before it, path before that.
+        var hash = sanUri.IndexOf('#');
+        var fragment = hash >= 0 ? sanUri[(hash + 1)..] : null;
+        var beforeFragment = hash >= 0 ? sanUri[..hash] : sanUri;
+        var question = beforeFragment.IndexOf('?');
+        var query = question >= 0 ? beforeFragment[(question + 1)..] : null;
+        var path = question >= 0 ? beforeFragment[..question] : beforeFragment;
 
-        var hash = text.IndexOf('#');
-        if (hash >= 0)
+        // Values of the configured query parameter, taken verbatim. Conflicting duplicates make the SAN ambiguous,
+        // whatever else it carries.
+        var values = new List<string>();
+        if (query != null && !string.IsNullOrEmpty(queryParameterName))
         {
-            var fragment = Uri.UnescapeDataString(text[(hash + 1)..]);
-            if (Codes.Contains(fragment))
-            {
-                code = fragment;
-                form = SanForm.Fragment;
-                return true;
-            }
-
-            text = text[..hash];
-        }
-
-        var question = text.IndexOf('?');
-        if (question >= 0)
-        {
-            foreach (var pair in text[(question + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var pair in query.Split('&'))
             {
                 var equals = pair.IndexOf('=');
-                if (equals <= 0)
-                    continue;
-                var name = Uri.UnescapeDataString(pair[..equals]);
-                var value = Uri.UnescapeDataString(pair[(equals + 1)..]);
-                if (string.Equals(name, "xp", StringComparison.OrdinalIgnoreCase) && Codes.Contains(value))
-                {
-                    code = value;
-                    form = SanForm.Query;
-                    return true;
-                }
+                if (equals > 0 && string.Equals(pair[..equals], queryParameterName, StringComparison.Ordinal)
+                    && !values.Contains(pair[(equals + 1)..], StringComparer.Ordinal))
+                    values.Add(pair[(equals + 1)..]);
             }
-
-            text = text[..question];
         }
 
-        var slash = text.LastIndexOf('/');
-        if (slash >= 0 && slash < text.Length - 1)
+        if (values.Count > 1)
+            return Outcome.Ambiguous;
+
+        if (fragment != null && Codes.Contains(fragment))
         {
-            var segment = Uri.UnescapeDataString(text[(slash + 1)..]);
-            if (Codes.Contains(segment))
-            {
-                code = segment;
-                form = SanForm.PathSegment;
-                return true;
-            }
+            code = fragment;
+            form = SanForm.Fragment;
+            return Outcome.Found;
         }
 
-        return false;
+        if (values.Count == 1 && Codes.Contains(values[0]))
+        {
+            code = values[0];
+            form = SanForm.Query;
+            return Outcome.Found;
+        }
+
+        var slash = path.LastIndexOf('/');
+        if (slash >= 0 && slash < path.Length - 1 && Codes.Contains(path[(slash + 1)..]))
+        {
+            code = path[(slash + 1)..];
+            form = SanForm.PathSegment;
+            return Outcome.Found;
+        }
+
+        return Outcome.NotFound;
     }
 }

@@ -67,36 +67,73 @@ public interface ITefcaSanFormatRule
 }
 
 /// <summary>
-/// Accepts a SAN URI carrying an authorized exchange purpose code in any candidate form: a fragment
-/// (<c>#T-TRTMNT</c>), the last path segment (<c>/T-TRTMNT</c>) or an <c>xp</c> query parameter
-/// (<c>?xp=T-TRTMNT</c>). Anything else is a warning.
+/// Accepts a SAN URI carrying an authorized exchange purpose code in a candidate form: a fragment
+/// (<c>#T-TRTMNT</c>), the last path segment (<c>/T-TRTMNT</c>) or, only when a parameter name is configured, a
+/// query parameter (<c>?{name}=T-TRTMNT</c>). Anything else, or a parameter repeated with conflicting values, is
+/// a warning. The SAN is read as a raw, case-sensitive string with no normalization (HL7 SSRAA 3.0.0).
 /// </summary>
 public sealed class TefcaSanFormatRule : ITefcaSanFormatRule
 {
     public const string CheckName = "SAN exchange purpose format";
 
-    public static TefcaSanFormatRule Default { get; } = new();
+    /// <param name="queryParameterName">
+    /// The query parameter that carries the exchange purpose, compared case-sensitively; null leaves the query
+    /// form unrecognized. There is no default because the TEFCA form is not settled.
+    /// </param>
+    public TefcaSanFormatRule(string? queryParameterName = null)
+    {
+        QueryParameterName = string.IsNullOrEmpty(queryParameterName) ? null : queryParameterName;
+    }
+
+    /// <summary>The configured query parameter name, or null when the query form is not recognized.</summary>
+    public string? QueryParameterName { get; }
 
     public ConformanceCheckResult Evaluate(IReadOnlyList<string> sanUris)
     {
+        var ambiguous = new List<string>();
         foreach (var uri in sanUris)
         {
-            if (TefcaExchangePurpose.TryFromSanUri(uri, out var code, out var form))
-                return ConformanceCheckResult.Pass(CheckName,
-                    $"'{uri}' carries exchange purpose {code} as a {Describe(form)}. The TEFCA client SAN form is not settled.");
+            switch (TefcaExchangePurpose.FromSanUri(uri, QueryParameterName, out var code, out var form))
+            {
+                case TefcaExchangePurpose.Outcome.Found:
+                    return ConformanceCheckResult.Pass(CheckName,
+                        $"'{uri}' carries exchange purpose {code} as a {Describe(form)}. The TEFCA client SAN form is not settled.");
+                case TefcaExchangePurpose.Outcome.Ambiguous:
+                    ambiguous.Add(uri);
+                    break;
+            }
         }
 
-        return ConformanceCheckResult.Warning(CheckName, sanUris.Count == 0
-            ? "No SAN URI carries an exchange purpose code. The TEFCA client SAN form is not settled; a fragment, path segment or xp query are accepted."
-            : $"None of the SAN URIs ({string.Join(", ", sanUris)}) carries an authorized exchange purpose code as a fragment, path segment or xp query. The TEFCA client SAN form is not settled.");
+        if (ambiguous.Count > 0)
+            return ConformanceCheckResult.Warning(CheckName,
+                $"Ambiguous: the query parameter '{QueryParameterName}' appears with conflicting values in {string.Join(", ", ambiguous)}.");
+
+        return ConformanceCheckResult.Warning(CheckName,
+            $"{(sanUris.Count == 0 ? "No SAN URI" : $"None of the SAN URIs ({string.Join(", ", sanUris)})")} carries an "
+            + $"authorized exchange purpose code as {AcceptedForms()}. The TEFCA client SAN form is not settled.");
     }
 
-    private static string Describe(TefcaExchangePurpose.SanForm form) => form switch
+    private string AcceptedForms() => QueryParameterName == null
+        ? "a fragment or last path segment (no query parameter is configured)"
+        : $"a fragment, last path segment or '{QueryParameterName}' query parameter";
+
+    private string Describe(TefcaExchangePurpose.SanForm form) => form switch
     {
         TefcaExchangePurpose.SanForm.Fragment => "fragment",
         TefcaExchangePurpose.SanForm.PathSegment => "path segment",
-        _ => "xp query parameter",
+        _ => $"'{QueryParameterName}' query parameter",
     };
+}
+
+/// <summary>Which kind of TEFCA end-entity certificate is being checked.</summary>
+public enum TefcaCertificateRole
+{
+    /// <summary>Not known (for example an imported certificate); server-only checks warn instead of failing.</summary>
+    Unknown,
+    Client,
+
+    /// <summary>A FHIR server certificate: its URI SANs are FHIR base URLs.</summary>
+    Server,
 }
 
 /// <summary>Settings for <see cref="TefcaConformanceChecker"/>.</summary>
@@ -108,8 +145,21 @@ public sealed class TefcaConformanceOptions
     /// </summary>
     public TefcaEnvironment? Environment { get; init; }
 
-    /// <summary>The rule for the exchange purpose in the SAN URI.</summary>
-    public ITefcaSanFormatRule SanFormatRule { get; init; } = TefcaSanFormatRule.Default;
+    /// <summary>Client, server or unknown; sets which role-specific checks fail.</summary>
+    public TefcaCertificateRole Role { get; init; }
+
+    /// <summary>
+    /// The query parameter name that carries the exchange purpose in a client SAN URI (for example
+    /// <c>?{name}=T-TRTMNT</c>), compared case-sensitively. No default: unset, the query form is not recognized
+    /// and only the fragment and last-path-segment forms are. Ignored when <see cref="SanFormatRule"/> is set.
+    /// </summary>
+    public string? ExchangePurposeQueryParameter { get; init; }
+
+    /// <summary>
+    /// The rule for the exchange purpose in the SAN URI. Null uses <see cref="TefcaSanFormatRule"/> with
+    /// <see cref="ExchangePurposeQueryParameter"/>.
+    /// </summary>
+    public ITefcaSanFormatRule? SanFormatRule { get; init; }
 
     /// <summary>When set, every CDP and AIA URL is probed; otherwise the reachability check is skipped.</summary>
     public IUrlReachabilityProbe? ReachabilityProbe { get; init; }
@@ -170,6 +220,7 @@ public static class TefcaConformanceChecker
             CheckBasicConstraints(leaf),
             CheckNoDnsNames(dnsNames),
             CheckCommonName(leaf, sanUris),
+            CheckNoTrailingSlash(sanUris, options.Role),
             CheckPolicies(leaf, environment),
             CheckHttpUrls("CRL distribution point", cdpUrls),
             CheckHttpUrls("AIA caIssuers", aiaUrls),
@@ -177,10 +228,35 @@ public static class TefcaConformanceChecker
             CheckKey(leaf),
             CheckSignatureAlgorithm(leaf),
             CheckValidity(leaf),
-            options.SanFormatRule.Evaluate(sanUris),
+            (options.SanFormatRule ?? new TefcaSanFormatRule(options.ExchangePurposeQueryParameter)).Evaluate(sanUris),
         };
 
         return results;
+    }
+
+    public const string TrailingSlashCheckName = "Server SAN URIs have no trailing slash";
+
+    /// <summary>
+    /// A FHIR server certificate's URI SANs are FHIR base URLs, and HL7 SSRAA 3.0.0 says a FHIR base URL SHALL
+    /// NOT have a trailing slash; URIs compare as case-sensitive strings, so <c>/fhir/</c> never matches
+    /// <c>/fhir</c>. Fails for a server certificate, warns when the role is unknown, skipped for a client.
+    /// </summary>
+    private static ConformanceCheckResult CheckNoTrailingSlash(IReadOnlyList<string> sanUris, TefcaCertificateRole role)
+    {
+        if (role == TefcaCertificateRole.Client)
+            return ConformanceCheckResult.Skipped(TrailingSlashCheckName, "Applies to server certificates (FHIR base URLs).");
+
+        var slashed = sanUris.Where(u => u.EndsWith('/')).ToList();
+        if (slashed.Count == 0)
+            return ConformanceCheckResult.Pass(TrailingSlashCheckName, sanUris.Count == 0
+                ? "The certificate has no URI SANs."
+                : "No URI SAN ends with '/'.");
+
+        var detail = $"{string.Join(", ", slashed)} ends with '/'. HL7 SSRAA 3.0.0: a FHIR base URL SHALL NOT have a "
+            + "trailing slash, and URIs are compared as case-sensitive strings with no normalization.";
+        return role == TefcaCertificateRole.Server
+            ? ConformanceCheckResult.Fail(TrailingSlashCheckName, detail)
+            : ConformanceCheckResult.Warning(TrailingSlashCheckName, $"{detail} Fails for a server certificate.");
     }
 
     /// <summary>The environment named by the subject OU, or null when it names neither.</summary>
@@ -297,6 +373,7 @@ public static class TefcaConformanceChecker
         var problems = new List<string>();
         if (cn.Length > MaxCommonNameLength)
             problems.Add($"the CN is {cn.Length} characters");
+        // Ordinal and untrimmed: URIs compare as case-sensitive strings with no normalization (HL7 SSRAA 3.0.0).
         if (!sanUris.Contains(cn, StringComparer.Ordinal))
             problems.Add(sanUris.Count == 0 ? "there are no SAN URIs" : "no SAN URI equals the CN");
 

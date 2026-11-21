@@ -48,8 +48,10 @@ public class CertificateIssuanceService
         ISigningProvider? signingProvider = null,
         IssuanceValidator? validator = null,
         AuditTrail? audit = null,
-        PublishingPathPolicy? publishingPaths = null)
+        PublishingPathPolicy? publishingPaths = null,
+        Microsoft.Extensions.Options.IOptions<TefcaConformanceSettings>? tefcaSettings = null)
     {
+        _tefcaQueryParameter = tefcaSettings?.Value.ExchangePurposeQueryParameter;
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
@@ -60,6 +62,7 @@ public class CertificateIssuanceService
     }
 
     private readonly PublishingPathPolicy _publishingPaths;
+    private readonly string? _tefcaQueryParameter;
 
     public IssuanceValidator Validator => _validator;
 
@@ -101,7 +104,8 @@ public class CertificateIssuanceService
             if (!TefcaConformanceService.IsTefcaProfile(profile))
                 return;
 
-            result.ConformanceResults = await TefcaConformanceService.CheckAsync(db, issuedId, new TefcaConformanceOptions());
+            result.ConformanceResults = await TefcaConformanceService.CheckAsync(db, issuedId,
+                new TefcaConformanceOptions { ExchangePurposeQueryParameter = _tefcaQueryParameter });
             var failed = result.ConformanceResults?.Where(r => r.Outcome == ConformanceOutcome.Fail).Select(r => r.Name).ToList();
             if (failed is { Count: > 0 })
                 _logger.LogWarning("Certificate #{CertificateId} from TEFCA profile '{Profile}' fails TEFCA checks: {Checks}",

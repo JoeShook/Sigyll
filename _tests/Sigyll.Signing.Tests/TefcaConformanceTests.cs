@@ -40,7 +40,7 @@ public class TefcaConformanceTests
             .ShouldAllBe(r => r.Name == "CDP/AIA reachable" && r.Outcome == ConformanceOutcome.Skipped);
         TefcaConformanceChecker.HasFailures(results).ShouldBeFalse();
         results.Select(r => r.Name).ShouldBeUnique();
-        results.Count.ShouldBe(14);
+        results.Count.ShouldBe(15);
     }
 
     [Fact]
@@ -235,18 +235,50 @@ public class TefcaConformanceTests
             .Outcome.ShouldBe(ConformanceOutcome.Fail);
     }
 
+    /// <summary>A placeholder: the query parameter name is configuration with no default.</summary>
+    private const string Param = "configuredName";
+
     [Theory]
     [InlineData("https://client.example.org/fhir#T-TRTMNT")]
     [InlineData("https://client.example.org/fhir/T-IAS")]
-    [InlineData("https://client.example.org/fhir?xp=T-PH-ECR")]
+    [InlineData("https://client.example.org/fhir?configuredName=T-PH-ECR")]
     [InlineData("urn:oid:2.999#T-TREAT")]
-    public async Task SanFormat_AnyCandidateFormPasses(string sanUri)
+    public async Task SanFormat_AnyCandidateFormPasses_WhenTheQueryParameterIsConfigured(string sanUri)
     {
         using var chain = TestChain.Create();
         using var leaf = chain.IssueLeaf(new LeafSpec { Cn = sanUri, SanUri = sanUri });
 
-        Result(await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers), TefcaSanFormatRule.CheckName)
+        Result(await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers,
+                new TefcaConformanceOptions { ExchangePurposeQueryParameter = Param }), TefcaSanFormatRule.CheckName)
             .Outcome.ShouldBe(ConformanceOutcome.Pass);
+    }
+
+    [Fact]
+    public async Task SanFormat_QueryFormIsNotRecognized_WithoutAConfiguredName()
+    {
+        using var chain = TestChain.Create();
+        const string uri = "https://client.example.org/fhir?configuredName=T-PH-ECR";
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = uri, SanUri = uri });
+
+        var result = Result(await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers), TefcaSanFormatRule.CheckName);
+
+        result.Outcome.ShouldBe(ConformanceOutcome.Warning);
+        result.Detail.ShouldContain("no query parameter is configured");
+    }
+
+    [Fact]
+    public async Task SanFormat_ConflictingDuplicateParameters_AreAmbiguous()
+    {
+        using var chain = TestChain.Create();
+        const string uri = "https://c.example/f?configuredName=T-TRTMNT&configuredName=T-IAS"; // CN stays within 64
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = uri, SanUri = uri });
+
+        var results = await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers,
+            new TefcaConformanceOptions { ExchangePurposeQueryParameter = Param });
+
+        Result(results, TefcaSanFormatRule.CheckName).Outcome.ShouldBe(ConformanceOutcome.Warning);
+        Result(results, TefcaSanFormatRule.CheckName).Detail.ShouldStartWith("Ambiguous");
+        TefcaConformanceChecker.HasFailures(results).ShouldBeFalse();
     }
 
     [Fact]
@@ -277,18 +309,71 @@ public class TefcaConformanceTests
     }
 
     [Theory]
-    [InlineData("https://a.example/fhir#T-TRTMNT", true, "T-TRTMNT")]
-    [InlineData("https://a.example/fhir/T-HCO-QAI", true, "T-HCO-QAI")]
-    [InlineData("https://a.example/fhir?foo=1&xp=T-PYMNT", true, "T-PYMNT")]
-    [InlineData("https://a.example/fhir?XP=T-IAS#frag", true, "T-IAS")]
-    [InlineData("https://a.example/fhir#T-NOPE", false, "")]
-    [InlineData("https://a.example/fhir/", false, "")]
-    [InlineData("https://a.example/fhir#t-trtmnt", false, "")]
-    [InlineData("", false, "")]
-    public void ExchangePurpose_FromSanUri(string uri, bool found, string code)
+    // fragment and last path segment: recognized with or without a configured name
+    [InlineData("https://a.example/fhir#T-TRTMNT", null, "Found", "T-TRTMNT")]
+    [InlineData("https://a.example/fhir/T-HCO-QAI", null, "Found", "T-HCO-QAI")]
+    [InlineData("https://a.example/fhir#T-NOPE", Param, "NotFound", "")]
+    [InlineData("https://a.example/fhir/", Param, "NotFound", "")]
+    [InlineData("", Param, "NotFound", "")]
+    // exact, case-sensitive XP match; nothing trimmed
+    [InlineData("https://a.example/fhir#t-trtmnt", Param, "NotFound", "")]
+    [InlineData("https://a.example/fhir#T-TRTMNT ", Param, "NotFound", "")]
+    // no percent-decoding: %2D is not '-'
+    [InlineData("https://a.example/fhir#T%2DIAS", Param, "NotFound", "")]
+    [InlineData("https://a.example/fhir?configuredName=T%2DIAS", Param, "NotFound", "")]
+    // query: only the configured name, compared ordinally; value verbatim
+    [InlineData("https://a.example/fhir?foo=1&configuredName=T-PYMNT", Param, "Found", "T-PYMNT")]
+    [InlineData("https://a.example/fhir?configuredName=T-PYMNT", null, "NotFound", "")]
+    [InlineData("https://a.example/fhir?ConfiguredName=T-IAS", Param, "NotFound", "")]
+    [InlineData("https://a.example/fhir?configuredName=T-IAS#frag", Param, "Found", "T-IAS")]
+    // duplicates: identical values are fine, conflicting ones are ambiguous
+    [InlineData("https://a.example/fhir?configuredName=T-IAS&configuredName=T-IAS", Param, "Found", "T-IAS")]
+    [InlineData("https://a.example/fhir?configuredName=T-IAS&configuredName=T-PH", Param, "Ambiguous", "")]
+    [InlineData("https://a.example/fhir?configuredName=T-IAS&configuredName=T-PH#T-IAS", Param, "Ambiguous", "")]
+    public void ExchangePurpose_FromSanUri(string uri, string? parameter, string outcome, string code)
     {
-        TefcaExchangePurpose.TryFromSanUri(uri, out var actual, out _).ShouldBe(found);
+        TefcaExchangePurpose.FromSanUri(uri, parameter, out var actual, out _).ToString().ShouldBe(outcome);
         actual.ShouldBe(code);
+    }
+
+    [Fact]
+    public async Task CommonName_ComparesOrdinally()
+    {
+        using var chain = TestChain.Create();
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = "https://Client.example.org/fhir#T-TRTMNT" });
+
+        Result(await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers), "CN ≤ 64 characters and equal to a SAN URI")
+            .Outcome.ShouldBe(ConformanceOutcome.Fail);
+    }
+
+    [Theory]
+    [InlineData(TefcaCertificateRole.Server, ConformanceOutcome.Fail)]
+    [InlineData(TefcaCertificateRole.Unknown, ConformanceOutcome.Warning)]
+    [InlineData(TefcaCertificateRole.Client, ConformanceOutcome.Skipped)]
+    public async Task ServerSanUri_WithTrailingSlash(TefcaCertificateRole role, ConformanceOutcome expected)
+    {
+        using var chain = TestChain.Create();
+        const string baseUrl = "https://fhir.example.org/r4/";
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = baseUrl, SanUri = baseUrl });
+
+        var result = Result(await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers,
+            new TefcaConformanceOptions { Role = role }), TefcaConformanceChecker.TrailingSlashCheckName);
+
+        result.Outcome.ShouldBe(expected);
+        if (expected != ConformanceOutcome.Skipped)
+            result.Detail.ShouldContain("SSRAA 3.0.0");
+    }
+
+    [Fact]
+    public async Task ServerSanUri_WithoutTrailingSlash_Passes()
+    {
+        using var chain = TestChain.Create();
+        const string baseUrl = "https://fhir.example.org/r4";
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = baseUrl, SanUri = baseUrl });
+
+        Result(await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers,
+                new TefcaConformanceOptions { Role = TefcaCertificateRole.Server }), TefcaConformanceChecker.TrailingSlashCheckName)
+            .Outcome.ShouldBe(ConformanceOutcome.Pass);
     }
 
     // ---- issuance hook and the stored-certificate service ----
@@ -347,13 +432,42 @@ public class TefcaConformanceTests
         (await service.CheckIssuedCertificateAsync(int.MaxValue)).ShouldBeNull();
     }
 
+    [Fact]
+    public async Task IssuanceFromTefcaServerProfile_FailsATrailingSlashBaseUrl()
+    {
+        var factory = new TestDbContextFactory();
+        var seed = await SeedAsync(factory, "TEFCA FHIR Server", CertificateType.EndEntityServer);
+
+        var result = await IssueAsync(factory, seed, "https://fhir.example.org/r4/");
+
+        result.Success.ShouldBeTrue(result.Error);
+        Result(result.ConformanceResults!, TefcaConformanceChecker.TrailingSlashCheckName).Outcome.ShouldBe(ConformanceOutcome.Fail);
+    }
+
+    [Fact]
+    public async Task Service_UsesTheConfiguredQueryParameter()
+    {
+        var factory = new TestDbContextFactory();
+        var seed = await SeedAsync(factory, "UDAP Client");
+        var issued = await IssueAsync(factory, seed, "https://client.example.org/fhir?configuredName=T-IAS");
+        var settings = Microsoft.Extensions.Options.Options.Create(new TefcaConformanceSettings { ExchangePurposeQueryParameter = Param });
+
+        var unconfigured = await new TefcaConformanceService(factory, TestOperators.Full).CheckIssuedCertificateAsync(issued.EntityId!.Value);
+        var configured = await new TefcaConformanceService(factory, TestOperators.Full, settings: settings).CheckIssuedCertificateAsync(issued.EntityId!.Value);
+
+        Result(unconfigured!, TefcaSanFormatRule.CheckName).Outcome.ShouldBe(ConformanceOutcome.Warning);
+        Result(configured!, TefcaSanFormatRule.CheckName).Outcome.ShouldBe(ConformanceOutcome.Pass);
+        Result(configured!, TefcaConformanceChecker.TrailingSlashCheckName).Outcome.ShouldBe(ConformanceOutcome.Skipped);
+    }
+
     private static ConformanceCheckResult Result(IEnumerable<ConformanceCheckResult> results, string name) =>
         results.Single(r => r.Name == name);
 
-    private static Task<CsrIssuanceResult> IssueAsync(TestDbContextFactory factory, (int IntermediateId, int ProfileId, int TrustDomainId) seed)
+    private static Task<CsrIssuanceResult> IssueAsync(TestDbContextFactory factory,
+        (int IntermediateId, int ProfileId, int TrustDomainId) seed, string sanUri = ClientUri)
     {
         using var key = RSA.Create(2048);
-        var csr = new CertificateRequest($"CN={ClientUri}, OU=RCE-FHIR, O=Example", key, HashAlgorithmName.SHA256,
+        var csr = new CertificateRequest($"CN={sanUri}, OU=RCE-FHIR, O=Example", key, HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1).CreateSigningRequestPem();
         var service = new CertificateIssuanceService(factory, TestOperators.Full, NullLogger<CertificateIssuanceService>.Instance);
         return service.IssueCertificateFromCsrAsync(new CsrIssuanceRequest
@@ -362,14 +476,14 @@ public class TefcaConformanceTests
             ProfileId = seed.ProfileId,
             TrustDomainId = seed.TrustDomainId,
             CsrPem = csr,
-            SubjectAltNames = [new SanEntry(SanType.Uri, ClientUri)],
+            SubjectAltNames = [new SanEntry(SanType.Uri, sanUri)],
             CdpUrls = [Cdp],
             AiaUrls = [Aia],
         });
     }
 
     private static async Task<(int IntermediateId, int ProfileId, int TrustDomainId)> SeedAsync(
-        TestDbContextFactory factory, string profileName)
+        TestDbContextFactory factory, string profileName, CertificateType type = CertificateType.EndEntityClient)
     {
         await using var db = factory.CreateDbContext();
         var trustDomain = new TrustDomain { Name = "TEFCA", Enabled = true };
@@ -377,7 +491,7 @@ public class TefcaConformanceTests
         var profile = new CertificateProfile
         {
             Name = profileName,
-            CertificateType = CertificateType.EndEntityClient,
+            CertificateType = type,
             KeyUsageFlags = (int)X509KeyUsageFlags.DigitalSignature,
             IsKeyUsageCritical = true,
             IsBasicConstraintsCritical = true,

@@ -93,6 +93,8 @@ try
     builder.Services.AddScoped<ChainValidationService>();
     builder.Services.AddSingleton<Sigyll.Common.Services.Tefca.IUrlReachabilityProbe>(sp =>
         new Sigyll.Common.Services.Tefca.HttpUrlReachabilityProbe(sp.GetRequiredService<IHttpClientFactory>()));
+    builder.Services.Configure<Sigyll.Common.Services.Tefca.TefcaConformanceSettings>(
+        builder.Configuration.GetSection(Sigyll.Common.Services.Tefca.TefcaConformanceSettings.SectionName));
     builder.Services.AddScoped<Sigyll.Common.Services.Tefca.TefcaConformanceService>();
     builder.Services.AddScoped<CertificateExportService>();
     builder.Services.AddScoped<DashboardService>();
