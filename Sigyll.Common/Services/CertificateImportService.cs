@@ -1084,6 +1084,13 @@ public class CertificateImportService
         var sanExt = cert.Extensions["2.5.29.17"];
         if (sanExt == null) return null;
 
+        // An NPI otherName needs real ASN.1 decoding (its OID bytes would also confuse the tag scan
+        // below), so such a SAN is described from the decoded names: the viewer shows the NPI and
+        // re-issue keeps it.
+        var decoded = CsrGenerationService.ExtractSubjectAltNames(cert);
+        if (decoded.Any(s => s.Type == SanType.Npi))
+            return string.Join("; ", decoded.Select(s => $"{s.Type}:{s.Value}"));
+
         var sans = new List<string>();
         var rawData = sanExt.RawData;
 

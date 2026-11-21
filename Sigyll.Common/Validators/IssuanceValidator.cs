@@ -9,6 +9,7 @@
 #endregion
 
 using Sigyll.Common.Data.Entities;
+using Sigyll.Common.Services;
 using Sigyll.Common.ViewModels;
 
 namespace Sigyll.Common.Validators;
@@ -42,24 +43,31 @@ public class IssuanceValidator
     }
 
     /// <summary>
-    /// Parses a profile's semicolon-delimited SubjectAltNameTypes ("URI;DNS;Email;IP")
+    /// Parses a profile's semicolon-delimited SubjectAltNameTypes ("URI;DNS;Email;IP;NPI")
     /// into SanType values. Unknown tokens are ignored.
     /// </summary>
     public static List<SanType> ParseSanTypes(string? subjectAltNameTypes) =>
         (subjectAltNameTypes ?? string.Empty)
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(t => t.ToUpperInvariant() switch
-            {
-                "URI" => (SanType?)SanType.Uri,
-                "DNS" => SanType.Dns,
-                "EMAIL" => SanType.Email,
-                "IP" => SanType.IpAddress,
-                _ => null
-            })
+            .Select(ParseSanTypeToken)
             .Where(t => t != null)
             .Select(t => t!.Value)
             .Distinct()
             .ToList();
+
+    /// <summary>
+    /// Maps a SAN type token as written in profiles and SAN lists ("URI", "DNS", "Email", "IP",
+    /// "NPI"; case-insensitive) to its SanType, or null when the token is unknown.
+    /// </summary>
+    public static SanType? ParseSanTypeToken(string? token) => token?.Trim().ToUpperInvariant() switch
+    {
+        "URI" => SanType.Uri,
+        "DNS" => SanType.Dns,
+        "EMAIL" => SanType.Email,
+        "IP" => SanType.IpAddress,
+        "NPI" => SanType.Npi,
+        _ => null
+    };
 
     /// <summary>
     /// A SAN type declared on a profile is a requirement: every declared type must have at
@@ -89,11 +97,21 @@ public class IssuanceValidator
     /// <summary>
     /// Validates individual SAN values. A DNS SAN (dNSName, RFC 5280) must be a bare host
     /// name — no port, scheme, or path; ports are fine in URI SANs. Wildcard prefixes
-    /// ("*.example.com") are allowed. Returns an error for the first invalid entry, or null.
+    /// ("*.example.com") are allowed. An NPI SAN must be 10 digits whose last digit is the Luhn
+    /// check digit (computed with the 80840 prefix). Returns an error for the first invalid
+    /// entry, or null.
     /// </summary>
     public string? ValidateSanValues(IEnumerable<SanEntry> subjectAltNames)
     {
-        foreach (var san in subjectAltNames.Where(s => s.Type == SanType.Dns))
+        var sans = subjectAltNames.ToList();
+
+        foreach (var san in sans.Where(s => s.Type == SanType.Npi))
+        {
+            if (NpiNumber.Validate(san.Value) is string npiError)
+                return npiError;
+        }
+
+        foreach (var san in sans.Where(s => s.Type == SanType.Dns))
         {
             var host = san.Value.Trim();
 
@@ -120,6 +138,7 @@ public class IssuanceValidator
         SanType.Dns => "DNS",
         SanType.Email => "Email",
         SanType.IpAddress => "IP",
+        SanType.Npi => "NPI",
         _ => type.ToString()
     };
 
