@@ -1375,6 +1375,43 @@ else if (treeNodes.Count > 0)
                             </FluentAccordionItem>
                         }
 
+                        @if (SelectedIsEndEntity)
+                        {
+                            <FluentAccordionItem Heading="@TefcaHeading()" Expanded="@(tefcaResults != null)">
+                                <FluentStack Orientation="Orientation.Horizontal" Style="margin-bottom: 0.75rem; gap: 0.5rem; align-items: center;">
+                                    <FluentButton Id="tefca-check" Appearance="Appearance.Outline" OnClick="@(() => RunTefcaCheckAsync(false))"
+                                                  title="Check this certificate against the TEFCA FHIR certificate profile (no network access)"
+                                                  Disabled="isCheckingTefca">
+                                        <FluentIcon Value="new Icons.Regular.Size16.ShieldTask()" />
+                                        @(isCheckingTefca ? "Checking..." : "TEFCA Check")
+                                    </FluentButton>
+                                    <FluentButton Id="tefca-check-online" Appearance="Appearance.Outline" OnClick="@(() => RunTefcaCheckAsync(true))"
+                                                  title="Run the TEFCA check and also fetch every CDP and AIA URL to confirm it answers"
+                                                  Disabled="@(isCheckingTefca || !TefcaConformance.CanProbeReachability)">
+                                        <FluentIcon Value="new Icons.Regular.Size16.Globe()" />
+                                        Check Online
+                                    </FluentButton>
+                                </FluentStack>
+                                @if (tefcaResults != null)
+                                {
+                                    <div style="font-size: 0.8rem; opacity: 0.8; margin-bottom: 0.5rem;">
+                                        @(tefcaResultsOnline ? "CDP and AIA URLs were fetched." : "Offline check: CDP and AIA URLs were not fetched.")
+                                        The SAN exchange purpose form is not settled, so it is reported as a warning only.
+                                    </div>
+                                    @foreach (var check in tefcaResults)
+                                    {
+                                        <div style="border-left: 3px solid @TefcaColor(check.Outcome); padding: 0.35rem 0.75rem; margin-bottom: 0.4rem; font-size: 0.85rem;">
+                                            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; align-items: center;">
+                                                <FluentBadge BackgroundColor="@TefcaColor(check.Outcome)" Color="white" Style="font-size: 0.7rem;">@check.Outcome</FluentBadge>
+                                                <strong>@check.Name</strong>
+                                            </FluentStack>
+                                            <div style="word-break: break-word;">@check.Detail</div>
+                                        </div>
+                                    }
+                                }
+                            </FluentAccordionItem>
+                        }
+
                         @if (chainValidation != null)
                         {
                             <FluentAccordionItem Heading="@($"Chain Validation {(chainValidation.IsValid ? "(Trusted)" : "(UNTRUSTED)")}")" Expanded="true">
