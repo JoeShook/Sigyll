@@ -189,6 +189,61 @@ public class CsrIssuanceTests
     }
 
     [Fact]
+    public async Task IssueFromCsr_NpiSan_IsEncodedAsOtherNameAndStored()
+    {
+        var (caId, profileId, trustDomainId) = await SeedAsync();
+
+        using var subjectKey = RSA.Create(2048);
+        var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            ProfileId = profileId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
+            SubjectAltNames =
+            [
+                new SanEntry(SanType.Dns, "api.example.com"),
+                new SanEntry(SanType.Npi, "1234567893"),
+            ],
+        });
+
+        result.Success.ShouldBeTrue(result.Error);
+        using var issued = X509Certificate2.CreateFromPem(result.CertificatePem!);
+        CsrGenerationService.ExtractSubjectAltNames(issued).ShouldBe(
+        [
+            new SanEntry(SanType.Dns, "api.example.com"),
+            new SanEntry(SanType.Npi, "1234567893"),
+        ]);
+
+        await using var db = _dbFactory.CreateDbContext();
+        var entity = await db.IssuedCertificates.FindAsync(result.EntityId);
+        entity!.SubjectAltNames.ShouldBe("Dns:api.example.com;Npi:1234567893");
+    }
+
+    [Fact]
+    public async Task IssueFromCsr_NpiWithBadCheckDigit_IsRejected()
+    {
+        var (caId, profileId, trustDomainId) = await SeedAsync();
+
+        using var subjectKey = RSA.Create(2048);
+        var result = await CreateService().IssueCertificateFromCsrAsync(new CsrIssuanceRequest
+        {
+            IssuingCaCertificateId = caId,
+            ProfileId = profileId,
+            TrustDomainId = trustDomainId,
+            CsrPem = BuildCsrPem(subjectKey, "CN=api.example.com"),
+            SubjectAltNames =
+            [
+                new SanEntry(SanType.Dns, "api.example.com"),
+                new SanEntry(SanType.Npi, "1234567890"),
+            ],
+        });
+
+        result.Success.ShouldBeFalse();
+        result.Error.ShouldContain("check digit");
+    }
+
+    [Fact]
     public async Task IssueFromCsr_FirstIssuance_IsVersion1WithNoLineage()
     {
         var (caId, profileId, trustDomainId) = await SeedAsync();

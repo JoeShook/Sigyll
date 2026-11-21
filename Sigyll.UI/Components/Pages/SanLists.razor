@@ -70,7 +70,7 @@
                     }
                 </FluentSelect>
                 <FluentTextField @bind-Value="entry.Value" Style="flex: 1;"
-                                 Placeholder="urn:oid:2.16.840.1.113883.3.7204.1.5.2.1#T-TRTMNT" />
+                                 Placeholder="@(entry.Type == "NPI" ? "1234567893 (10-digit NPI)" : "urn:oid:2.16.840.1.113883.3.7204.1.5.2.1#T-TRTMNT")" />
                 <FluentButton Appearance="Appearance.Outline" Size="ButtonSize.Small"
                               IconStart="@(new Icons.Regular.Size16.Delete())"
                               OnClick="@(() => editEntries.Remove(entry))" />
