@@ -20,6 +20,7 @@ using Sigyll.Common.Services.Audit;
 using Sigyll.Common.Services.Publishing;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
+using Sigyll.Common.Services.Tefca;
 using Sigyll.Common.Validators;
 using Sigyll.Common.ViewModels;
 
@@ -79,7 +80,37 @@ public class CertificateIssuanceService
         await RecordIssuanceAsync(identity, result.Success, result.EntityType, result.EntityId, result.SerialNumber,
             request.IssuingCaCertificateId is int issuer ? $"Issued by CA #{issuer}" : "Self-signed", request.SubjectDn,
             result.Error);
+        await AttachTefcaConformanceAsync(result, request.ProfileId);
         return result;
+    }
+
+    /// <summary>
+    /// After an end-entity certificate is issued from a TEFCA profile, checks it against the TEFCA FHIR profile and
+    /// puts the results on <paramref name="result"/>. Offline only: CDP/AIA reachability is left to the Explorer.
+    /// A failed check is logged and reported; it never undoes the issuance.
+    /// </summary>
+    private async Task AttachTefcaConformanceAsync(CertificateIssuanceResult result, int profileId)
+    {
+        if (!result.Success || result.EntityType != "IssuedCertificate" || result.EntityId is not int issuedId)
+            return;
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var profile = await db.CertificateProfiles.FindAsync(profileId);
+            if (!TefcaConformanceService.IsTefcaProfile(profile))
+                return;
+
+            result.ConformanceResults = await TefcaConformanceService.CheckAsync(db, issuedId, new TefcaConformanceOptions());
+            var failed = result.ConformanceResults?.Where(r => r.Outcome == ConformanceOutcome.Fail).Select(r => r.Name).ToList();
+            if (failed is { Count: > 0 })
+                _logger.LogWarning("Certificate #{CertificateId} from TEFCA profile '{Profile}' fails TEFCA checks: {Checks}",
+                    issuedId, profile!.Name, string.Join("; ", failed));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TEFCA conformance check of certificate #{CertificateId} could not run", issuedId);
+        }
     }
 
     private async Task RecordIssuanceAsync(OperatorIdentity identity, bool success, string? entityType, int? entityId,
@@ -129,11 +160,15 @@ public class CertificateIssuanceService
         if (missingSanError != null)
             return CertificateIssuanceResult.Failure(missingSanError);
 
+        var badPolicyError = InvalidPolicyError(profile);
+        if (badPolicyError != null)
+            return CertificateIssuanceResult.Failure(badPolicyError);
+
         // Renewal lineage: the predecessor determines the new certificate's version
         var (renewalVersion, renewalOfId, lineageError) = await ResolveRenewalLineageAsync(
             db, request.RenewalOfCertificateId,
             isCaLineage: profile.CertificateType is CertificateType.RootCa or CertificateType.IntermediateCa,
-            request.SubjectDn, request.SubjectAltNames);
+            request.SubjectDn, request.SubjectAltNames, profile);
         if (lineageError != null)
             return CertificateIssuanceResult.Failure(lineageError);
 
@@ -466,14 +501,25 @@ public class CertificateIssuanceService
     };
 
     /// <summary>
+    /// An error naming the profile's certificate policy entries that are not OIDs, or null when all are valid.
+    /// </summary>
+    private static string? InvalidPolicyError(CertificateProfile profile)
+    {
+        var invalid = CertificatePolicyExtension.FindInvalid(profile.CertificatePolicyOids);
+        return invalid.Count == 0
+            ? null
+            : $"Profile '{profile.Name}' lists certificate policies that are not valid OIDs: {string.Join(", ", invalid)}.";
+    }
+
+    /// <summary>
     /// Resolves renewal lineage for an issuance request: the new certificate's Version is the
     /// predecessor's + 1 and RenewalOfId links back to it. Returns an error when the
     /// referenced predecessor doesn't exist in the expected table, or when the request would
-    /// change its subject or SANs (see <see cref="RenewalIdentity"/>).
+    /// change its subject or SANs, or drop a certificate policy it carries (see <see cref="RenewalIdentity"/>).
     /// </summary>
     private static async Task<(int Version, int? RenewalOfId, string? Error)> ResolveRenewalLineageAsync(
         SigyllDbContext db, int? renewalOfCertificateId, bool isCaLineage,
-        string subjectDn, IEnumerable<SanEntry> subjectAltNames)
+        string subjectDn, IEnumerable<SanEntry> subjectAltNames, CertificateProfile profile)
     {
         if (renewalOfCertificateId is not int predecessorId)
             return (1, null, null);
@@ -494,6 +540,12 @@ public class CertificateIssuanceService
                 $"A renewal or re-key keeps the certificate's subject and SANs, but {change}. "
                 + "To issue under different names, issue a new certificate instead.");
 
+        var droppedPolicies = RenewalIdentity.FindDroppedPolicies(profile, predecessorCert);
+        if (droppedPolicies.Count > 0)
+            return (1, null,
+                $"A renewal or re-key keeps the certificate's policies, but profile '{profile.Name}' does not include "
+                + $"{string.Join(", ", droppedPolicies)}. Choose a profile that lists them, or add them to this profile.");
+
         return (predecessor.Version + 1, predecessorId, null);
     }
 
@@ -509,6 +561,7 @@ public class CertificateIssuanceService
         var result = await IssueFromCsrAsync(request);
         await RecordIssuanceAsync(identity, result.Success, result.EntityType, result.EntityId, result.SerialNumber,
             $"Issued from a CSR by CA #{request.IssuingCaCertificateId}", request.CertificateName, result.Error);
+        await AttachTefcaConformanceAsync(result, request.ProfileId);
         return result;
     }
 
@@ -557,9 +610,13 @@ public class CertificateIssuanceService
         if (missingSanError != null)
             return CsrIssuanceResult.Failure(missingSanError);
 
+        var badPolicyError = InvalidPolicyError(profile);
+        if (badPolicyError != null)
+            return CsrIssuanceResult.Failure(badPolicyError);
+
         // Renewal lineage: the predecessor determines the new certificate's version
         var (renewalVersion, renewalOfId, lineageError) = await ResolveRenewalLineageAsync(
-            db, request.RenewalOfCertificateId, isCaLineage: false, csr.SubjectName.Name, request.SubjectAltNames);
+            db, request.RenewalOfCertificateId, isCaLineage: false, csr.SubjectName.Name, request.SubjectAltNames, profile);
         if (lineageError != null)
             return CsrIssuanceResult.Failure(lineageError);
 
@@ -1365,6 +1422,11 @@ public class CertificateIssuanceService
                 extensions.Add(new X509EnhancedKeyUsageExtension(oids, profile.IsExtendedKeyUsageCritical));
         }
 
+        // Certificate Policies
+        var policies = CertificatePolicyExtension.Build(profile.CertificatePolicyOids);
+        if (policies != null)
+            extensions.Add(policies);
+
         // CDP
         if (profile.IncludeCdp && request.CdpUrls.Count > 0)
             extensions.Add(CertificateExtensionHelpers.MakeCdp(request.CdpUrls));
@@ -1521,6 +1583,11 @@ public class CertificateIssuanceService
                     new X509EnhancedKeyUsageExtension(oids, profile.IsExtendedKeyUsageCritical));
             }
         }
+
+        // Certificate Policies
+        var policies = CertificatePolicyExtension.Build(profile.CertificatePolicyOids);
+        if (policies != null)
+            certRequest.CertificateExtensions.Add(policies);
 
         // CRL Distribution Points
         if (profile.IncludeCdp && request.CdpUrls.Count > 0)

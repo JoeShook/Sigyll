@@ -543,6 +543,7 @@ public partial class CertificateExplorer : IDisposable
         selectedCert = null;
         selectedCrl = null;
         chainValidation = null;
+        tefcaResults = null;
         asn1Root = null;
         subjectAltNames.Clear();
         isLoadingTree = false;
@@ -682,6 +683,7 @@ public partial class CertificateExplorer : IDisposable
         selectedNodeVersion = 1;
         selectedNodeRenewalOfName = null;
         chainValidation = null;
+        tefcaResults = null;
         asn1Root = null;
         subjectAltNames.Clear();
         CloseIssuerDetails();
@@ -1598,6 +1600,7 @@ public partial class CertificateExplorer : IDisposable
         selectedCert = null;
         selectedCrl = null;
         chainValidation = null;
+        tefcaResults = null;
         asn1Root = null;
         CloseIssuerDetails();
 
@@ -2655,6 +2658,7 @@ public partial class CertificateExplorer : IDisposable
 
                 issuanceDialogHidden = true;
                 ToastService.ShowCopyableSuccess($"Certificate issued: {result.Thumbprint}");
+                ReportTefcaConformance(result.ConformanceResults);
                 await LoadTrustDomainTreeAsync(TrustDomainId);
             }
             else

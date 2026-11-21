@@ -238,6 +238,7 @@ public class SigyllDbContext : DbContext
             entity.Property(e => e.CdpUrlTemplate).HasMaxLength(500);
             entity.Property(e => e.AiaUrlTemplate).HasMaxLength(500);
             entity.Property(e => e.SubjectAltNameTypes).HasMaxLength(100);
+            entity.Property(e => e.CertificatePolicyOids).HasMaxLength(2000);
 
             entity.HasMany(e => e.SanLists)
                 .WithMany(s => s.Profiles)
