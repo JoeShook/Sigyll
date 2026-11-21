@@ -46,6 +46,21 @@ public class CaApiClient(HttpClient http, IOptions<PortalOptions> options)
         return result ?? IssuanceApiResult.Failure($"CA returned {(int)resp.StatusCode} with no body.");
     }
 
+    /// <summary>Asks the CA to revoke certificates whose exchange purpose authorization was withdrawn.</summary>
+    public async Task<RevocationApiResult> RevokeByExchangePurposeAsync(RevocationApiRequest request, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/api/ra/revoke-by-exchange-purpose")
+        {
+            Content = JsonContent.Create(request),
+        };
+        AddAuth(req);
+        using var resp = await http.SendAsync(req, ct);
+        if (resp.Content.Headers.ContentLength == 0)
+            return RevocationApiResult.Failure($"CA returned {(int)resp.StatusCode} with no body.");
+        var result = await resp.Content.ReadFromJsonAsync<RevocationApiResult>(ct);
+        return result ?? RevocationApiResult.Failure($"CA returned {(int)resp.StatusCode} with no body.");
+    }
+
     private void AddAuth(HttpRequestMessage req)
     {
         // mTLS (production) is configured on the HttpClient handler in DI. The dev fallback is the

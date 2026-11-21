@@ -29,11 +29,23 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
     public DbSet<RequestEvent> RequestEvents => Set<RequestEvent>();
     public DbSet<DomainValidationChallenge> DomainValidationChallenges => Set<DomainValidationChallenge>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<OrganizationExchangePurpose> OrganizationExchangePurposes => Set<OrganizationExchangePurpose>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         builder.HasDefaultSchema(Schema);
         base.OnModelCreating(builder);
+
+        builder.Entity<OrganizationExchangePurpose>(e =>
+        {
+            e.HasOne(x => x.Organization)
+                .WithMany(o => o.ExchangePurposes)
+                .HasForeignKey(x => x.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.OrganizationId, x.Code }).IsUnique();
+            e.Property(x => x.Code).HasMaxLength(64).IsRequired();
+            e.Property(x => x.ApprovedBy).HasMaxLength(256).IsRequired();
+        });
 
         builder.Entity<OrganizationMembership>(e =>
         {

@@ -30,4 +30,7 @@ public class Organization
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<OrganizationMembership> Memberships { get; set; } = new List<OrganizationMembership>();
+
+    /// <summary>Exchange purposes this org's certificates may carry in their SANs.</summary>
+    public ICollection<OrganizationExchangePurpose> ExchangePurposes { get; set; } = new List<OrganizationExchangePurpose>();
 }

@@ -10,6 +10,7 @@
 @using Sigyll.Portal.Services
 @inject PortalDbContext Db
 @inject RequestWorkflowService Workflow
+@inject ExchangePurposeService ExchangePurposes
 @inject AuthenticationStateProvider AuthState
 
 <PageTitle>RA Queue</PageTitle>
@@ -80,9 +81,15 @@ else
         try
         {
             var result = await Workflow.ApproveAsync(id, await RaUserId(), Reason(id));
-            _message = result.Status == RequestStatus.Issued
-                ? $"Request #{id} approved and issued (serial {result.SerialNumber})."
-                : $"Request #{id} approved but issuance reported: {result.FailureReason ?? result.Status.ToString()}.";
+            _message = result.Status switch
+            {
+                RequestStatus.Issued => $"Request #{id} approved and issued (serial {result.SerialNumber}).",
+                RequestStatus.PendingRaApproval =>
+                    $"Request #{id} was not approved: the subscriber is not authorized for exchange purpose(s) " +
+                    $"{string.Join(", ", await ExchangePurposes.UnauthorizedForRequestAsync(result))}. " +
+                    "Record the authorization under Exchange Purposes, or reject the request.",
+                _ => $"Request #{id} approved but issuance reported: {result.FailureReason ?? result.Status.ToString()}.",
+            };
             await Load();
         }
         finally { _busy = false; }
