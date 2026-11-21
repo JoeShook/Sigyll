@@ -130,6 +130,7 @@ public partial class ExternalRequests : IDisposable
         SanType.Dns => "example.com",
         SanType.Email => "admin@example.com",
         SanType.IpAddress => "192.168.1.1",
+        SanType.Npi => "1234567893 (10-digit NPI)",
         _ => string.Empty
     };
 
@@ -268,6 +269,7 @@ public partial class ExternalRequests : IDisposable
         SanType.Uri => Uri.TryCreate(san.Value.Trim(), UriKind.Absolute, out _),
         SanType.IpAddress => System.Net.IPAddress.TryParse(san.Value.Trim(), out _),
         SanType.Email => san.Value.Contains('@'),
+        SanType.Npi => NpiNumber.Validate(san.Value) is null,
         _ => true
     };
 
