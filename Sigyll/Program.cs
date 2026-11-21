@@ -483,6 +483,7 @@ static SanEntry MapSan(ApiSanEntry s) => new(
         "dns" => SanType.Dns,
         "email" => SanType.Email,
         "ipaddress" or "ip" => SanType.IpAddress,
+        "npi" => SanType.Npi,
         _ => SanType.Dns
     },
     s.Value);

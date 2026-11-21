@@ -31,7 +31,9 @@ public static class SanExtensionBuilder
 
     /// <summary>
     /// Builds a non-critical SAN extension from the entries. Values are trimmed but otherwise
-    /// untouched. URIs must be absolute and IP addresses must parse; DNS and email are taken as-is.
+    /// untouched. URIs must be absolute, IP addresses must parse and NPIs must be 10 digits with a
+    /// valid check digit (encoded as an otherName, see <see cref="NpiNumber"/>); DNS and email are
+    /// taken as-is.
     /// Returns null when there are no non-empty entries.
     /// </summary>
     public static X509Extension? Build(IEnumerable<SanEntry> entries, bool critical = false)
@@ -63,6 +65,12 @@ public static class SanExtensionBuilder
                     if (!IPAddress.TryParse(value, out var ip))
                         throw new ArgumentException($"'{value}' is not a valid IP address.");
                     names.Add(new GeneralName(GeneralName.IPAddress, new Org.BouncyCastle.Asn1.DerOctetString(ip.GetAddressBytes())));
+                    break;
+
+                case SanType.Npi:
+                    if (NpiNumber.Validate(value) is string npiError)
+                        throw new ArgumentException(npiError);
+                    names.Add(NpiNumber.ToGeneralName(value));
                     break;
             }
         }
