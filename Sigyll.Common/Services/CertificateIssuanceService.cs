@@ -20,6 +20,7 @@ using Sigyll.Common.Services.Audit;
 using Sigyll.Common.Services.Publishing;
 using Sigyll.Common.Services.Pqc;
 using Sigyll.Common.Services.Signing;
+using Sigyll.Common.Services.Tefca;
 using Sigyll.Common.Validators;
 using Sigyll.Common.ViewModels;
 
@@ -79,7 +80,37 @@ public class CertificateIssuanceService
         await RecordIssuanceAsync(identity, result.Success, result.EntityType, result.EntityId, result.SerialNumber,
             request.IssuingCaCertificateId is int issuer ? $"Issued by CA #{issuer}" : "Self-signed", request.SubjectDn,
             result.Error);
+        await AttachTefcaConformanceAsync(result, request.ProfileId);
         return result;
+    }
+
+    /// <summary>
+    /// After an end-entity certificate is issued from a TEFCA profile, checks it against the TEFCA FHIR profile and
+    /// puts the results on <paramref name="result"/>. Offline only: CDP/AIA reachability is left to the Explorer.
+    /// A failed check is logged and reported; it never undoes the issuance.
+    /// </summary>
+    private async Task AttachTefcaConformanceAsync(CertificateIssuanceResult result, int profileId)
+    {
+        if (!result.Success || result.EntityType != "IssuedCertificate" || result.EntityId is not int issuedId)
+            return;
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var profile = await db.CertificateProfiles.FindAsync(profileId);
+            if (!TefcaConformanceService.IsTefcaProfile(profile))
+                return;
+
+            result.ConformanceResults = await TefcaConformanceService.CheckAsync(db, issuedId, new TefcaConformanceOptions());
+            var failed = result.ConformanceResults?.Where(r => r.Outcome == ConformanceOutcome.Fail).Select(r => r.Name).ToList();
+            if (failed is { Count: > 0 })
+                _logger.LogWarning("Certificate #{CertificateId} from TEFCA profile '{Profile}' fails TEFCA checks: {Checks}",
+                    issuedId, profile!.Name, string.Join("; ", failed));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TEFCA conformance check of certificate #{CertificateId} could not run", issuedId);
+        }
     }
 
     private async Task RecordIssuanceAsync(OperatorIdentity identity, bool success, string? entityType, int? entityId,
@@ -530,6 +561,7 @@ public class CertificateIssuanceService
         var result = await IssueFromCsrAsync(request);
         await RecordIssuanceAsync(identity, result.Success, result.EntityType, result.EntityId, result.SerialNumber,
             $"Issued from a CSR by CA #{request.IssuingCaCertificateId}", request.CertificateName, result.Error);
+        await AttachTefcaConformanceAsync(result, request.ProfileId);
         return result;
     }
 

@@ -165,6 +165,13 @@ public class CertificateIssuanceResult
     public string? Thumbprint { get; set; }
     public string? SerialNumber { get; set; }
 
+    /// <summary>
+    /// The TEFCA conformance check of an end-entity certificate issued from a TEFCA profile (see
+    /// <see cref="Services.Tefca.TefcaConformanceService.IsTefcaProfile"/>); null for other issuances. Failures
+    /// are reported, not enforced: the certificate is issued either way.
+    /// </summary>
+    public IReadOnlyList<Services.Tefca.ConformanceCheckResult>? ConformanceResults { get; set; }
+
     public static CertificateIssuanceResult Failure(string error) =>
         new() { Success = false, Error = error };
 }
