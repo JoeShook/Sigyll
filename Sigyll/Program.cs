@@ -677,6 +677,10 @@ static IEnumerable<CertificateProfile> PresetProfiles()
         AllowAutoIssue = true,
     };
 
+    // TEFCA FHIR (RCE UDAP): intermediate, plus production and validation client/server leaves.
+    foreach (var tefca in TefcaCertificateProfiles.All())
+        yield return tefca;
+
     // Post-quantum presets. Pure ML-DSA / SLH-DSA do not use the profile hash.
     // ML-DSA-87 and ML-KEM-1024 are the CNSA 2.0 parameter sets.
     yield return PqcCa("Root CA (ML-DSA-87)",
