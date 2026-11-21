@@ -169,7 +169,8 @@ public sealed class TefcaConformanceOptions
 /// Checks an end-entity certificate against the TEFCA FHIR certificate profile and returns one named result per
 /// requirement: the subject OU, a root → intermediate → leaf chain, keyUsage and basicConstraints, SANs and CN,
 /// the DirectTrust certificate policies (production), http CDP/AIA (and optionally their reachability), the key,
-/// signature algorithm and validity period, and the SAN exchange purpose form (a warning only).
+/// signature algorithm and validity period, and the SAN exchange purpose form (a warning only; skipped for servers).
+/// The CN-equals-SAN-URI check applies to every role: for a server certificate the SAN URIs are its FHIR base URLs.
 /// </summary>
 public static class TefcaConformanceChecker
 {
@@ -228,11 +229,22 @@ public static class TefcaConformanceChecker
             CheckKey(leaf),
             CheckSignatureAlgorithm(leaf),
             CheckValidity(leaf),
-            (options.SanFormatRule ?? new TefcaSanFormatRule(options.ExchangePurposeQueryParameter)).Evaluate(sanUris),
+            CheckSanFormat(sanUris, options),
         };
 
         return results;
     }
+
+    /// <summary>
+    /// The client exchange purpose form. A server certificate's URI SANs are FHIR base URLs and never carry an
+    /// exchange purpose, so the check is skipped for a server; for a client or an unknown role the rule decides
+    /// (a warning at worst).
+    /// </summary>
+    private static ConformanceCheckResult CheckSanFormat(IReadOnlyList<string> sanUris, TefcaConformanceOptions options) =>
+        options.Role == TefcaCertificateRole.Server
+            ? ConformanceCheckResult.Skipped(TefcaSanFormatRule.CheckName,
+                "Server certificate: its URI SANs are FHIR base URLs, which carry no exchange purpose.")
+            : (options.SanFormatRule ?? new TefcaSanFormatRule(options.ExchangePurposeQueryParameter)).Evaluate(sanUris);
 
     public const string TrailingSlashCheckName = "Server SAN URIs have no trailing slash";
 

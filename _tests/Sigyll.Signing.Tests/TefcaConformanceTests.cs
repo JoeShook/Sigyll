@@ -376,6 +376,47 @@ public class TefcaConformanceTests
             .Outcome.ShouldBe(ConformanceOutcome.Pass);
     }
 
+    [Fact]
+    public async Task ServerCertificate_SkipsTheSanFormat_AndPassesEveryOtherCheck()
+    {
+        using var chain = TestChain.Create();
+        const string baseUrl = "https://fhir.example.org/r4";
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = baseUrl, SanUri = baseUrl });
+
+        var results = await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers,
+            new TefcaConformanceOptions { Role = TefcaCertificateRole.Server, SanFormatRule = new FixedRule() });
+
+        Result(results, TefcaSanFormatRule.CheckName).Outcome.ShouldBe(ConformanceOutcome.Skipped);
+        Result(results, TefcaSanFormatRule.CheckName).Detail.ShouldContain("FHIR base URLs");
+        results.ShouldNotContain(r => r.Name == "custom rule");
+        Result(results, "CN ≤ 64 characters and equal to a SAN URI").Outcome.ShouldBe(ConformanceOutcome.Pass);
+        results.Where(r => r.Outcome != ConformanceOutcome.Pass).Select(r => r.Name)
+            .ShouldBe([TefcaSanFormatRule.CheckName, "CDP/AIA reachable"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task ServerCertificate_CnMustEqualTheBaseUrlSan()
+    {
+        using var chain = TestChain.Create();
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = "https://fhir.example.org/R4", SanUri = "https://fhir.example.org/r4" });
+
+        var results = await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers,
+            new TefcaConformanceOptions { Role = TefcaCertificateRole.Server });
+
+        Result(results, "CN ≤ 64 characters and equal to a SAN URI").Outcome.ShouldBe(ConformanceOutcome.Fail);
+    }
+
+    [Fact]
+    public async Task UnknownRole_KeepsTheSanFormatWarning()
+    {
+        using var chain = TestChain.Create();
+        const string baseUrl = "https://fhir.example.org/r4";
+        using var leaf = chain.IssueLeaf(new LeafSpec { Cn = baseUrl, SanUri = baseUrl });
+
+        Result(await TefcaConformanceChecker.CheckAsync(leaf, chain.Issuers), TefcaSanFormatRule.CheckName)
+            .Outcome.ShouldBe(ConformanceOutcome.Warning);
+    }
+
     // ---- issuance hook and the stored-certificate service ----
 
     [Theory]
