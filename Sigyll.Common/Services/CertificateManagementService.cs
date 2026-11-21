@@ -12,6 +12,7 @@ using System.Linq.Expressions;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Sigyll.Contracts;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
@@ -62,6 +63,7 @@ public class CertificateManagementService
     private readonly IssuanceValidator _validator;
     private readonly IRemoteKeyStore? _remoteKeys;
     private readonly AuditTrail _audit;
+    private readonly ExchangePurposeSanOptions _exchangePurposeSan;
 
     public CertificateManagementService(
         IDbContextFactory<SigyllDbContext> dbFactory,
@@ -71,8 +73,10 @@ public class CertificateManagementService
         CrlGenerationService crlGenService,
         IssuanceValidator? validator = null,
         IRemoteKeyStore? remoteKeys = null,
-        AuditTrail? audit = null)
+        AuditTrail? audit = null,
+        IOptions<ExchangePurposeSanOptions>? exchangePurposeSan = null)
     {
+        _exchangePurposeSan = exchangePurposeSan?.Value ?? new ExchangePurposeSanOptions();
         _dbFactory = dbFactory;
         _operator = operatorContext;
         _logger = logger;
@@ -503,11 +507,11 @@ public class CertificateManagementService
             if (issued is null) { result.Skipped[serial] = "No certificate with this serial number."; continue; }
             if (issued.IsRevoked) { result.Skipped[serial] = "Already revoked."; continue; }
 
-            IReadOnlySet<string> purposes;
+            ExchangePurposeScan scan;
             try
             {
                 using var cert = X509Certificate2.CreateFromPem(issued.X509CertificatePem);
-                purposes = ExchangePurposeSan.ExtractAll(cert);
+                scan = ExchangePurposeSan.Scan(cert, _exchangePurposeSan.QueryParameterName);
             }
             catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or ArgumentException)
             {
@@ -515,7 +519,13 @@ public class CertificateManagementService
                 continue;
             }
 
-            if (!purposes.Contains(code)) { result.Skipped[serial] = $"No SAN carries {code}."; continue; }
+            if (!scan.Codes.Contains(code))
+            {
+                result.Skipped[serial] = scan.AmbiguousSans.Count > 0
+                    ? $"No SAN unambiguously carries {code}; ambiguous: {string.Join(", ", scan.AmbiguousSans)}."
+                    : $"No SAN carries {code}.";
+                continue;
+            }
 
             issued.IsRevoked = true;
             issued.RevokedAt = now;

@@ -124,6 +124,9 @@ try
         builder.Configuration.GetSection("GcpKms"));
     builder.Services.Configure<Sigyll.Pkcs11.Pkcs11Options>(
         builder.Configuration.GetSection("Pkcs11"));
+    // How SAN URIs carry an exchange purpose; must match the RA portal's setting. No query parameter name by default.
+    builder.Services.Configure<ExchangePurposeSanOptions>(
+        builder.Configuration.GetSection(ExchangePurposeSanOptions.Section));
     builder.Services.AddHttpClient("VaultTransit");
     builder.Services.AddSingleton<VaultTokenSource>();
     builder.Services.AddSingleton<VaultKeyProtectionLoader>();
@@ -395,7 +398,8 @@ try
         IssuanceApiRequest apiRequest,
         IDbContextFactory<SigyllDbContext> dbFactory,
         OperatorContext operatorContext,
-        CertificateIssuanceService issuanceService) =>
+        CertificateIssuanceService issuanceService,
+        IOptions<ExchangePurposeSanOptions> exchangePurposeSan) =>
     {
         if (!RaAuth.IsAuthorized(http, raOptions)) return Results.Unauthorized();
         operatorContext.RunAs(RaClient);
@@ -431,14 +435,19 @@ try
         }
 
         // Defense in depth: when the RA sends the subscriber's authorized exchange purposes, every exchange purpose
-        // a URI SAN carries must be among them.
+        // a URI SAN carries must be among them, and no SAN may carry conflicting exchange purposes.
         if (apiRequest.AuthorizedExchangePurposes is { } authorizedPurposes)
         {
             var authorizedSet = authorizedPurposes
                 .Select(ExchangePurposeSan.Normalize).OfType<string>().ToHashSet(StringComparer.Ordinal);
-            var unauthorized = ExchangePurposeSan.ExtractAll(apiRequest.RequestedSans)
+            var scan = ExchangePurposeSan.Scan(apiRequest.RequestedSans, exchangePurposeSan.Value.QueryParameterName);
+            if (scan.AmbiguousSans.Count > 0)
+                return Results.Json(IssuanceApiResult.Failure(
+                    $"SAN(s) carry conflicting exchange purposes: {string.Join(", ", scan.AmbiguousSans)}"),
+                    statusCode: StatusCodes.Status403Forbidden);
+            var unauthorized = scan.Codes
                 .Where(xp => !authorizedSet.Contains(xp))
-                .Order()
+                .Order(StringComparer.Ordinal)
                 .ToList();
             if (unauthorized.Count > 0)
                 return Results.Json(IssuanceApiResult.Failure(

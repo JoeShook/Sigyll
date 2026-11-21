@@ -40,7 +40,7 @@ public class ExchangePurposeServiceTests
         var client = new CaApiClient(new HttpClient(_ca) { BaseAddress = new Uri("https://ca.test") },
             Options.Create(new PortalOptions()));
         return (new ExchangePurposeService(db, client, new PortalAuditTrail(_options),
-            NullLogger<ExchangePurposeService>.Instance), db);
+            Options.Create(new ExchangePurposeSanOptions()), NullLogger<ExchangePurposeService>.Instance), db);
     }
 
     private async Task<int> SeedOrgAsync(string name = "Example Clinic")
@@ -58,7 +58,7 @@ public class ExchangePurposeServiceTests
         var orgId = await SeedOrgAsync();
         var (service, db) = Create();
 
-        var row = await service.AuthorizeAsync(orgId, " t-trtmnt ", "ra@example.test");
+        var row = await service.AuthorizeAsync(orgId, " T-TRTMNT ", "ra@example.test");
         await service.AuthorizeAsync(orgId, "T-TRTMNT", "someone-else@example.test");
 
         row.Code.ShouldBe("T-TRTMNT");
@@ -75,6 +75,7 @@ public class ExchangePurposeServiceTests
         var (service, _) = Create();
 
         await Should.ThrowAsync<ArgumentException>(() => service.AuthorizeAsync(orgId, "treatment", "ra"));
+        await Should.ThrowAsync<ArgumentException>(() => service.AuthorizeAsync(orgId, "t-trtmnt", "ra"));
     }
 
     [Fact]
@@ -92,7 +93,7 @@ public class ExchangePurposeServiceTests
     }
 
     [Fact]
-    public void Unauthorized_ListsOnlyExchangePurposesOutsideTheAuthorizedSet()
+    public void Check_ListsUnauthorizedExchangePurposes_AndFlagsAmbiguousSans()
     {
         var sans = new List<ApiSanEntry>
         {
@@ -100,8 +101,19 @@ public class ExchangePurposeServiceTests
             new() { Type = "Uri", Value = "urn:oid:1.2.3#T-PYMNT" },
             new() { Type = "Uri", Value = "https://fhir.example.org/r4" },
         };
+        var (service, _) = Create();
 
-        ExchangePurposeService.Unauthorized(sans, new HashSet<string> { "T-TRTMNT" }).ShouldBe(["T-PYMNT"]);
+        var check = service.Check(sans, new HashSet<string> { "T-TRTMNT" });
+        check.Unauthorized.ShouldBe(["T-PYMNT"]);
+        check.Passes.ShouldBeFalse();
+
+        var ambiguous = service.Check(
+            [new ApiSanEntry { Type = "Uri", Value = "https://fhir.example.org/T-PYMNT#T-TRTMNT" }],
+            new HashSet<string> { "T-TRTMNT", "T-PYMNT" });
+        ambiguous.Unauthorized.ShouldBeEmpty();
+        ambiguous.AmbiguousSans.ShouldBe(["https://fhir.example.org/T-PYMNT#T-TRTMNT"]);
+        ambiguous.Passes.ShouldBeFalse();
+        ambiguous.Describe().ShouldContain("conflicting");
     }
 
     [Fact]

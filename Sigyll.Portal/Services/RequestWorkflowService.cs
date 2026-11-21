@@ -74,13 +74,12 @@ public class RequestWorkflowService(
         request.Status = RequestStatus.PolicyEvaluated;
         AddEvent(request, "system", "PolicyEvaluated", $"{decision.Kind}: {decision.Reason}");
 
-        // Flag SANs carrying an exchange purpose the subscriber is not authorized for; RA approval is blocked
-        // until it is (see ApproveAsync).
-        var unauthorizedPurposes = ExchangePurposeService.Unauthorized(
-            sans, await exchangePurposes.AuthorizedCodesAsync(organizationId, ct));
-        if (unauthorizedPurposes.Count > 0)
+        // Flag SANs carrying an exchange purpose the subscriber is not authorized for, or conflicting exchange
+        // purposes; RA approval is blocked while either remains (see ApproveAsync).
+        var sanCheck = await exchangePurposes.CheckAsync(sans, organizationId, ct);
+        if (!sanCheck.Passes)
         {
-            var flag = $"Subscriber is not authorized for exchange purpose(s): {string.Join(", ", unauthorizedPurposes)}.";
+            var flag = sanCheck.Describe();
             request.PolicyReason = $"{request.PolicyReason} {flag}";
             AddEvent(request, "system", "ExchangePurposeFlagged", flag);
         }
@@ -144,13 +143,13 @@ public class RequestWorkflowService(
         if (request.Status != RequestStatus.PendingRaApproval)
             return request;
 
-        // Blocked while any SAN carries an exchange purpose the subscriber is not authorized for. The request stays
-        // in the queue so it can be approved once the authorization is recorded, or rejected.
-        var unauthorizedPurposes = await exchangePurposes.UnauthorizedForRequestAsync(request, ct);
-        if (unauthorizedPurposes.Count > 0)
+        // Blocked while any SAN carries an exchange purpose the subscriber is not authorized for, or conflicting
+        // exchange purposes. The request stays in the queue so it can be approved once the authorization is
+        // recorded, or rejected.
+        var sanCheck = await exchangePurposes.CheckRequestAsync(request, ct);
+        if (!sanCheck.Passes)
         {
-            AddEvent(request, $"ra:{raUserId}", "ApprovalBlocked",
-                $"Subscriber is not authorized for exchange purpose(s): {string.Join(", ", unauthorizedPurposes)}.");
+            AddEvent(request, $"ra:{raUserId}", "ApprovalBlocked", sanCheck.Describe());
             request.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
             return request;

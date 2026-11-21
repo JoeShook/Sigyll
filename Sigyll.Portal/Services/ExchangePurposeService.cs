@@ -12,6 +12,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Sigyll.Contracts;
 using Sigyll.Portal.Data;
 using Sigyll.Portal.Data.Entities;
@@ -27,6 +28,25 @@ public record BulkRevocationOutcome(
     IReadOnlyDictionary<string, string> Skipped,
     IReadOnlyList<string> CrlErrors);
 
+/// <summary>Result of checking requested SANs against a subscriber's authorized exchange purposes.</summary>
+/// <param name="Unauthorized">Exchange purposes the SANs carry that the subscriber is not authorized for, sorted.</param>
+/// <param name="AmbiguousSans">SANs carrying conflicting exchange purposes; they can't be checked, so they block too.</param>
+public record SanAuthorizationCheck(IReadOnlyList<string> Unauthorized, IReadOnlyList<string> AmbiguousSans)
+{
+    public bool Passes => Unauthorized.Count == 0 && AmbiguousSans.Count == 0;
+
+    /// <summary>A sentence describing what failed; empty when the check passes.</summary>
+    public string Describe() => string.Join(" ", new[]
+    {
+        Unauthorized.Count > 0
+            ? $"Subscriber is not authorized for exchange purpose(s): {string.Join(", ", Unauthorized)}."
+            : null,
+        AmbiguousSans.Count > 0
+            ? $"SAN(s) carry conflicting exchange purposes: {string.Join(", ", AmbiguousSans)}."
+            : null,
+    }.OfType<string>());
+}
+
 /// <summary>
 /// The exchange purposes (TEFCA XP codes) each subscriber organization is authorized for: recording and withdrawing
 /// them, checking requested SANs against them, and revoking an organization's certificates for a withdrawn one.
@@ -36,9 +56,11 @@ public class ExchangePurposeService(
     PortalDbContext db,
     CaApiClient ca,
     PortalAuditTrail audit,
+    IOptions<ExchangePurposeSanOptions> sanOptions,
     ILogger<ExchangePurposeService> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private readonly string? _queryParameterName = sanOptions.Value.QueryParameterName;
 
     /// <summary>The organization's authorized exchange purposes, by code.</summary>
     public async Task<List<OrganizationExchangePurpose>> ListAsync(int organizationId, CancellationToken ct = default) =>
@@ -58,15 +80,25 @@ public class ExchangePurposeService(
         return codes.ToHashSet(StringComparer.Ordinal);
     }
 
-    /// <summary>Exchange purposes carried by <paramref name="sans"/> that are not in <paramref name="authorized"/>, sorted.</summary>
-    public static IReadOnlyList<string> Unauthorized(IEnumerable<ApiSanEntry> sans, IReadOnlySet<string> authorized) =>
-        ExchangePurposeSan.ExtractAll(sans).Where(xp => !authorized.Contains(xp)).Order(StringComparer.Ordinal).ToList();
+    /// <summary>Checks <paramref name="sans"/> against the codes <paramref name="authorized"/>.</summary>
+    public SanAuthorizationCheck Check(IEnumerable<ApiSanEntry> sans, IReadOnlySet<string> authorized)
+    {
+        var scan = ExchangePurposeSan.Scan(sans, _queryParameterName);
+        return new SanAuthorizationCheck(
+            scan.Codes.Where(xp => !authorized.Contains(xp)).Order(StringComparer.Ordinal).ToList(),
+            scan.AmbiguousSans);
+    }
 
-    /// <summary>Exchange purposes the request's SANs carry that its organization is not authorized for.</summary>
-    public async Task<IReadOnlyList<string>> UnauthorizedForRequestAsync(CertificateRequest request, CancellationToken ct = default)
+    /// <summary>Checks <paramref name="sans"/> against the codes <paramref name="organizationId"/> is authorized for.</summary>
+    public async Task<SanAuthorizationCheck> CheckAsync(
+        IEnumerable<ApiSanEntry> sans, int? organizationId, CancellationToken ct = default) =>
+        Check(sans, await AuthorizedCodesAsync(organizationId, ct));
+
+    /// <summary>Checks the request's SANs against the codes its organization is authorized for.</summary>
+    public async Task<SanAuthorizationCheck> CheckRequestAsync(CertificateRequest request, CancellationToken ct = default)
     {
         var sans = JsonSerializer.Deserialize<List<ApiSanEntry>>(request.RequestedSansJson ?? "[]", Json) ?? [];
-        return Unauthorized(sans, await AuthorizedCodesAsync(request.OrganizationId, ct));
+        return await CheckAsync(sans, request.OrganizationId, ct);
     }
 
     /// <summary>Records that the organization is authorized for <paramref name="code"/>. Re-authorizing is a no-op.</summary>
@@ -201,14 +233,14 @@ public class ExchangePurposeService(
     }
 
     /// <summary>Exchange purposes the issued certificate's SANs carry, or the requested SANs' when it can't be read.</summary>
-    private static IReadOnlySet<string> CarriedExchangePurposes(CertificateRequest request)
+    private IReadOnlySet<string> CarriedExchangePurposes(CertificateRequest request)
     {
         if (!string.IsNullOrWhiteSpace(request.CertificatePem))
         {
             try
             {
                 using var cert = X509Certificate2.CreateFromPem(request.CertificatePem);
-                return ExchangePurposeSan.ExtractAll(cert);
+                return ExchangePurposeSan.Scan(cert, _queryParameterName).Codes;
             }
             catch (Exception ex) when (ex is CryptographicException or ArgumentException)
             {
@@ -217,6 +249,6 @@ public class ExchangePurposeService(
         }
 
         var sans = JsonSerializer.Deserialize<List<ApiSanEntry>>(request.RequestedSansJson ?? "[]", Json) ?? [];
-        return ExchangePurposeSan.ExtractAll(sans);
+        return ExchangePurposeSan.Scan(sans, _queryParameterName).Codes;
     }
 }

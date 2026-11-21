@@ -85,8 +85,7 @@ else
             {
                 RequestStatus.Issued => $"Request #{id} approved and issued (serial {result.SerialNumber}).",
                 RequestStatus.PendingRaApproval =>
-                    $"Request #{id} was not approved: the subscriber is not authorized for exchange purpose(s) " +
-                    $"{string.Join(", ", await ExchangePurposes.UnauthorizedForRequestAsync(result))}. " +
+                    $"Request #{id} was not approved. {(await ExchangePurposes.CheckRequestAsync(result)).Describe()} " +
                     "Record the authorization under Exchange Purposes, or reject the request.",
                 _ => $"Request #{id} approved but issuance reported: {result.FailureReason ?? result.Status.ToString()}.",
             };

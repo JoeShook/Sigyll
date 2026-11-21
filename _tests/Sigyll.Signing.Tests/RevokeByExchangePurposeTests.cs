@@ -12,7 +12,9 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
+using Sigyll.Contracts;
 using Shouldly;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
@@ -29,7 +31,7 @@ public class RevokeByExchangePurposeTests
 {
     private readonly IDbContextFactory<SigyllDbContext> _dbFactory = new TestDbContextFactory();
 
-    private CertificateManagementService CreateService(IOperatorContext operatorContext)
+    private CertificateManagementService CreateService(IOperatorContext operatorContext, string? queryParameterName = null)
     {
         var httpFactory = Substitute.For<IHttpClientFactory>();
         httpFactory.CreateClient(Arg.Any<string>()).Returns(new HttpClient());
@@ -38,7 +40,8 @@ public class RevokeByExchangePurposeTests
         var crl = new CrlGenerationService(_dbFactory, operatorContext,
             NullLogger<CrlGenerationService>.Instance, new LocalSigningProvider());
         return new CertificateManagementService(_dbFactory, operatorContext,
-            NullLogger<CertificateManagementService>.Instance, chain, crl);
+            NullLogger<CertificateManagementService>.Instance, chain, crl,
+            exchangePurposeSan: Options.Create(new ExchangePurposeSanOptions { QueryParameterName = queryParameterName }));
     }
 
     [Fact]
@@ -46,21 +49,24 @@ public class RevokeByExchangePurposeTests
     {
         var caId = await SeedCaAsync();
         var treatment = await SeedIssuedAsync(caId, "urn:oid:2.16.840.1.113883.3.7204.1.5.2.1#T-TRTMNT");
-        var queryForm = await SeedIssuedAsync(caId, "https://fhir.example.org/r4?xp=T-TRTMNT");
+        var queryForm = await SeedIssuedAsync(caId, "https://fhir.example.org/r4?purpose-param=T-TRTMNT");
         var payment = await SeedIssuedAsync(caId, "urn:oid:2.16.840.1.113883.3.7204.1.5.2.1#T-PYMNT");
+        var ambiguous = await SeedIssuedAsync(caId, "https://fhir.example.org/T-PYMNT#T-TRTMNT");
 
         var ra = TestOperators.As(OperatorIdentity.System("ra-client", Permission.IssueFromRa, Permission.RevokeFromRa));
-        var result = await CreateService(ra).RevokeByExchangePurposeAsync(
-            [treatment.ToLowerInvariant(), queryForm, payment, "DEADBEEF"], "t-trtmnt", "Example Clinic (organization 7)", "ra@example.test");
+        var result = await CreateService(ra, "purpose-param").RevokeByExchangePurposeAsync(
+            [treatment.ToLowerInvariant(), queryForm, payment, ambiguous, "DEADBEEF"], "T-TRTMNT", "Example Clinic (organization 7)", "ra@example.test");
 
         result.Success.ShouldBeTrue();
         result.Revoked.Order().ShouldBe(new[] { treatment, queryForm }.Order());
-        result.Skipped.Keys.Order().ShouldBe(new[] { payment, "DEADBEEF" }.Order());
+        result.Skipped.Keys.Order().ShouldBe(new[] { payment, ambiguous, "DEADBEEF" }.Order());
+        result.Skipped[ambiguous].ShouldContain("ambiguous");
         result.CrlErrors.ShouldBeEmpty();
 
         await using var db = _dbFactory.CreateDbContext();
         var certs = await db.IssuedCertificates.ToListAsync();
-        foreach (var c in certs.Where(c => c.SerialNumber != payment))
+        certs.Single(c => c.SerialNumber == ambiguous).IsRevoked.ShouldBeFalse();
+        foreach (var c in certs.Where(c => c.SerialNumber != payment && c.SerialNumber != ambiguous))
         {
             c.IsRevoked.ShouldBeTrue();
             c.RevocationReason.ShouldBe((int)X509RevocationReason.PrivilegeWithdrawn);
