@@ -141,7 +141,13 @@ public enum SanType
     Uri,
     Dns,
     Email,
-    IpAddress
+    IpAddress,
+
+    /// <summary>
+    /// A National Provider Identifier carried as an otherName (OID 2.16.840.1.113883.4.6, UTF8String).
+    /// The value is the 10-digit NPI; see <see cref="Sigyll.Common.Services.NpiNumber"/>.
+    /// </summary>
+    Npi
 }
 
 /// <summary>
