@@ -48,10 +48,11 @@ public static class AuditActions
     public const string OperatorLockedOut = "operator.locked-out";
     public const string OperatorSignedOut = "operator.signed-out";
     public const string OperatorSecurityChanged = "operator.security-changed";
+    public const string CertificatesRevokedByExchangePurpose = "certificate.bulk-revoked";
 
     public static readonly string[] All =
     [
-        CertificateIssued, CertificateImported, CertificateRevoked, CertificateDeleted, CertificateArchived,
+        CertificateIssued, CertificateImported, CertificateRevoked, CertificatesRevokedByExchangePurpose, CertificateDeleted, CertificateArchived,
         CertificateMoved, CrlGenerated, CrlImported, CrlDeleted, KeyExported, VaultExported, VaultBackedUp, VaultUpdated,
         VaultSecretsRemoved, RequestCreated, RequestFulfilled, RequestDeleted, TrustDomainDeleted, TrustDomainKeyPolicyChanged, OperatorCreated,
         OperatorDeleted, OperatorRolesChanged, OperatorPasswordSet, OperatorUnlocked, OperatorSecondFactorReset,

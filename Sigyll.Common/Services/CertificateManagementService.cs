@@ -12,6 +12,7 @@ using System.Linq.Expressions;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Sigyll.Contracts;
 using Sigyll.Common.Data;
 using Sigyll.Common.Data.Entities;
 using Sigyll.Common.Security;
@@ -462,6 +463,89 @@ public class CertificateManagementService
         }
 
         return new RevokeResult(true);
+    }
+
+    /// <summary>
+    /// Revokes, with reason <c>privilegeWithdrawn</c>, each listed issued certificate whose URI SANs carry
+    /// <paramref name="exchangePurpose"/> (read by <see cref="ExchangePurposeSan"/>), records each revocation and one
+    /// summary event in the audit trail, then generates and publishes a new CRL for every issuing CA involved.
+    /// Certificates that are unknown, already revoked or carry no such SAN are left alone and reported as skipped.
+    /// </summary>
+    public async Task<RevocationApiResult> RevokeByExchangePurposeAsync(
+        IReadOnlyCollection<string> serialNumbers, string exchangePurpose, string subscriberRef, string requestedBy,
+        CancellationToken ct = default)
+    {
+        var identity = await _operator.DemandAsync(Permission.Operate, Permission.RevokeFromRa);
+
+        var code = ExchangePurposeSan.Normalize(exchangePurpose);
+        if (code is null)
+            return RevocationApiResult.Failure($"'{exchangePurpose}' is not an exchange purpose code.");
+
+        var result = new RevocationApiResult { Success = true };
+        var wanted = serialNumbers
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim().ToUpperInvariant())
+            .Distinct()
+            .ToList();
+        if (wanted.Count == 0) return result;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var candidates = await db.IssuedCertificates
+            .Include(c => c.IssuingCaCertificate)
+            .Where(c => wanted.Contains(c.SerialNumber.ToUpper()))
+            .ToListAsync(ct);
+
+        var now = DateTime.UtcNow;
+        var revoked = new List<IssuedCertificate>();
+        foreach (var serial in wanted)
+        {
+            var issued = candidates.FirstOrDefault(c => string.Equals(c.SerialNumber, serial, StringComparison.OrdinalIgnoreCase));
+            if (issued is null) { result.Skipped[serial] = "No certificate with this serial number."; continue; }
+            if (issued.IsRevoked) { result.Skipped[serial] = "Already revoked."; continue; }
+
+            IReadOnlySet<string> purposes;
+            try
+            {
+                using var cert = X509Certificate2.CreateFromPem(issued.X509CertificatePem);
+                purposes = ExchangePurposeSan.ExtractAll(cert);
+            }
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or ArgumentException)
+            {
+                result.Skipped[serial] = "The stored certificate could not be read.";
+                continue;
+            }
+
+            if (!purposes.Contains(code)) { result.Skipped[serial] = $"No SAN carries {code}."; continue; }
+
+            issued.IsRevoked = true;
+            issued.RevokedAt = now;
+            issued.RevocationReason = (int)X509RevocationReason.PrivilegeWithdrawn;
+            revoked.Add(issued);
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var detail = $"Exchange purpose {code} withdrawn for {subscriberRef}; ordered by {requestedBy}.";
+        foreach (var issued in revoked)
+        {
+            result.Revoked.Add(issued.SerialNumber);
+            await _audit.RecordAsync(identity, AuditActions.CertificateRevoked, AuditTarget.Of(issued),
+                $"Reason: {X509RevocationReason.PrivilegeWithdrawn} ({(int)X509RevocationReason.PrivilegeWithdrawn}). {detail}", ct: ct);
+        }
+
+        await _audit.RecordAsync(identity, AuditActions.CertificatesRevokedByExchangePurpose, null,
+            $"{detail} Revoked {revoked.Count}: {string.Join(", ", result.Revoked)}." +
+            (result.Skipped.Count > 0 ? $" Skipped {result.Skipped.Count}: {string.Join(", ", result.Skipped.Keys)}." : ""),
+            ct: ct);
+
+        foreach (var caId in revoked.Select(c => c.IssuingCaCertificateId).Distinct())
+        {
+            var crl = await _crlGenService.GenerateCrlAsync(caId, ct: ct);
+            if (!crl.IsSuccess)
+                result.CrlErrors.Add($"CRL for CA {caId} failed: {crl.Error}");
+        }
+
+        return result;
     }
 
     public async Task<int?> FindCaBySkiAsync(int trustDomainId, string authorityKeyIdentifier, CancellationToken ct = default)

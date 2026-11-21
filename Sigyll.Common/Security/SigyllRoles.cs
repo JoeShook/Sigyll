@@ -45,6 +45,9 @@ public enum Permission
 
     /// <summary>Issue a certificate from a CSR an RA has vetted; held only by the RA client.</summary>
     IssueFromRa,
+
+    /// <summary>Revoke certificates whose exchange purpose authorization an RA withdrew; held only by the RA client.</summary>
+    RevokeFromRa,
 }
 
 /// <summary>The single mapping from operator roles to permissions.</summary>

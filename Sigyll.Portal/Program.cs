@@ -93,6 +93,7 @@ builder.Services.AddHttpClient<CaApiClient>((sp, client) =>
 builder.Services.AddScoped<CatalogService>();
 builder.Services.AddSingleton<IssuancePolicyService>();
 builder.Services.AddScoped<DomainValidationService>();
+builder.Services.AddScoped<ExchangePurposeService>();
 builder.Services.AddScoped<RequestWorkflowService>();
 
 builder.Services.AddSingleton<IEmailSender<PortalUser>, IdentityNoOpEmailSender>();

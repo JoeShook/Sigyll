@@ -1,0 +1,211 @@
+@* (c) 2026 Joseph Shook. See LICENSE in the project root. *@
+@page "/ra/exchange-purposes"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "RA,PortalAdmin")]
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Sigyll.Contracts
+@using Sigyll.Portal.Data
+@using Sigyll.Portal.Data.Entities
+@using Sigyll.Portal.Services
+@inject PortalDbContext Db
+@inject ExchangePurposeService ExchangePurposeService
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Exchange Purposes</PageTitle>
+<FluentLabel Typo="Typography.PageTitle" Style="margin-bottom: .5rem;">Exchange Purposes by Subscriber</FluentLabel>
+<FluentLabel Typo="Typography.Body" Style="margin-bottom: 1rem; opacity: .8;">
+    A subscriber's certificates may only carry SANs for the exchange purposes recorded here; requests for any other
+    are flagged and cannot be approved. Withdrawing an exchange purpose lets you revoke every certificate of the
+    subscriber that carries it (reason privilegeWithdrawn); the CA publishes a new CRL.
+</FluentLabel>
+
+@if (_message is not null)
+{
+    <FluentCard Style="margin-bottom: 1rem; border-left: 4px solid var(--accent-fill-rest);">@_message</FluentCard>
+}
+
+@if (_orgs is null)
+{
+    <FluentProgressRing />
+}
+else if (_orgs.Count == 0)
+{
+    <FluentLabel Typo="Typography.Body">No subscriber organizations exist yet.</FluentLabel>
+}
+else
+{
+    @foreach (var org in _orgs)
+    {
+        <FluentCard Style="margin-bottom: 1rem;">
+            <FluentLabel Typo="Typography.H5">@org.Name @(org.Enabled ? "" : "(disabled)")</FluentLabel>
+
+            @if (org.ExchangePurposes.Count == 0)
+            {
+                <p style="opacity: .8;">No exchange purposes authorized.</p>
+            }
+            else
+            {
+                <table style="width: 100%; margin: .5rem 0;">
+                    <thead><tr><th style="text-align: left;">Code</th><th style="text-align: left;">Approved by</th><th style="text-align: left;">Approved (UTC)</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var xp in org.ExchangePurposes.OrderBy(x => x.Code))
+                        {
+                            <tr>
+                                <td><code>@xp.Code</code></td>
+                                <td>@xp.ApprovedBy</td>
+                                <td>@xp.ApprovedAt.ToString("u")</td>
+                                <td style="text-align: right;">
+                                    <FluentButton Appearance="Appearance.Outline" Disabled="@_busy"
+                                                  OnClick="@(() => Withdraw(org.Id, xp.Code))">Withdraw</FluentButton>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+
+            <FluentStack HorizontalGap="6" VerticalAlignment="VerticalAlignment.Bottom" Style="margin-top: .5rem;">
+                <FluentTextField @bind-Value="_newCode[org.Id]" Label="Authorize exchange purpose" Placeholder="T-TRTMNT" />
+                <FluentButton Appearance="Appearance.Accent" Disabled="@_busy" OnClick="@(() => Authorize(org.Id))">Authorize</FluentButton>
+            </FluentStack>
+
+            <FluentStack HorizontalGap="6" VerticalAlignment="VerticalAlignment.Bottom" Style="margin-top: .75rem;">
+                <FluentTextField @bind-Value="_revokeCode[org.Id]" Label="Revoke certificates carrying" Placeholder="T-TRTMNT" />
+                <FluentButton Appearance="Appearance.Outline" Disabled="@_busy" OnClick="@(() => Find(org.Id))">Find certificates</FluentButton>
+            </FluentStack>
+
+            @if (_found.TryGetValue(org.Id, out var found))
+            {
+                @if (found.Requests.Count == 0)
+                {
+                    <p style="opacity: .8;">No issued certificates of @org.Name carry @found.Code.</p>
+                }
+                else
+                {
+                    <ul>
+                        @foreach (var r in found.Requests)
+                        {
+                            <li><a href="@($"requests/{r.Id}")">#@r.Id</a> @r.SubjectDn, serial <code>@r.SerialNumber</code></li>
+                        }
+                    </ul>
+                    @if (AuthorizedCodes(org).Contains(found.Code))
+                    {
+                        <p style="color: #ff9800;">@org.Name is still authorized for @found.Code; withdraw it first unless these certificates must go regardless.</p>
+                    }
+                    <FluentButton Appearance="Appearance.Accent" Disabled="@_busy"
+                                  OnClick="@(() => Revoke(org.Id, found.Code))">Revoke @found.Requests.Count certificate(s)</FluentButton>
+                }
+            }
+        </FluentCard>
+    }
+}
+
+@code {
+    private List<Organization>? _orgs;
+    private readonly Dictionary<int, string> _newCode = new();
+    private readonly Dictionary<int, string> _revokeCode = new();
+    private readonly Dictionary<int, (string Code, List<CertificateRequest> Requests)> _found = new();
+    private bool _busy;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _orgs = await Db.Organizations
+            .Include(o => o.ExchangePurposes)
+            .AsNoTracking()
+            .OrderBy(o => o.Name)
+            .ToListAsync();
+        foreach (var o in _orgs)
+        {
+            _newCode.TryAdd(o.Id, "");
+            _revokeCode.TryAdd(o.Id, "");
+        }
+    }
+
+    private static HashSet<string> AuthorizedCodes(Organization org) =>
+        org.ExchangePurposes.Select(x => x.Code).ToHashSet(StringComparer.Ordinal);
+
+    private async Task<string> Actor()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        return state.User.FindFirstValue(ClaimTypes.Name)
+            ?? state.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? "ra";
+    }
+
+    private async Task Authorize(int orgId)
+    {
+        await Run(async () =>
+        {
+            var code = _newCode.GetValueOrDefault(orgId);
+            if (ExchangePurposeSan.Normalize(code) is null)
+            {
+                _message = $"'{code}' is not an exchange purpose code (e.g. T-TRTMNT).";
+                return;
+            }
+            var row = await ExchangePurposeService.AuthorizeAsync(orgId, code!, await Actor());
+            _newCode[orgId] = "";
+            _message = $"Authorized {row.Code}.";
+        });
+    }
+
+    private async Task Withdraw(int orgId, string code)
+    {
+        await Run(async () =>
+        {
+            await ExchangePurposeService.WithdrawAsync(orgId, code, await Actor());
+            _revokeCode[orgId] = code;
+            _found[orgId] = (code, await ExchangePurposeService.FindIssuedCarryingAsync(orgId, code));
+            _message = $"Withdrew {code}. {_found[orgId].Requests.Count} issued certificate(s) carry it; revoke them below.";
+        });
+    }
+
+    private async Task Find(int orgId)
+    {
+        await Run(async () =>
+        {
+            var code = ExchangePurposeSan.Normalize(_revokeCode.GetValueOrDefault(orgId));
+            if (code is null)
+            {
+                _message = $"'{_revokeCode.GetValueOrDefault(orgId)}' is not an exchange purpose code (e.g. T-TRTMNT).";
+                _found.Remove(orgId);
+                return;
+            }
+            _found[orgId] = (code, await ExchangePurposeService.FindIssuedCarryingAsync(orgId, code));
+            _message = null;
+        });
+    }
+
+    private async Task Revoke(int orgId, string code)
+    {
+        await Run(async () =>
+        {
+            var outcome = await ExchangePurposeService.RevokeByExchangePurposeAsync(orgId, code, await Actor());
+            _found.Remove(orgId);
+            _message = !outcome.Success
+                ? $"Revocation failed: {outcome.Error}"
+                : $"Revoked {outcome.Revoked.Count} certificate(s) carrying {code}." +
+                  (outcome.Skipped.Count > 0 ? $" Skipped {outcome.Skipped.Count}: {string.Join("; ", outcome.Skipped.Select(s => $"{s.Key} ({s.Value})"))}." : "") +
+                  (outcome.CrlErrors.Count > 0 ? $" CRL problems: {string.Join("; ", outcome.CrlErrors)}." : " New CRLs published.");
+        });
+    }
+
+    private async Task Run(Func<Task> action)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+            await Load();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _message = ex.Message;
+        }
+        finally { _busy = false; }
+    }
+}

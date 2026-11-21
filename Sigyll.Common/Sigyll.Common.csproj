@@ -12,6 +12,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Wire DTOs shared with the RA portal, and the exchange purpose SAN reader both sides apply. -->
+    <ProjectReference Include="..\Sigyll.Contracts\Sigyll.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="Cronos" Version="0.13.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.15" />

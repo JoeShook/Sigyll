@@ -354,8 +354,9 @@ try
             Log.Warning("RA API accepts the development placeholder key; this is refused outside Development");
     }
 
-    // The RA can only ask for CSR-based issuance; every other service call from its requests is refused.
-    var RaClient = OperatorIdentity.System("ra-client", Permission.IssueFromRa);
+    // The RA can only ask for CSR-based issuance and for revocation of certificates whose exchange purpose
+    // authorization it withdrew; every other service call from its requests is refused.
+    var RaClient = OperatorIdentity.System("ra-client", Permission.IssueFromRa, Permission.RevokeFromRa);
 
     app.MapGet("/api/ra/catalog", async (HttpContext http, IDbContextFactory<SigyllDbContext> dbFactory) =>
     {
@@ -429,6 +430,22 @@ try
                     statusCode: StatusCodes.Status403Forbidden);
         }
 
+        // Defense in depth: when the RA sends the subscriber's authorized exchange purposes, every exchange purpose
+        // a URI SAN carries must be among them.
+        if (apiRequest.AuthorizedExchangePurposes is { } authorizedPurposes)
+        {
+            var authorizedSet = authorizedPurposes
+                .Select(ExchangePurposeSan.Normalize).OfType<string>().ToHashSet(StringComparer.Ordinal);
+            var unauthorized = ExchangePurposeSan.ExtractAll(apiRequest.RequestedSans)
+                .Where(xp => !authorizedSet.Contains(xp))
+                .Order()
+                .ToList();
+            if (unauthorized.Count > 0)
+                return Results.Json(IssuanceApiResult.Failure(
+                    $"The subscriber is not authorized for exchange purpose(s): {string.Join(", ", unauthorized)}"),
+                    statusCode: StatusCodes.Status403Forbidden);
+        }
+
         // Select an issuing CA in this trust domain with signing capability (prefer an intermediate).
         var issuingCa = await db.CaCertificates
             .Where(c => c.TrustDomainId == trustDomain.Id && c.Enabled && !c.IsArchived && !c.IsRevoked
@@ -461,6 +478,23 @@ try
             SerialNumber = result.SerialNumber,
             Thumbprint = result.Thumbprint,
         });
+    });
+
+    // Revokes the listed certificates whose exchange purpose authorization the RA withdrew (reason privilegeWithdrawn),
+    // each only if a URI SAN carries that exchange purpose, and publishes new CRLs. Audit-logged by the service.
+    app.MapPost("/api/ra/revoke-by-exchange-purpose", async (
+        HttpContext http,
+        RevocationApiRequest apiRequest,
+        OperatorContext operatorContext,
+        CertificateManagementService management) =>
+    {
+        if (!RaAuth.IsAuthorized(http, raOptions)) return Results.Unauthorized();
+        operatorContext.RunAs(RaClient);
+
+        var result = await management.RevokeByExchangePurposeAsync(
+            apiRequest.SerialNumbers, apiRequest.ExchangePurpose, apiRequest.SubscriberRef, apiRequest.RequestedBy,
+            http.RequestAborted);
+        return result.Success ? Results.Ok(result) : Results.BadRequest(result);
     });
 
     app.Run();
