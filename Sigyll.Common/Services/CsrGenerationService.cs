@@ -219,7 +219,7 @@ public class CsrGenerationService
 
     /// <summary>
     /// Reads the certificate's Subject Alternative Names as editable entries. Only the name forms
-    /// Sigyll can rebuild (URI, DNS, email, IP) are returned; anything else (otherName etc.) is
+    /// Sigyll can rebuild (URI, DNS, email, IP, NPI otherName) are returned; anything else is
     /// preserved only when the SAN extension is copied verbatim.
     /// </summary>
     public static List<SanEntry> ExtractSubjectAltNames(X509Certificate2 certificate)
@@ -247,6 +247,9 @@ public class CsrGenerationService
                     case GeneralName.IPAddress:
                         result.Add(new SanEntry(SanType.IpAddress,
                             new IPAddress(Asn1OctetString.GetInstance(gn.Name).GetOctets()).ToString()));
+                        break;
+                    case GeneralName.OtherName when NpiNumber.TryRead(gn, out var npi):
+                        result.Add(new SanEntry(SanType.Npi, npi));
                         break;
                 }
             }

@@ -156,6 +156,21 @@
             }
             <FluentCheckbox @bind-Value="editIsEkuCritical" Label="EKU is Critical" />
 
+            <FluentTextField Value="@editCertificatePolicyOids"
+                             ValueChanged="@(v => { editCertificatePolicyOids = v; ValidateCertificatePolicies(); })"
+                             Label="Certificate Policies (OIDs, semicolon-delimited)" Style="width: 100%;"
+                             Placeholder="2.23.140.1.2.1" />
+            @if (certificatePolicyError != null)
+            {
+                <div style="font-size: 0.8rem; color: var(--error); margin-top: -0.25rem;">@certificatePolicyError</div>
+            }
+            else
+            {
+                <div style="font-size: 0.8rem; opacity: 0.6; margin-top: -0.25rem;">
+                    Written into the certificatePolicies extension (2.5.29.32, non-critical). Leave empty to omit it.
+                </div>
+            }
+
             <div style="display: flex; gap: 1rem; align-items: center;">
                 <FluentCheckbox @bind-Value="editIsBasicConstraintsCa" Label="Basic Constraints: CA" />
                 <FluentCheckbox @bind-Value="editIsBasicConstraintsCritical" Label="Critical" />
@@ -191,6 +206,7 @@
                 <FluentCheckbox @bind-Value="editSanDns" Label="DNS" />
                 <FluentCheckbox @bind-Value="editSanEmail" Label="Email" />
                 <FluentCheckbox @bind-Value="editSanIp" Label="IP" />
+                <FluentCheckbox @bind-Value="editSanNpi" Label="NPI" />
             </div>
 
             @* SAN Lists *@
@@ -213,7 +229,7 @@
     </FluentDialogBody>
     <FluentDialogFooter>
         <FluentButton Appearance="Appearance.Accent" OnClick="SaveProfileAsync"
-                      Disabled="@(string.IsNullOrWhiteSpace(editName) || !Access.CanAdminister)">
+                      Disabled="@(string.IsNullOrWhiteSpace(editName) || certificatePolicyError != null || !Access.CanAdminister)">
             @(isEditing ? "Save" : "Create")
         </FluentButton>
         <FluentButton Appearance="Appearance.Outline" OnClick="@(() => dialogHidden = true)">

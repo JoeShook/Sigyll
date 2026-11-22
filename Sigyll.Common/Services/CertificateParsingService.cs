@@ -205,16 +205,8 @@ public class CertificateParsingService
         var sanExt = cert.Extensions["2.5.29.17"];
         if (sanExt == null) return null;
 
-        try
-        {
-            var formatted = sanExt.Format(multiLine: true);
-            var lines = formatted.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            return string.Join("; ", lines);
-        }
-        catch
-        {
-            return null;
-        }
+        var lines = SubjectAltNameText.Describe(sanExt);
+        return lines.Count > 0 ? string.Join("; ", lines) : null;
     }
 
     private static (string algorithm, int keySize) GetKeyInfo(X509Certificate2 cert)

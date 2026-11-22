@@ -483,6 +483,7 @@ static SanEntry MapSan(ApiSanEntry s) => new(
         "dns" => SanType.Dns,
         "email" => SanType.Email,
         "ipaddress" or "ip" => SanType.IpAddress,
+        "npi" => SanType.Npi,
         _ => SanType.Dns
     },
     s.Value);
@@ -675,6 +676,10 @@ static IEnumerable<CertificateProfile> PresetProfiles()
         IsPreset = true,
         AllowAutoIssue = true,
     };
+
+    // TEFCA FHIR (RCE UDAP): intermediate, plus production and validation client/server leaves.
+    foreach (var tefca in TefcaCertificateProfiles.All())
+        yield return tefca;
 
     // Post-quantum presets. Pure ML-DSA / SLH-DSA do not use the profile hash.
     // ML-DSA-87 and ML-KEM-1024 are the CNSA 2.0 parameter sets.
