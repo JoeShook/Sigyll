@@ -66,7 +66,7 @@ IResourceBuilder<T> WithSigyllVault<T>(IResourceBuilder<T> app, string signingPr
 }
 
 // Certificate server (static file host for CRLs and certs — always runs as a project)
-var certServer = builder.AddProject<Projects.Sigyll_Certificate_Server>("certificate-server");
+var certServer = builder.AddDotnetProject("certificate-server", "../Sigyll.Certificate.Server/Sigyll.Certificate.Server.csproj");
 
 // ── PostgreSQL ──────────────────────────────────────────────────────────────
 // A persistent container, created on first run or reused when one with the same name and spec is running.
@@ -175,7 +175,7 @@ switch (hostMode)
     }
 
     default: // "project"
-        var projectResource = builder.AddProject<Projects.Sigyll>("Sigyll")
+        var projectResource = builder.AddDotnetProject("Sigyll", "../Sigyll/Sigyll.csproj")
             .WithReference(sigilDb, connectionName: "SigyllDb");
         WithSigyllVault(projectResource, signingProvider);
 
@@ -202,7 +202,7 @@ switch (hostMode)
 // Certificate request portal (isolated RA). True RA/CA split: the portal holds no CA keys and
 // reaches the CA only via the internal RA API. CaBaseUrl is wired to the running CA endpoint;
 // the dev RA API key matches the CA's "Ra:ApiKey". The portal uses its own 'portal' database.
-var portal = builder.AddProject<Projects.Sigyll_Portal>("Sigyll-Portal")
+var portal = builder.AddDotnetProject("Sigyll-Portal", "../Sigyll.Portal/Sigyll.Portal.csproj")
     .WithReference(portalDb, connectionName: "PortalDb")
     .WithEnvironment("Portal__CaBaseUrl", sigil.GetEndpoint("https"))
     .WithEnvironment("Portal__UseMtls", "false")
