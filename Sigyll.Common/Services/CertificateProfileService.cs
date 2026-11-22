@@ -45,9 +45,17 @@ public class CertificateProfileService
             .ToListAsync(ct);
     }
 
+    /// <exception cref="ArgumentException">A certificate policy entry is not a dotted-decimal OID.</exception>
     public async Task<CertificateProfile> SaveAsync(CertificateProfile entity, CancellationToken ct = default)
     {
         await _operator.DemandAsync(Permission.Administer);
+
+        var invalidPolicies = CertificatePolicyExtension.FindInvalid(entity.CertificatePolicyOids);
+        if (invalidPolicies.Count > 0)
+            throw new ArgumentException(
+                $"Certificate policies must be dotted-decimal OIDs such as 2.23.140.1.2.1; not valid:{string.Join(", ", invalidPolicies)}",
+                nameof(entity));
+        entity.CertificatePolicyOids = CertificatePolicyExtension.Normalize(entity.CertificatePolicyOids);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 

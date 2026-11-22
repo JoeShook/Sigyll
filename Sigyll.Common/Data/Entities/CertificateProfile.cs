@@ -43,6 +43,13 @@ public class CertificateProfile
     public bool IsExtendedKeyUsageCritical { get; set; }
 
     /// <summary>
+    /// Semicolon-delimited certificate policy OIDs written into the certificatePolicies extension (2.5.29.32),
+    /// e.g. a trust framework's policy identifiers. Null or empty leaves the extension out.
+    /// See <see cref="Services.CertificatePolicyExtension"/>.
+    /// </summary>
+    public string? CertificatePolicyOids { get; set; }
+
+    /// <summary>
     /// "nistP256", "nistP384", or "nistP521". Only used when KeyAlgorithm is "ECDSA".
     /// </summary>
     public string? EcdsaCurve { get; set; }
