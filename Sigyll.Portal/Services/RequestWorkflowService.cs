@@ -28,6 +28,7 @@ public class RequestWorkflowService(
     IssuancePolicyService policy,
     DomainValidationService dv,
     CaApiClient ca,
+    ExchangePurposeService exchangePurposes,
     ILogger<RequestWorkflowService> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -43,6 +44,10 @@ public class RequestWorkflowService(
         string csrPem,
         CancellationToken ct = default)
     {
+        // A requester in exactly one enabled organization requests for it: the subscriber whose exchange purpose
+        // authorizations apply and whose certificates a bulk revocation finds.
+        organizationId ??= await SoleOrganizationAsync(requesterId, ct);
+
         var request = new CertificateRequest
         {
             RequesterId = requesterId,
@@ -68,6 +73,16 @@ public class RequestWorkflowService(
         request.ValidationMethod = decision.ValidationMethod;
         request.Status = RequestStatus.PolicyEvaluated;
         AddEvent(request, "system", "PolicyEvaluated", $"{decision.Kind}: {decision.Reason}");
+
+        // Flag SANs carrying an exchange purpose the subscriber is not authorized for, or conflicting exchange
+        // purposes; RA approval is blocked while either remains (see ApproveAsync).
+        var sanCheck = await exchangePurposes.CheckAsync(sans, organizationId, ct);
+        if (!sanCheck.Passes)
+        {
+            var flag = sanCheck.Describe();
+            request.PolicyReason = $"{request.PolicyReason} {flag}";
+            AddEvent(request, "system", "ExchangePurposeFlagged", flag);
+        }
 
         switch (decision.Kind)
         {
@@ -128,6 +143,18 @@ public class RequestWorkflowService(
         if (request.Status != RequestStatus.PendingRaApproval)
             return request;
 
+        // Blocked while any SAN carries an exchange purpose the subscriber is not authorized for, or conflicting
+        // exchange purposes. The request stays in the queue so it can be approved once the authorization is
+        // recorded, or rejected.
+        var sanCheck = await exchangePurposes.CheckRequestAsync(request, ct);
+        if (!sanCheck.Passes)
+        {
+            AddEvent(request, $"ra:{raUserId}", "ApprovalBlocked", sanCheck.Describe());
+            request.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return request;
+        }
+
         request.RaApproverId = raUserId;
         request.RaReason = reason;
         request.RaDecisionAt = DateTime.UtcNow;
@@ -178,6 +205,9 @@ public class RequestWorkflowService(
             RaApprovalRef = raApprovalRef,
             ValidatedIdentifiers = validatedIdentifiers,
             RequestedSans = sans,
+            // The CA re-checks every exchange purpose a SAN carries against this list.
+            AuthorizedExchangePurposes = (await exchangePurposes.AuthorizedCodesAsync(request.OrganizationId, ct))
+                .Order(StringComparer.Ordinal).ToList(),
         };
 
         IssuanceApiResult result;
@@ -228,6 +258,18 @@ public class RequestWorkflowService(
         return authorized.Any(list => list
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Any(td => string.Equals(td, trustDomainName, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>The requester's organization when they belong to exactly one enabled organization; otherwise null.</summary>
+    private async Task<int?> SoleOrganizationAsync(string requesterId, CancellationToken ct)
+    {
+        var orgIds = await db.OrganizationMemberships
+            .Where(m => m.UserId == requesterId && m.Organization.Enabled)
+            .Select(m => m.OrganizationId)
+            .Distinct()
+            .Take(2)
+            .ToListAsync(ct);
+        return orgIds.Count == 1 ? orgIds[0] : null;
     }
 
     private async Task<CertificateRequest> LoadAsync(int requestId, CancellationToken ct) =>

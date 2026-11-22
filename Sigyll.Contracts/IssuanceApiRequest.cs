@@ -42,6 +42,10 @@ public class IssuanceApiRequest
 
     /// <summary>Subject Alternative Names requested for the certificate.</summary>
     public List<ApiSanEntry> RequestedSans { get; set; } = [];
+
+    /// <summary>Exchange purpose codes the subscriber is authorized for. When set, the CA refuses a URI SAN carrying
+    /// any other exchange purpose (see <see cref="ExchangePurposeSan"/>). Null skips the check.</summary>
+    public List<string>? AuthorizedExchangePurposes { get; set; }
 }
 
 /// <summary>A single Subject Alternative Name entry on the wire.</summary>

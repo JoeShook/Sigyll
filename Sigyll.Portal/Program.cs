@@ -70,6 +70,9 @@ builder.Services.Configure<IdentityPasskeyOptions>(options =>
 
 // Portal services: catalog (cached), classification policy, http-01 validation, CA client, workflow.
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
+// How SAN URIs carry an exchange purpose; must match the CA's setting. No query parameter name by default.
+builder.Services.Configure<Sigyll.Contracts.ExchangePurposeSanOptions>(
+    builder.Configuration.GetSection(Sigyll.Contracts.ExchangePurposeSanOptions.Section));
 builder.Services.AddMemoryCache();
 // http-01 challenge URLs name the requester's host, so their fetches go through the outbound fetch policy.
 builder.Services.AddOutboundFetchClient("dv", builder.Configuration);
@@ -93,6 +96,7 @@ builder.Services.AddHttpClient<CaApiClient>((sp, client) =>
 builder.Services.AddScoped<CatalogService>();
 builder.Services.AddSingleton<IssuancePolicyService>();
 builder.Services.AddScoped<DomainValidationService>();
+builder.Services.AddScoped<ExchangePurposeService>();
 builder.Services.AddScoped<RequestWorkflowService>();
 
 builder.Services.AddSingleton<IEmailSender<PortalUser>, IdentityNoOpEmailSender>();

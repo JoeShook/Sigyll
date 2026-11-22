@@ -83,7 +83,8 @@ public class CrlGenerationService
         TimeSpan? validity = null,
         CancellationToken ct = default)
     {
-        var identity = await _operator.DemandAsync(Permission.Operate);
+        // The RA client may revoke (RevokeFromRa), and must then publish the CRL that carries those revocations.
+        var identity = await _operator.DemandAsync(Permission.Operate, Permission.RevokeFromRa);
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
