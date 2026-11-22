@@ -12,6 +12,7 @@ using Sigyll.AppHost;
 using Sigyll.Vault.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
+OmarchyDockerNotice.Register(builder);
 
 // ── Vault ───────────────────────────────────────────────────────────────────
 // Sigyll logs in to Vault with AppRole and reads its key-password master key from a KV v2 secret. Vault:Mode picks
