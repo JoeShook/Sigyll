@@ -17,7 +17,8 @@ public class SanList
     public string? Description { get; set; }
 
     /// <summary>
-    /// Semicolon-delimited SAN entries: "URI:urn:oid:...#T-TRTMNT;URI:urn:oid:...#T-TREAT;DNS:example.com"
+    /// Semicolon-delimited SAN entries: "URI:urn:oid:...#T-TRTMNT;URI:urn:oid:...#T-TREAT;DNS:example.com".
+    /// Type tokens are URI, DNS, Email, IP and NPI (a 10-digit NPI, e.g. "NPI:1234567893").
     /// </summary>
     public string Items { get; set; } = string.Empty;
 

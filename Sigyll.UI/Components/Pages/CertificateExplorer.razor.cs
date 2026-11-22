@@ -426,7 +426,8 @@ public partial class CertificateExplorer : IDisposable
                 TryParseSan(trimmed, "Email:", SanType.Email, out entry) ||
                 TryParseSan(trimmed, "IP Address=", SanType.IpAddress, out entry) ||
                 TryParseSan(trimmed, "IP:", SanType.IpAddress, out entry) ||
-                TryParseSan(trimmed, "IpAddress:", SanType.IpAddress, out entry))
+                TryParseSan(trimmed, "IpAddress:", SanType.IpAddress, out entry) ||
+                TryParseSan(trimmed, "Npi:", SanType.Npi, out entry))
             {
                 renewalSans.Add(entry);
             }
@@ -771,15 +772,7 @@ public partial class CertificateExplorer : IDisposable
         {
             var sanExt = selectedCert.Extensions["2.5.29.17"];
             if (sanExt != null)
-            {
-                try
-                {
-                    subjectAltNames = sanExt.Format(multiLine: true)
-                        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .ToList();
-                }
-                catch { }
-            }
+                subjectAltNames = SubjectAltNameText.Describe(sanExt);
         }
 
         await UpdateTreeHighlightsAsync();
@@ -2104,6 +2097,7 @@ public partial class CertificateExplorer : IDisposable
         SanType.Dns => "example.com",
         SanType.Email => "admin@example.com",
         SanType.IpAddress => "192.168.1.1",
+        SanType.Npi => "1234567893 (10-digit NPI)",
         _ => ""
     };
 
@@ -2443,14 +2437,7 @@ public partial class CertificateExplorer : IDisposable
                 {
                     foreach (var sanType in profile.SubjectAltNameTypes.Split(';', StringSplitOptions.RemoveEmptyEntries))
                     {
-                        var type = sanType.Trim().ToUpperInvariant() switch
-                        {
-                            "URI" => SanType.Uri,
-                            "DNS" => SanType.Dns,
-                            "EMAIL" => SanType.Email,
-                            "IP" => SanType.IpAddress,
-                            _ => SanType.Uri
-                        };
+                        var type = IssuanceValidator.ParseSanTypeToken(sanType) ?? SanType.Uri;
                         issuanceSans.Add(new IssuanceSanEntry { Type = type, Value = string.Empty });
                     }
                 }
@@ -2489,14 +2476,7 @@ public partial class CertificateExplorer : IDisposable
             {
                 var typeName = part[..colonIdx];
                 var value = part[(colonIdx + 1)..];
-                var sanType = typeName.ToUpperInvariant() switch
-                {
-                    "URI" => SanType.Uri,
-                    "DNS" => SanType.Dns,
-                    "EMAIL" => SanType.Email,
-                    "IP" => SanType.IpAddress,
-                    _ => SanType.Uri
-                };
+                var sanType = IssuanceValidator.ParseSanTypeToken(typeName) ?? SanType.Uri;
                 var alreadyAdded = issuanceSans.Any(s => s.Type == sanType && s.Value == value);
                 sanPickerItems.Add(new SanListPickerItem { Type = sanType, Value = value, Selected = alreadyAdded });
             }
@@ -2724,7 +2704,8 @@ public partial class CertificateExplorer : IDisposable
                 TryParseSan(trimmed, "Email:", SanType.Email, out entry) ||
                 TryParseSan(trimmed, "IP Address=", SanType.IpAddress, out entry) ||
                 TryParseSan(trimmed, "IP:", SanType.IpAddress, out entry) ||
-                TryParseSan(trimmed, "IpAddress:", SanType.IpAddress, out entry))
+                TryParseSan(trimmed, "IpAddress:", SanType.IpAddress, out entry) ||
+                TryParseSan(trimmed, "Npi:", SanType.Npi, out entry))
             {
                 renewalSans.Add(entry);
             }
@@ -2922,7 +2903,8 @@ public partial class CertificateExplorer : IDisposable
                 TryParseSan(trimmed, "Email:", SanType.Email, out entry) ||
                 TryParseSan(trimmed, "IP Address=", SanType.IpAddress, out entry) ||
                 TryParseSan(trimmed, "IP:", SanType.IpAddress, out entry) ||
-                TryParseSan(trimmed, "IpAddress:", SanType.IpAddress, out entry))
+                TryParseSan(trimmed, "IpAddress:", SanType.IpAddress, out entry) ||
+                TryParseSan(trimmed, "Npi:", SanType.Npi, out entry))
             {
                 renewalSans.Add(entry);
             }

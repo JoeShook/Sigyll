@@ -541,7 +541,7 @@
                             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 0.5rem; align-items: end;">
                                 <FluentSelect TOption="SanType"
                                               Items="@sanTypeOptions"
-                                              OptionText="@(s => s.ToString())"
+                                              OptionText="@(s => Sigyll.Common.Validators.IssuanceValidator.SanTypeDisplayName(s))"
                                               @bind-SelectedOption="san.Type"
                                               Disabled="@IdentityLocked"
                                               Style="width: 120px;" />
