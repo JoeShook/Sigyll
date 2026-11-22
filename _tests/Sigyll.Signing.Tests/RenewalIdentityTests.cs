@@ -127,6 +127,102 @@ public class RenewalIdentityTests
         RenewalIdentity.IsCompatibleProfile(profile, cert, sans).ShouldBeFalse("different key usages");
     }
 
+    [Fact]
+    public async Task ProfilePolicies_AreWrittenIntoTheCertificate_AndKeptOnRenewal()
+    {
+        const string policyA = "1.3.6.1.4.1.99999.1.2";
+        const string policyB = "1.3.6.1.4.1.99999.1.3";
+        var (seed, first) = await IssueFirstAsync(policies: $"{policyA};{policyB}");
+
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            var issued = await db.IssuedCertificates.FindAsync(first);
+            using var cert = X509Certificate2.CreateFromPem(issued!.X509CertificatePem);
+            CertificatePolicyExtension.Read(cert).ShouldBe([policyA, policyB]);
+            cert.Extensions[CertificatePolicyExtension.CertificatePoliciesOid]!.Critical.ShouldBeFalse();
+        }
+
+        var second = await CreateService().IssueCertificateAsync(Renewal(seed, first,
+            "CN=api.example.com", new SanEntry(SanType.Dns, "api.example.com")));
+        second.Success.ShouldBeTrue(second.Error);
+
+        await using (var db = _dbFactory.CreateDbContext())
+        {
+            var renewed = await db.IssuedCertificates.FindAsync(second.EntityId);
+            using var cert = X509Certificate2.CreateFromPem(renewed!.X509CertificatePem);
+            CertificatePolicyExtension.Read(cert).ShouldBe([policyA, policyB]);
+        }
+    }
+
+    [Fact]
+    public async Task Renewal_WithAProfileThatDropsAPolicy_IsRefused()
+    {
+        const string policyA = "1.3.6.1.4.1.99999.1.2";
+        const string policyB = "1.3.6.1.4.1.99999.1.3";
+        var (seed, first) = await IssueFirstAsync(policies: $"{policyA};{policyB}");
+        await SetProfilePoliciesAsync(seed.ProfileId, policyA);
+
+        var second = await CreateService().IssueCertificateAsync(Renewal(seed, first,
+            "CN=api.example.com", new SanEntry(SanType.Dns, "api.example.com")));
+
+        second.Success.ShouldBeFalse();
+        second.Error!.ShouldContain($"does not include {policyB}");
+    }
+
+    [Fact]
+    public async Task Issuance_WithAnInvalidPolicyOnTheProfile_IsRefused()
+    {
+        var seed = await SeedAsync();
+        await SetProfilePoliciesAsync(seed.ProfileId, "1.3.6.1.4.1.99999.1.2;not-an-oid");
+
+        var result = await CreateService().IssueCertificateAsync(new CertificateIssuanceRequest
+        {
+            IssuingCaCertificateId = seed.CaId,
+            ProfileId = seed.ProfileId,
+            TrustDomainId = seed.TrustDomainId,
+            SubjectDn = "CN=api.example.com",
+            CertificateName = "api",
+            PfxPassword = "test-password",
+            SubjectAltNames = [new SanEntry(SanType.Dns, "api.example.com")],
+        });
+
+        result.Success.ShouldBeFalse();
+        result.Error!.ShouldContain("not-an-oid");
+    }
+
+    [Fact]
+    public async Task CompatibleProfile_MustKeepEveryPolicy_ButMayAddOne()
+    {
+        const string policyA = "1.3.6.1.4.1.99999.1.2";
+        const string policyB = "1.3.6.1.4.1.99999.1.3";
+        var (seed, first) = await IssueFirstAsync(policies: policyA);
+        await using var db = _dbFactory.CreateDbContext();
+        var issued = await db.IssuedCertificates.FindAsync(first);
+        using var cert = X509Certificate2.CreateFromPem(issued!.X509CertificatePem);
+        var profile = (await db.CertificateProfiles.FindAsync(seed.ProfileId))!;
+        List<SanEntry> sans = [new(SanType.Dns, "api.example.com")];
+
+        RenewalIdentity.IsCompatibleProfile(profile, cert, sans).ShouldBeTrue();
+
+        profile.CertificatePolicyOids = $"{policyA};{policyB}";
+        RenewalIdentity.IsCompatibleProfile(profile, cert, sans).ShouldBeTrue("a profile may add a policy");
+
+        profile.CertificatePolicyOids = policyB;
+        RenewalIdentity.IsCompatibleProfile(profile, cert, sans).ShouldBeFalse("drops the certificate's policy");
+        RenewalIdentity.FindDroppedPolicies(profile, cert).ShouldBe([policyA]);
+
+        profile.CertificatePolicyOids = null;
+        RenewalIdentity.IsCompatibleProfile(profile, cert, sans).ShouldBeFalse("drops the certificate's policy");
+    }
+
+    private async Task SetProfilePoliciesAsync(int profileId, string? policies)
+    {
+        await using var db = _dbFactory.CreateDbContext();
+        var profile = (await db.CertificateProfiles.FindAsync(profileId))!;
+        profile.CertificatePolicyOids = policies;
+        await db.SaveChangesAsync();
+    }
+
     private sealed record Seed(int CaId, int ProfileId, int TrustDomainId);
 
     private static CertificateIssuanceRequest Renewal(Seed seed, int predecessorId, string subjectDn, params SanEntry[] sans) => new()
@@ -141,9 +237,14 @@ public class RenewalIdentityTests
         RenewalOfCertificateId = predecessorId,
     };
 
-    private async Task<(Seed Seed, int FirstId)> IssueFirstAsync(params SanEntry[] extraSans)
+    private Task<(Seed Seed, int FirstId)> IssueFirstAsync(params SanEntry[] extraSans) =>
+        IssueFirstAsync(null, extraSans);
+
+    private async Task<(Seed Seed, int FirstId)> IssueFirstAsync(string? policies, params SanEntry[] extraSans)
     {
         var seed = await SeedAsync();
+        if (policies != null)
+            await SetProfilePoliciesAsync(seed.ProfileId, policies);
         var first = await CreateService().IssueCertificateAsync(new CertificateIssuanceRequest
         {
             IssuingCaCertificateId = seed.CaId,
