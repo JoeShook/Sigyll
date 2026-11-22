@@ -109,8 +109,11 @@ public abstract class AuditedSignInManager<TUser>(
         return result;
     }
 
+    public override Task<PasskeyAttestationResult> PerformPasskeyAttestationAsync(string credentialJson) =>
+        base.PerformPasskeyAttestationAsync(PasskeyCredentialJson.EnsureClientExtensionResults(credentialJson));
+
     public override async Task<PasskeyAssertionResult<TUser>> PerformPasskeyAssertionAsync(string credentialJson) =>
-        _assertion = await base.PerformPasskeyAssertionAsync(credentialJson);
+        _assertion = await base.PerformPasskeyAssertionAsync(PasskeyCredentialJson.EnsureClientExtensionResults(credentialJson));
 
     public override async Task<SignInResult> PasskeySignInAsync(string credentialJson)
     {
