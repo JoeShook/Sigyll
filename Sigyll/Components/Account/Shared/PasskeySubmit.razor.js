@@ -39,6 +39,17 @@ async function requestCredential(email, mediation, headers, signal) {
     return await navigator.credentials.get({ publicKey: options, mediation, signal });
 }
 
+// Identity requires clientExtensionResults. LastPass omits it when no extension ran, and
+// JSON.stringify drops the key when toJSON() sets it to undefined. An empty object is what
+// getClientExtensionResults() returns in that case.
+function serializeCredential(credential) {
+    const json = typeof credential?.toJSON === 'function' ? credential.toJSON() : credential;
+    if (json && typeof json === 'object' && json.clientExtensionResults == null) {
+        json.clientExtensionResults = {};
+    }
+    return JSON.stringify(json);
+}
+
 customElements.define('passkey-submit', class extends HTMLElement {
     static formAssociated = true;
 
@@ -93,8 +104,7 @@ customElements.define('passkey-submit', class extends HTMLElement {
         const formData = new FormData();
         try {
             const credential = await this.obtainCredential(useConditionalMediation, signal);
-            const credentialJson = JSON.stringify(credential);
-            formData.append(`${this.attrs.name}.CredentialJson`, credentialJson);
+            formData.append(`${this.attrs.name}.CredentialJson`, serializeCredential(credential));
         } catch (error) {
             if (error.name === 'AbortError') {
                 // The user explicitly canceled the operation - return without error.
