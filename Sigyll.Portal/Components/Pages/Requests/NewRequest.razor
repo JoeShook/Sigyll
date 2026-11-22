@@ -63,7 +63,8 @@ else
                 @foreach (var san in _sans)
                 {
                     <FluentStack HorizontalGap="8" Style="margin-bottom: 6px;" VerticalAlignment="VerticalAlignment.Center">
-                        <FluentSelect TOption="string" Items="@_sanTypes" @bind-SelectedOption="san.Type" Style="width: 140px;" />
+                        <FluentSelect TOption="string" Items="@_sanTypes" OptionText="@CsrParser.SanTypeDisplayName"
+                                      @bind-SelectedOption="san.Type" Style="width: 140px;" />
                         <FluentTextField @bind-Value="san.Value" Style="flex: 1;" />
                         <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _sans.Remove(san))"
                                       IconStart="@(new Icons.Regular.Size20.Delete())" Title="Remove" />

@@ -137,7 +137,7 @@ public class IssuanceValidator
         SanType.Uri => "URI",
         SanType.Dns => "DNS",
         SanType.Email => "Email",
-        SanType.IpAddress => "IP",
+        SanType.IpAddress => "IP Address",
         SanType.Npi => "NPI",
         _ => type.ToString()
     };
